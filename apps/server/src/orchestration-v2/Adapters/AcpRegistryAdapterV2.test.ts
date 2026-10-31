@@ -203,6 +203,10 @@ const openClaudeReplaySession = Effect.fn("openClaudeReplaySession")(function* (
   entries: ReadonlyArray<unknown>,
   replayGate?: ProviderReplayGate,
   continuationEnabled = true,
+  agent: { readonly agentId: string; readonly environment: Record<string, string> } = {
+    agentId: "claude-acp",
+    environment: {},
+  },
 ) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -243,8 +247,8 @@ const openClaudeReplaySession = Effect.fn("openClaudeReplaySession")(function* (
   const adapterOptions = {
     selfInvocation: yield* resolveSelfInvocation(),
     instanceId,
-    settings: yield* decodeAcpRegistryAdapterSettings({ agentId: "claude-acp" }),
-    environment: {},
+    settings: yield* decodeAcpRegistryAdapterSettings({ agentId: agent.agentId }),
+    environment: agent.environment,
     ...(continuationEnabled ? { continuationRequests } : {}),
     makeRuntime: (runtimeInput: Parameters<typeof replayRuntime>[0]) => {
       onTermination = runtimeInput.onTermination;
@@ -1252,6 +1256,57 @@ describe("AcpRegistryAdapterV2", () => {
         [4_000, 9_000],
         "each usage update surfaces before the turn terminal, not only at the end",
       );
+    }).pipe(Effect.provide(layerTest), Effect.scoped),
+  );
+
+  it.live("polls Kimi's session files for context usage while a turn is still running", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const shareDirectory = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-kimi-share-",
+      });
+      const sessionDirectory = path.join(shareDirectory, "sessions", "bucket", CLAUDE_ROOT_SESSION);
+      yield* fileSystem.makeDirectory(sessionDirectory, { recursive: true });
+      yield* fileSystem.writeFileString(
+        path.join(sessionDirectory, "context.jsonl"),
+        `${JSON.stringify({ role: "_usage", token_count: 7_000 })}\n`,
+      );
+      yield* fileSystem.writeFileString(
+        path.join(sessionDirectory, "wire.jsonl"),
+        `${JSON.stringify({ message: { max_context_tokens: 200_000 } })}\n`,
+      );
+      const gate = makeProviderReplayGate(["accepted"]);
+      const { prompt, idle } = claudeFrames;
+      const session = yield* openClaudeReplaySession(
+        [
+          ...claudeFrames.open,
+          prompt(1)[0],
+          { ...prompt(1)[1], label: "accepted" },
+          ...prompt(1).slice(2),
+          idle("end_turn"),
+          claudeFrames.closeRequest,
+          claudeFrames.closed,
+        ],
+        gate,
+        false,
+        { agentId: "kimi", environment: { KIMI_SHARE_DIR: shareDirectory } },
+      );
+      yield* session.runtime.startTurn(session.turnInput(1));
+      // The reply is still being held back, so only the file poll can have produced this reading.
+      const seen = yield* session
+        .until(
+          (event) =>
+            event.type === "provider_thread.updated" &&
+            event.providerThread.contextUsage?.usedTokens === 7_000,
+        )
+        .pipe(Effect.timeout("10 seconds"));
+      assert.isFalse(seen.some((event) => event.type === "turn.terminal"));
+      const reading = seen.at(-1);
+      if (reading?.type !== "provider_thread.updated") throw new Error("Missing reading");
+      assert.equal(reading.providerThread.contextUsage?.maxTokens, 200_000);
+      gate.release("accepted");
+      yield* session.terminal;
     }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 

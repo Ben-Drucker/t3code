@@ -92,9 +92,16 @@ calls). Expected: Claude moves at each model step, Codex on each token-usage tic
 - The web meter prefers any provider-turn `tokenUsage` over `providerThread.contextUsage`
   (`apps/web/src/lib/contextWindow.ts`), by design. Do not "fix" that without a repro: after a
   compaction an ACP adapter clears `contextUsage` and a lingering turn value would go stale.
-- Kimi's ACP server was reported never to emit `usage_update`, so Kimi's meter can only update at
-  turn end from T3's side. Check this on the Mac (`~/.kimi/logs`, or enable the ACP native logger).
-  If true, fixing it means estimating from another source, which is a separate project.
+- Kimi: its ACP server drops the per-step status event (`StatusUpdate`), so the ACP stream has no
+  usage. Fork fix: poll the CLI's own session files while a turn runs (`kimiSession.ts`). Verify on
+  the Mac, with a Kimi turn that thinks and calls tools:
+  1. `ls ~/.kimi/sessions/*/` shows a directory per session; the newest `context.jsonl` gets a
+     `{"role":"_usage","token_count":N}` line after each model step (`tail -f` it during a turn).
+  2. `wire.jsonl` lines contain `context_tokens` and `max_context_tokens` somewhere in the record.
+  3. The ACP session id T3 uses equals that session directory name. If not, the reader finds
+     nothing and the meter behaves as before: log the id (ACP native logger) and fix `locate()`.
+  4. The meter in T3 then moves about once a second during the block and shows the window size.
+     The reader never throws; if any assumption is wrong it just yields no reading.
 
 ### 3. Tasks tab
 

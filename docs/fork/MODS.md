@@ -36,20 +36,26 @@ its "Why" and "Where" rather than forcing the old diff.
 
 ## 2. Context meter updates after each step
 
-- Why: the meter should move during a response, not only when it ends.
-- Where: no production change. Reading the code showed Claude (`emitContextUsage` at
-  `message_start`/`message_delta`), Codex (`thread/tokenUsage/updated`) and ACP agents
-  (`usage_update` -> `provider_thread.updated`) already publish per step; the server forwards them
-  unfiltered and the client recomputes on each projection change. Added a regression test that ACP
-  usage surfaces before the turn terminal:
-  `apps/server/src/orchestration-v2/Adapters/AcpRegistryAdapterV2.test.ts`
-  ("reports context usage after each usage update, before the turn ends").
-- Contract or migration impact: none.
-- Conflict-prone: no (test only).
-- Commit: `e12d7b7e`
-- Open: whether the meter really lags on Claude, Codex or Antigravity is NOT reproduced (needs real
-  providers on the Mac). Kimi's ACP server never sends `usage_update`, so its meter cannot move
-  mid-response from T3's side. See CLOUD-HANDOFF.md.
+- Why: the meter should move during a response, not only when it ends. Ben reported that Kimi's
+  meter did not move during a multi-step think/tool/output block.
+- Where:
+  - Claude, Codex and generic ACP agents: no production change. They already publish usage per step
+    (Claude `emitContextUsage`, Codex `thread/tokenUsage/updated`, ACP `usage_update`); a regression
+    test locks the ACP behaviour in `AcpRegistryAdapterV2.test.ts` ("reports context usage after
+    each usage update, before the turn ends").
+  - Kimi: its ACP server drops the per-step status event, but the CLI appends it to
+    `~/.kimi/sessions/<bucket>/<session>/context.jsonl` (`{"role":"_usage","token_count":N}`) and
+    `wire.jsonl` (window size). New optional flavor hook `pollContextUsage` in
+    `packages/provider-acp/src/server/adapter.ts` polls once a second while a turn runs and feeds
+    the same path as a real `usage_update`. `packages/provider-acp-registry/src/server/kimiSession.ts`
+    (new) implements the reader; `adapter.ts` there enables it for the `kimi` registry agent only.
+    Tests: `kimiSession.test.ts` and "polls Kimi's session files..." in `AcpRegistryAdapterV2.test.ts`.
+- Contract or migration impact: none. The flavor field is optional.
+- Conflict-prone: low (new file plus one hook block in the ACP adapter turn start).
+- Commits: `e12d7b7e` (test), KIMI_METER_SHA (Kimi polling)
+- UNVERIFIED: the session directory layout, the file record shapes and that the ACP session id equals
+  Kimi's session id come from reading Kimi CLI source, not a live run. The reader fails silently
+  (no reading) when anything differs. Whether Claude, Codex or Antigravity lag is not reproduced.
 
 ## 3. Tasks tab in the right panel (agent todo list only)
 

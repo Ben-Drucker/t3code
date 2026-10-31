@@ -12,6 +12,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import { resolveKimiShareDirectory } from "./kimiSession.ts";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 /** The ACP registry agent id this applies to. */
@@ -203,9 +204,7 @@ export function resolveKimiCredentialsPath(input: {
   readonly environment: Readonly<Record<string, string | undefined>>;
   readonly homeDirectory: string;
 }): string {
-  const shareDirectory =
-    input.environment.KIMI_SHARE_DIR?.trim() || input.path.join(input.homeDirectory, ".kimi");
-  return input.path.join(shareDirectory, "credentials", "kimi-code.json");
+  return input.path.join(resolveKimiShareDirectory(input), "credentials", "kimi-code.json");
 }
 
 export const resolveKimiUsageUrl = (

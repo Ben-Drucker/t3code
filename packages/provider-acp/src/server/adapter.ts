@@ -365,6 +365,14 @@ export interface AcpAdapterV2Flavor {
   readonly extractSubagentSessionEvent?: (
     notification: EffectAcpSchema.SessionNotification,
   ) => AcpSubagentSessionEvent | undefined;
+  /**
+   * Fork: for agents whose ACP server never sends `usage_update`, read the context usage from
+   * somewhere else. Polled about once a second while a turn runs; undefined means "no reading".
+   */
+  readonly pollContextUsage?: (input: {
+    readonly sessionId: string;
+    readonly cwd: string;
+  }) => Effect.Effect<{ readonly usedTokens: number; readonly maxTokens?: number } | undefined>;
   readonly extractSubagentUpdate?: (
     toolCall: AcpToolCallState,
   ) => AcpAdapterV2SubagentUpdate | undefined;
@@ -473,6 +481,8 @@ export interface AcpAdapterV2SubagentUpdate {
   readonly result: string | null;
   readonly suppressNormalTool?: boolean;
 }
+
+const CONTEXT_USAGE_POLL_INTERVAL = "1 second";
 
 export interface AcpAdapterV2Options {
   readonly instanceId: ProviderInstanceId;
@@ -7595,6 +7605,28 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             }
             yield* Ref.set(activeTurn, context);
             yield* Ref.set(stoppedRunQuarantine, false);
+            const pollContextUsage = flavor.pollContextUsage;
+            if (pollContextUsage !== undefined) {
+              const cwd = turnInput.runtimePolicy.cwd ?? process.cwd();
+              yield* Effect.gen(function* () {
+                let lastUsedTokens = context.contextUsage?.usedTokens;
+                while (true) {
+                  yield* Effect.sleep(CONTEXT_USAGE_POLL_INTERVAL);
+                  if ((yield* Ref.get(activeTurn)) !== context || context.finalized) return;
+                  const usage = yield* pollContextUsage({ sessionId: requestedSessionId, cwd });
+                  if (usage === undefined || usage.usedTokens === lastUsedTokens) continue;
+                  lastUsedTokens = usage.usedTokens;
+                  yield* handleSessionUpdate({
+                    sessionId: requestedSessionId,
+                    update: {
+                      sessionUpdate: "usage_update",
+                      used: usage.usedTokens,
+                      size: usage.maxTokens ?? 0,
+                    },
+                  });
+                }
+              }).pipe(Effect.ignore, Effect.forkIn(sessionScope), Effect.asVoid);
+            }
             const runningTurn = providerTurnPayload(context, "running", null);
             yield* Ref.update(providerTurns, (current) => {
               const updated = new Map(current);
