@@ -1205,6 +1205,56 @@ describe("AcpRegistryAdapterV2", () => {
       }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
 
+  it.effect("reports context usage after each usage update, before the turn ends", () =>
+    Effect.gen(function* () {
+      const frames = claudeFrames.prompt(1);
+      const session = yield* openClaudeReplaySession(
+        [
+          ...claudeFrames.open,
+          ...frames,
+          claudeFrames.update(CLAUDE_ROOT_SESSION, {
+            sessionUpdate: "usage_update",
+            used: 4_000,
+            size: 200_000,
+          }),
+          claudeFrames.update(CLAUDE_ROOT_SESSION, {
+            sessionUpdate: "agent_message_chunk",
+            messageId: "reply",
+            content: { type: "text", text: "Working on it." },
+          }),
+          claudeFrames.update(CLAUDE_ROOT_SESSION, {
+            sessionUpdate: "usage_update",
+            used: 9_000,
+            size: 200_000,
+          }),
+          claudeFrames.idle("end_turn"),
+          claudeFrames.closeRequest,
+          claudeFrames.closed,
+        ],
+        undefined,
+        false,
+      );
+      yield* session.runtime.startTurn(session.turnInput(1));
+      const events = yield* session.until((event) => event.type === "turn.terminal");
+      const terminalIndex = events.findIndex((event) => event.type === "turn.terminal");
+      const reportedUsage = events.flatMap((event, index) =>
+        event.type === "provider_thread.updated" && event.providerThread.contextUsage != null
+          ? [{ index, usedTokens: event.providerThread.contextUsage.usedTokens }]
+          : [],
+      );
+      // The turn's closing thread update repeats the last figure, so compare distinct values.
+      const distinctBeforeTerminal = reportedUsage
+        .filter((entry) => entry.index < terminalIndex)
+        .map((entry) => entry.usedTokens)
+        .filter((usedTokens, index, all) => index === 0 || usedTokens !== all[index - 1]);
+      assert.deepEqual(
+        distinctBeforeTerminal,
+        [4_000, 9_000],
+        "each usage update surfaces before the turn terminal, not only at the end",
+      );
+    }).pipe(Effect.provide(layerTest), Effect.scoped),
+  );
+
   it.effect("settles Claude's accepted foreground reply while retaining child output", () =>
     Effect.gen(function* () {
       const gate = makeProviderReplayGate(["accepted", "child-output", "wake"]);
