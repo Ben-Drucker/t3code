@@ -14,12 +14,15 @@ import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import { FetchHttpClient } from "effect/http";
 
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { AcpRegistryAdapterV2Driver, type AcpRegistryAdapterV2DriverEnv } from "./adapter.ts";
@@ -56,6 +59,8 @@ import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.ts";
 import * as AcpRegistryAuth from "./auth.ts";
 import * as AcpRegistryAuthenticationState from "./authenticationState.ts";
+import { KIMI_REGISTRY_AGENT_ID, probeKimiUsage } from "./kimiUsage.ts";
+import { resolveUsageLimitsAfterProbe } from "@t3tools/provider-core/server/usageLimits";
 
 const DRIVER_KIND = ProviderDriverKind.make("acpRegistry");
 const decodeSettings = Schema.decodeSync(AcpRegistrySettings);
@@ -479,7 +484,10 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
     }
     const crypto = yield* Crypto.Crypto;
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    const fileSystem = yield* FileSystem.FileSystem;
+    const pathService = yield* Path.Path;
     const hostEnvironment = yield* HostProcess.Environment;
+    const homeDirectory = yield* HostProcess.HomeDirectory;
     const host = yield* ProviderHost.ProviderHost;
     const continuationIdentity = defaultProviderContinuationIdentity({
       driverKind: DRIVER_KIND,
@@ -575,6 +583,25 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       Effect.provideService(Crypto.Crypto, crypto),
     );
+    // Fork: Kimi's ACP server reports no quota, so read it from the Kimi Code service.
+    const reportsKimiQuota =
+      effectiveConfig.source !== "local" && effectiveConfig.agentId === KIMI_REGISTRY_AGENT_ID;
+    const withKimiUsage = Effect.fn("AcpRegistryDriver.withKimiUsage")(function* (
+      provider: ServerProvider,
+      published: ServerProvider["usageLimits"],
+    ) {
+      if (!reportsKimiQuota || provider.status !== "ready") return provider;
+      const probed = yield* probeKimiUsage({
+        environment: processEnvironment,
+        homeDirectory,
+      }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, pathService),
+        Effect.provide(FetchHttpClient.layer),
+      );
+      const usageLimits = resolveUsageLimitsAfterProbe({ published, probed });
+      return usageLimits === undefined ? provider : { ...provider, usageLimits };
+    });
     const enrichmentCache = yield* Ref.make<{
       readonly generation: number;
       readonly entry: {
@@ -653,7 +680,16 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
                   Ref.get(enrichmentCache).pipe(
                     Effect.flatMap((current) =>
                       current.generation === generation
-                        ? withLiveRuntimeState(provider).pipe(Effect.flatMap(publishSnapshot))
+                        ? withLiveRuntimeState(provider).pipe(
+                            Effect.flatMap((live) =>
+                              getSnapshot.pipe(
+                                Effect.flatMap((published) =>
+                                  withKimiUsage(live, published.usageLimits),
+                                ),
+                              ),
+                            ),
+                            Effect.flatMap(publishSnapshot),
+                          )
                         : Effect.void,
                     ),
                   ),
