@@ -1,4 +1,5 @@
 import type {
+  EnvironmentId,
   ModelSelection,
   ProviderInstanceId,
   ProviderInteractionMode,
@@ -15,6 +16,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
 import { focusRequestedPermission, useComposerMenuProps } from "./composerEventScope";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
+import { LiveStreamingToggle } from "./LiveStreamingToggle";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { ProviderModelPicker } from "./ProviderModelPicker";
@@ -242,6 +244,7 @@ export function ComposerPermissionsSection(props: {
 }
 
 export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
+  environmentId: EnvironmentId;
   compact: boolean;
   canOperateThread: boolean;
   activeContextWindow: ContextWindowSnapshot | null;
@@ -283,6 +286,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
 }) {
   return (
     <>
+      <LiveStreamingToggle environmentId={props.environmentId} />
       {props.activeContextWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}

@@ -68,11 +68,32 @@ export function splitBufferedAssistantText(text: string): { ready: string; rest:
   return { ready: text.slice(0, boundary), rest: text.slice(boundary) };
 }
 
+/** Floor between delivered updates per streaming item in live mode; each delivery is a persisted write. */
+export const LIVE_STREAMING_MIN_INTERVAL_MS = 100;
+
+/** True for events the streaming filter may hold back or throttle. */
+export function isStreamingTextEvent(event: ProviderAdapter.ProviderAdapterV2Event): boolean {
+  if (event.type === "message.updated") {
+    return event.message.role === "assistant" && event.message.streaming;
+  }
+  return (
+    event.type === "turn_item.updated" &&
+    (event.turnItem.type === "assistant_message" || event.turnItem.type === "reasoning") &&
+    event.turnItem.streaming
+  );
+}
+
+/**
+ * `live` (the fork's liveStreaming setting) skips paragraph buffering and the turn-only hold and
+ * delivers the full partial text, throttled to one update per item per LIVE_STREAMING_MIN_INTERVAL_MS.
+ * The final, non-streaming update is always delivered unchanged.
+ */
 export function makeAssistantStreamingFilter(mode: ResponseStreamingMode) {
   const delivered = new Map<string, { text: string; at: number }>();
   return (
     event: ProviderAdapter.ProviderAdapterV2Event,
     now: number,
+    live = false,
   ): ProviderAdapter.ProviderAdapterV2Event | null => {
     if (
       event.type === "node.updated" &&
@@ -91,6 +112,13 @@ export function makeAssistantStreamingFilter(mode: ResponseStreamingMode) {
     const key = `${event.type}:${message.id}`;
     if (!message.streaming) {
       delivered.delete(key);
+      return event;
+    }
+    if (live) {
+      const previous = delivered.get(key);
+      if (previous && now - previous.at < LIVE_STREAMING_MIN_INTERVAL_MS) return null;
+      if (message.text === "" || message.text === previous?.text) return null;
+      delivered.set(key, { text: message.text, at: now });
       return event;
     }
     if (mode === "turn") return null;

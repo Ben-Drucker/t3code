@@ -1,4 +1,4 @@
-import { makeAssistantStreamingFilter } from "./assistantStreaming.ts";
+import { isStreamingTextEvent, makeAssistantStreamingFilter } from "./assistantStreaming.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
   isOrchestrationV2WorkActive,
@@ -1385,9 +1385,17 @@ export const layer: Layer.Layer<
                 yield* Ref.set(latestRootProviderTurn, event.providerTurn);
               }
               let storedEventCount = 0;
+              // Read per event so the composer toggle takes effect mid-run, not only on the next run.
+              const liveStreaming = isStreamingTextEvent(event)
+                ? yield* serverSettings.getSettings.pipe(
+                    Effect.map((settings) => settings.liveStreaming),
+                    Effect.orElseSucceed(() => false),
+                  )
+                : false;
               const deliveredEvent = filterAssistantEvent(
                 event,
                 DateTime.toEpochMillis(yield* DateTime.now),
+                liveStreaming,
               );
               if (deliveredEvent) {
                 const rootTerminalAlreadySeen = yield* Ref.get(rootTerminalSeen);

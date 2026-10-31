@@ -35,6 +35,7 @@ import { ChatMarkdownAssetImage } from "./ChatMarkdownMedia";
 import { ChevronRightIcon, CircleAlertIcon, XIcon, RotateCcwIcon } from "lucide-react";
 import { Button, InlineButton } from "../ui/button";
 import { useAssetUrls } from "../../assets/assetUrls";
+import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { useThreadShell } from "../../state/entities";
 import {
   threadReadLabelPrefix,
@@ -186,10 +187,28 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       ? notificationChildThreadId(workEntry.projectedItem.item.source)
       : undefined;
   const groupView = use(WorkGroupViewCtx);
-  const [expanded, setExpanded] = useState(
+  const [expandedState, setExpanded] = useState(
     () => groupView?.state.expandedEntries.has(workEntry.id) ?? false,
   );
+  // Fork: with live streaming on, the reasoning being written right now opens by itself and closes
+  // again when it completes, unless the user toggled the row by hand.
+  const activity = use(TimelineRowActivityCtx);
+  const liveStreaming = useEnvironmentSettings(
+    ctx.activeThreadEnvironmentId,
+    (settings) => settings.liveStreaming,
+  );
+  const [userToggled, setUserToggled] = useState(false);
+  const autoOpenLiveReasoning =
+    liveStreaming &&
+    !userToggled &&
+    workEntry.itemType === "reasoning" &&
+    activity.isWorking &&
+    workEntry.runId === activity.latestRunId &&
+    workEntry.toolLifecycleStatus === "inProgress" &&
+    (workEntry.detail?.trim() ?? "") !== "";
+  const expanded = expandedState || autoOpenLiveReasoning;
   const toggleExpanded = () => {
+    setUserToggled(true);
     const next = !expanded;
     if (groupView) {
       groupView.onToggleEntry(!next);
