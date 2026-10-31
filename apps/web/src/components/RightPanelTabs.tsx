@@ -43,6 +43,7 @@ import {
   FileDiff,
   Files,
   Globe2,
+  ListTodo,
   MessagesSquare,
   Plus,
   TerminalSquare,
@@ -141,6 +142,8 @@ export interface RightPanelTabsProps {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddDevice: () => void;
+  /** Fork: opens the Tasks panel (the agent's todo list). Absent where it is not offered. */
+  onAddTasks?: (() => void) | undefined;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
   browserAvailable: boolean;
@@ -322,6 +325,8 @@ function RightPanelEmptyState(props: {
   onAddPullRequest: () => void;
   onAddPullRequests: () => void;
   onAddDevice: () => void;
+  /** Fork: opens the Tasks panel (the agent's todo list). Absent where it is not offered. */
+  onAddTasks?: (() => void) | undefined;
   /** Absent where side chats are not offered. */
   onAddSideChat?: (() => void) | undefined;
   browserAvailable: boolean;
@@ -385,6 +390,19 @@ function RightPanelEmptyState(props: {
       disabledReason: SURFACE_UNAVAILABLE_HINTS.pullRequests,
       onClick: props.onAddPullRequests,
     },
+    ...(props.onAddTasks
+      ? [
+          {
+            label: "Tasks",
+            description: "See the agent's todo list for this thread.",
+            icon: ListTodo,
+            shortcut: "K",
+            available: true,
+            disabledReason: "Tasks are unavailable.",
+            onClick: props.onAddTasks,
+          },
+        ]
+      : []),
     {
       label: "Device",
       description: "Watch an iOS Simulator or Android Emulator.",
@@ -590,6 +608,8 @@ function surfaceTitle(
       return `#${surface.number}`;
     case "pull-requests":
       return "Pull requests";
+    case "tasks":
+      return "Tasks";
     case "device":
       return surface.title ?? surface.target?.name ?? "Device";
     case "side-chat":
@@ -682,6 +702,8 @@ function SurfaceIcon({
       );
     case "pull-requests":
       return <PullRequestGlyph.link className="size-3 shrink-0" />;
+    case "tasks":
+      return <ListTodo className="size-3 shrink-0" />;
     case "side-chat":
       return <SideChatTabIcon environmentId={environmentId} threadId={surface.threadId} />;
     case "device":
@@ -1139,6 +1161,18 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       disabledReason: SURFACE_DISABLED_REASONS.pullRequests,
       onClick: props.onAddPullRequests,
     },
+    ...(props.onAddTasks
+      ? [
+          {
+            label: "Tasks",
+            icon: ListTodo,
+            shortcut: "K",
+            available: true,
+            disabledReason: "Tasks are unavailable.",
+            onClick: props.onAddTasks,
+          },
+        ]
+      : []),
     {
       label: "Device",
       icon: Smartphone,
@@ -1533,6 +1567,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddPullRequest={props.onAddPullRequest}
             onAddPullRequests={props.onAddPullRequests}
             onAddDevice={props.onAddDevice}
+            onAddTasks={props.onAddTasks}
             onAddSideChat={props.onAddSideChat}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}

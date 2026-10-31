@@ -732,6 +732,30 @@ describe("rightPanelStore", () => {
     ).toEqual({ inlineOpen: true, popoverOpen: true });
   });
 
+  it("opens Tasks only on request, as one reopenable singleton tab", async () => {
+    const state = () =>
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state().surfaces).toEqual([]);
+    const store = useRightPanelStore.getState();
+    store.open(refA, "tasks");
+    store.open(refA, "tasks");
+    expect(state().surfaces).toEqual([{ id: "tasks", kind: "tasks" }]);
+    expect(state().activeSurfaceId).toBe("tasks");
+
+    await reloadRightPanelStore();
+    expect(state().surfaces).toEqual([{ id: "tasks", kind: "tasks" }]);
+
+    useRightPanelStore.getState().closeSurface(refA, "tasks");
+    expect(state().surfaces).toEqual([]);
+    await reopenClosedView(useClosedViewStore.getState().entries[0]!, {
+      workspaceAvailable: true,
+      openPreview: () => {
+        throw new Error("A Tasks tab must not create a browser session");
+      },
+    });
+    expect(state().surfaces).toEqual([{ id: "tasks", kind: "tasks" }]);
+  });
+
   it("opens workspace-root links as the singleton files explorer", () => {
     const store = useRightPanelStore.getState();
     store.openFile(refA, "README.md");
