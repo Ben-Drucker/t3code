@@ -52,7 +52,7 @@ its "Why" and "Where" rather than forcing the old diff.
     Tests: `kimiSession.test.ts` and "polls Kimi's session files..." in `AcpRegistryAdapterV2.test.ts`.
 - Contract or migration impact: none. The flavor field is optional.
 - Conflict-prone: low (new file plus one hook block in the ACP adapter turn start).
-- Commits: `e12d7b7e` (test), KIMI_METER_SHA (Kimi polling)
+- Commits: `e12d7b7e` (test), `fb455282` (Kimi polling)
 - UNVERIFIED: the session directory layout, the file record shapes and that the ACP session id equals
   Kimi's session id come from reading Kimi CLI source, not a live run. The reader fails silently
   (no reading) when anything differs. Whether Claude, Codex or Antigravity lag is not reproduced.
