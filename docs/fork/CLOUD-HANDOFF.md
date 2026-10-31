@@ -98,7 +98,7 @@ calls). Expected: Claude moves at each model step, Codex on each token-usage tic
   1. `ls ~/.kimi/sessions/*/` shows a directory per session; the newest `context.jsonl` gets a
      `{"role":"_usage","token_count":N}` line after each model step (`tail -f` it during a turn).
   2. `wire.jsonl` lines contain `context_tokens` and `max_context_tokens` somewhere in the record.
-  3. The ACP session id T3 uses equals that session directory name. If not, the reader finds
+  3. (Layout and record shapes are already confirmed from real files.) The ACP session id T3 uses equals that session directory name. If not, the reader finds
      nothing and the meter behaves as before: log the id (ACP native logger) and fix `locate()`.
   4. The meter in T3 then moves about once a second during the block and shows the window size.
      The reader never throws; if any assumption is wrong it just yields no reading.

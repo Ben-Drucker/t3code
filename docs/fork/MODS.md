@@ -53,8 +53,10 @@ its "Why" and "Where" rather than forcing the old diff.
 - Contract or migration impact: none. The flavor field is optional.
 - Conflict-prone: low (new file plus one hook block in the ACP adapter turn start).
 - Commits: `e12d7b7e` (test), `fb455282` (Kimi polling)
-- UNVERIFIED: the session directory layout, the file record shapes and that the ACP session id equals
-  Kimi's session id come from reading Kimi CLI source, not a live run. The reader fails silently
+- Verified against real files from Ben's Mac (`context.jsonl`, `wire.jsonl` of one session): record
+  shapes, per-step `_usage` lines, `max_context_tokens: 262144` in `wire.jsonl`, and that the reader
+  returns the right numbers. UNVERIFIED: that the ACP session id equals Kimi's session folder name
+  (a UUID), and the live polling inside the running app. The reader fails silently
   (no reading) when anything differs. Whether Claude, Codex or Antigravity lag is not reproduced.
 
 ## 3. Tasks tab in the right panel (agent todo list only)

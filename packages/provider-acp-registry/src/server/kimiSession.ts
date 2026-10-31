@@ -6,7 +6,8 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
-const TAIL_BYTES = 256 * 1024;
+// Subagent bursts in wire.jsonl can leave 300+ KB between status events, so read a wide tail.
+const TAIL_BYTES = 1024 * 1024;
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -105,6 +106,8 @@ export const makeKimiContextUsageReader = (input: {
 }) => {
   const { fs, path } = input;
   const sessionDirectories = new Map<string, string>();
+  // The window size rarely changes; keep it for polls whose wire tail holds no status event.
+  const windowSizes = new Map<string, number>();
 
   const locate = Effect.fnUntraced(function* (sessionId: string) {
     const cached = sessionDirectories.get(sessionId);
@@ -143,6 +146,10 @@ export const makeKimiContextUsageReader = (input: {
       const wireLines = yield* readTail(path.join(directory, "wire.jsonl")).pipe(
         Effect.orElseSucceed(() => []),
       );
-      return parseKimiContextUsage({ contextLines, wireLines });
+      const usage = parseKimiContextUsage({ contextLines, wireLines });
+      if (usage === undefined) return undefined;
+      if (usage.maxTokens !== undefined) windowSizes.set(request.sessionId, usage.maxTokens);
+      const maxTokens = usage.maxTokens ?? windowSizes.get(request.sessionId);
+      return maxTokens === undefined ? usage : { usedTokens: usage.usedTokens, maxTokens };
     }).pipe(Effect.orElseSucceed(() => undefined));
 };

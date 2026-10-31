@@ -88,6 +88,12 @@ describe("makeKimiContextUsageReader", () => {
         `${contextLine({ role: "_usage", token_count: 100 })}\n${contextLine({ role: "_usage", token_count: 450 })}\n`,
       );
       expect((yield* read({ sessionId: "session-1" }))?.usedTokens).toBe(450);
+      // A later poll whose wire tail has no status event keeps the window size from before.
+      yield* fs.writeFileString(path.join(sessionDirectory, "wire.jsonl"), "");
+      expect(yield* read({ sessionId: "session-1" })).toEqual({
+        usedTokens: 450,
+        maxTokens: 200000,
+      });
       expect(yield* read({ sessionId: "unknown-session" })).toBeUndefined();
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
