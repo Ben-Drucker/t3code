@@ -1355,6 +1355,32 @@ describe("ClaudeAdapterV2 executable path", () => {
   );
 });
 
+describe("ClaudeAdapterV2 todo tools", () => {
+  const provideLayers = Effect.provide(
+    Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+  );
+
+  it.effect("turns Claude Code's todo tools on by default", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { taskToolEnvironment } = yield* captureSdkExecutablePaths("claude");
+        assert.deepEqual(taskToolEnvironment, ["1"]);
+      }),
+    ).pipe(provideLayers),
+  );
+
+  it.effect("lets the provider instance override it", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { taskToolEnvironment } = yield* captureSdkExecutablePaths("claude", [
+          { name: "CLAUDE_CODE_ENABLE_TODO_TOOLS", value: "0" },
+        ]);
+        assert.deepEqual(taskToolEnvironment, ["0"]);
+      }),
+    ).pipe(provideLayers),
+  );
+});
+
 describe("ClaudeAdapterV2 resumeThread", () => {
   it.effect("fails for a transcript without messages so a fresh session replaces it", () =>
     Effect.scoped(

@@ -11517,7 +11517,8 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
     return yield* makeClaudeAdapterV2({
       instanceId,
       settings: { ...config, enabled, binaryPath },
-      environment: claudeEnvironment,
+      // Claude Code stopped offering its todo tools on newer models; the Tasks panel needs them.
+      environment: { CLAUDE_CODE_ENABLE_TODO_TOOLS: "1", ...claudeEnvironment },
       attachmentsDir: serverConfig.attachmentsDir,
       fileSystem,
       path,
