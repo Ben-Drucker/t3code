@@ -131,7 +131,8 @@ export const makeKimiContextUsageReader = (input: {
     for (const bucket of buckets) {
       for (const name of names) {
         const file = wireFileIn(path.join(sessionsRoot, bucket, name));
-        if (yield* fs.exists(file)) {
+        // `exists` fails (ENOTDIR) when a bucket entry is a stray file such as `.DS_Store`.
+        if (yield* fs.exists(file).pipe(Effect.orElseSucceed(() => false))) {
           wireFiles.set(sessionId, file);
           return file;
         }

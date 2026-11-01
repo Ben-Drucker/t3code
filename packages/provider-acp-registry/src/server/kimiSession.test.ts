@@ -78,6 +78,8 @@ describe("makeKimiContextUsageReader", () => {
         path.join(share, "config.toml"),
         '[models."kimi-code/kimi-for-coding"]\nmax_context_size = 262144\n',
       );
+      // macOS leaves stray files next to the buckets; they must not break the lookup.
+      yield* fs.writeFileString(path.join(share, "sessions", ".DS_Store"), "x");
       const wirePath = path.join(mainDirectory, "wire.jsonl");
       yield* fs.writeFileString(
         wirePath,
