@@ -60,7 +60,6 @@ import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.
 import * as AcpRegistryAuth from "./auth.ts";
 import * as AcpRegistryAuthenticationState from "./authenticationState.ts";
 import { isKimiAgent, probeKimiUsage } from "./kimiUsage.ts";
-import { resolveUsageLimitsAfterProbe } from "@t3tools/provider-core/server/usageLimits";
 
 const DRIVER_KIND = ProviderDriverKind.make("acpRegistry");
 const decodeSettings = Schema.decodeSync(AcpRegistrySettings);
@@ -568,9 +567,28 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
             }),
           );
     });
+    // Fork: Kimi's ACP server reports no quota, so read it from the Kimi Code service. It has to be
+    // part of the readiness check: enrichment cannot change `usageLimits`, and the managed provider
+    // keeps the last good reading when a probe fails.
+    const reportsKimiQuota = isKimiAgent(effectiveConfig);
+    const withKimiUsage = Effect.fn("AcpRegistryDriver.withKimiUsage")(function* (
+      provider: ServerProvider,
+    ) {
+      if (!reportsKimiQuota || provider.status !== "ready") return provider;
+      const usageLimits = yield* probeKimiUsage({
+        environment: processEnvironment,
+        homeDirectory,
+      }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, pathService),
+        Effect.provide(FetchHttpClient.layer),
+      );
+      return { ...provider, usageLimits };
+    });
     const checkProvider = checkAcpRegistryProviderReadiness(readinessInput).pipe(
       Effect.provideService(AcpRegistrySupport.AcpRegistryCatalog, catalog),
       Effect.flatMap(withLiveRuntimeState),
+      Effect.flatMap(withKimiUsage),
     );
     const enrichProvider = checkAcpRegistryProviderStatus(
       {
@@ -583,24 +601,6 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       Effect.provideService(Crypto.Crypto, crypto),
     );
-    // Fork: Kimi's ACP server reports no quota, so read it from the Kimi Code service.
-    const reportsKimiQuota = isKimiAgent(effectiveConfig);
-    const withKimiUsage = Effect.fn("AcpRegistryDriver.withKimiUsage")(function* (
-      provider: ServerProvider,
-      published: ServerProvider["usageLimits"],
-    ) {
-      if (!reportsKimiQuota || provider.status !== "ready") return provider;
-      const probed = yield* probeKimiUsage({
-        environment: processEnvironment,
-        homeDirectory,
-      }).pipe(
-        Effect.provideService(FileSystem.FileSystem, fileSystem),
-        Effect.provideService(Path.Path, pathService),
-        Effect.provide(FetchHttpClient.layer),
-      );
-      const usageLimits = resolveUsageLimitsAfterProbe({ published, probed });
-      return usageLimits === undefined ? provider : { ...provider, usageLimits };
-    });
     const enrichmentCache = yield* Ref.make<{
       readonly generation: number;
       readonly entry: {
@@ -679,16 +679,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
                   Ref.get(enrichmentCache).pipe(
                     Effect.flatMap((current) =>
                       current.generation === generation
-                        ? withLiveRuntimeState(provider).pipe(
-                            Effect.flatMap((live) =>
-                              getSnapshot.pipe(
-                                Effect.flatMap((published) =>
-                                  withKimiUsage(live, published.usageLimits),
-                                ),
-                              ),
-                            ),
-                            Effect.flatMap(publishSnapshot),
-                          )
+                        ? withLiveRuntimeState(provider).pipe(Effect.flatMap(publishSnapshot))
                         : Effect.void,
                     ),
                   ),
