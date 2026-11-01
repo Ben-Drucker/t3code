@@ -1373,7 +1373,7 @@ describe("ClaudeAdapterV2 todo tools", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const { taskToolEnvironment } = yield* captureSdkExecutablePaths("claude", [
-          { name: "CLAUDE_CODE_ENABLE_TODO_TOOLS", value: "0" },
+          { name: "CLAUDE_CODE_ENABLE_TODO_TOOLS", value: "0", sensitive: false },
         ]);
         assert.deepEqual(taskToolEnvironment, ["0"]);
       }),

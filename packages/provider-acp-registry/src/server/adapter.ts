@@ -10,7 +10,7 @@ import {
 } from "./devinAcp.ts";
 import { extractDroidElicitationForm } from "./droidAcp.ts";
 import { makeKimiContextUsageReader } from "./kimiSession.ts";
-import { KIMI_REGISTRY_AGENT_ID } from "./kimiUsage.ts";
+import { isKimiAgent } from "./kimiUsage.ts";
 import {
   copilotClientCapabilitiesMeta,
   extractCopilotSubagentUpdate,
@@ -211,15 +211,14 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
     : options;
   const copilotRouting = isCopilot ? makeCopilotSubagentRouting() : undefined;
   // Fork: Kimi's ACP server never reports context usage, so read it from the CLI's session files.
-  const kimiContextUsage =
-    registryAgentId === KIMI_REGISTRY_AGENT_ID
-      ? makeKimiContextUsageReader({
-          fs: yield* FileSystem.FileSystem,
-          path: yield* Path.Path,
-          environment: { ...(yield* HostProcess.Environment), ...options.environment },
-          homeDirectory: yield* HostProcess.HomeDirectory,
-        })
-      : undefined;
+  const kimiContextUsage = isKimiAgent(options.settings)
+    ? makeKimiContextUsageReader({
+        fs: yield* FileSystem.FileSystem,
+        path: yield* Path.Path,
+        environment: { ...(yield* HostProcess.Environment), ...options.environment },
+        homeDirectory: yield* HostProcess.HomeDirectory,
+      })
+    : undefined;
   const flavor: AcpAdapterV2Flavor = {
     driver: ACP_REGISTRY_PROVIDER,
     // Cancelling a Copilot prompt also kills the background agents it started.

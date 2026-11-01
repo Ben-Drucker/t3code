@@ -4,74 +4,84 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 
-import { makeKimiContextUsageReader, parseKimiContextUsage } from "./kimiSession.ts";
+import {
+  makeKimiContextUsageReader,
+  parseKimiModelWindows,
+  parseKimiWireTail,
+} from "./kimiSession.ts";
 
-const contextLine = (record: unknown) => JSON.stringify(record);
+const line = (record: unknown) => JSON.stringify(record);
 
-describe("parseKimiContextUsage", () => {
-  it("takes the newest _usage line and the window from the status event", () => {
+describe("parseKimiWireTail", () => {
+  it("takes the newest context size and model alias, ignoring garbage", () => {
     expect(
-      parseKimiContextUsage({
-        contextLines: [
-          contextLine({ role: "user", content: "hi" }),
-          contextLine({ role: "_usage", token_count: 1200 }),
-          contextLine({ role: "assistant", content: "ok" }),
-          contextLine({ role: "_usage", token_count: 3400 }),
-          contextLine({ role: "_checkpoint", id: 2 }),
-        ],
-        wireLines: [
-          contextLine({ type: "metadata", protocol_version: "1.0" }),
-          contextLine({
-            timestamp: 1,
-            message: {
-              type: "StatusUpdate",
-              payload: { context_tokens: 3000, max_context_tokens: 262144, context_usage: 0.01 },
-            },
-          }),
-        ],
-      }),
-    ).toEqual({ usedTokens: 3400, maxTokens: 262144 });
+      parseKimiWireTail([
+        line({ type: "llm.request", modelAlias: "kimi-code/old" }),
+        line({ type: "token_counting.measured", tokens: 1200 }),
+        "not json",
+        line({ type: "llm.request", modelAlias: "kimi-code/kimi-for-coding" }),
+        line({ type: "usage.record", usage: { output: 5 } }),
+        line({ type: "token_counting.measured", tokens: 3400 }),
+        line({ type: "agent.turn.ended" }),
+      ]),
+    ).toEqual({ usedTokens: 3400, modelAlias: "kimi-code/kimi-for-coding" });
   });
 
-  it("falls back to the status event's own token count and tolerates garbage", () => {
-    expect(
-      parseKimiContextUsage({
-        contextLines: ["not json", contextLine({ role: "user" })],
-        wireLines: [
-          "{broken",
-          contextLine({ message: { context_tokens: 900, max_context_tokens: 1000 } }),
-        ],
-      }),
-    ).toEqual({ usedTokens: 900, maxTokens: 1000 });
-    expect(parseKimiContextUsage({ contextLines: [], wireLines: [] })).toBeUndefined();
+  it("counts the turn summary as a context size too", () => {
+    expect(parseKimiWireTail([line({ type: "token_counting.turn_recorded", tokens: 90 })])).toEqual(
+      { usedTokens: 90 },
+    );
+    expect(parseKimiWireTail([])).toEqual({});
   });
+});
 
-  it("reports tokens without a window when none was recorded", () => {
-    expect(
-      parseKimiContextUsage({
-        contextLines: [contextLine({ role: "_usage", token_count: 50 })],
-        wireLines: [],
-      }),
-    ).toEqual({ usedTokens: 50 });
+describe("parseKimiModelWindows", () => {
+  it("reads max_context_size per model section", () => {
+    const windows = parseKimiModelWindows(
+      [
+        'default_model = "kimi-code/kimi-for-coding"',
+        "",
+        '[models."kimi-code/kimi-for-coding"]',
+        'provider = "managed:kimi-code"',
+        "max_context_size = 1048576",
+        "",
+        '[models."kimi-code/k3-256k"]',
+        "max_context_size = 262144 # tokens",
+        "",
+        "[providers.other]",
+        "max_context_size = 5",
+      ].join("\n"),
+    );
+    expect(windows.get("kimi-code/kimi-for-coding")).toBe(1048576);
+    expect(windows.get("kimi-code/k3-256k")).toBe(262144);
+    expect(windows.size).toBe(2);
   });
 });
 
 describe("makeKimiContextUsageReader", () => {
-  it.effect("finds the session under any bucket and follows appended steps", () =>
+  it.effect("finds the session folder, follows new steps and reads the window from config", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const home = yield* fs.makeTempDirectoryScoped({ prefix: "t3-kimi-session-" });
-      const sessionDirectory = path.join(home, ".kimi", "sessions", "abc123bucket", "session-1");
-      yield* fs.makeDirectory(sessionDirectory, { recursive: true });
-      const contextPath = path.join(sessionDirectory, "context.jsonl");
-      yield* fs.writeFileString(
-        contextPath,
-        `${contextLine({ role: "_usage", token_count: 100 })}\n`,
+      const share = path.join(home, ".kimi-code");
+      const mainDirectory = path.join(
+        share,
+        "sessions",
+        "wd_proj_abc",
+        "session_1234",
+        "agents",
+        "main",
       );
+      yield* fs.makeDirectory(mainDirectory, { recursive: true });
       yield* fs.writeFileString(
-        path.join(sessionDirectory, "wire.jsonl"),
-        `${contextLine({ message: { max_context_tokens: 200000 } })}\n`,
+        path.join(share, "config.toml"),
+        '[models."kimi-code/kimi-for-coding"]\nmax_context_size = 262144\n',
+      );
+      const wirePath = path.join(mainDirectory, "wire.jsonl");
+      yield* fs.writeFileString(
+        wirePath,
+        `${line({ type: "llm.request", modelAlias: "kimi-code/kimi-for-coding" })}\n${line({ type: "token_counting.measured", tokens: 100 })}\n`,
       );
       const read = makeKimiContextUsageReader({
         fs,
@@ -79,22 +89,41 @@ describe("makeKimiContextUsageReader", () => {
         environment: {},
         homeDirectory: home,
       });
-      expect(yield* read({ sessionId: "session-1" })).toEqual({
+      expect(yield* read({ sessionId: "1234" })).toEqual({ usedTokens: 100, maxTokens: 262144 });
+      expect(yield* read({ sessionId: "session_1234" })).toEqual({
         usedTokens: 100,
-        maxTokens: 200000,
+        maxTokens: 262144,
       });
       yield* fs.writeFileString(
-        contextPath,
-        `${contextLine({ role: "_usage", token_count: 100 })}\n${contextLine({ role: "_usage", token_count: 450 })}\n`,
+        wirePath,
+        `${line({ type: "token_counting.measured", tokens: 100 })}\n${line({ type: "token_counting.measured", tokens: 450 })}\n`,
       );
-      expect((yield* read({ sessionId: "session-1" }))?.usedTokens).toBe(450);
-      // A later poll whose wire tail has no status event keeps the window size from before.
-      yield* fs.writeFileString(path.join(sessionDirectory, "wire.jsonl"), "");
-      expect(yield* read({ sessionId: "session-1" })).toEqual({
-        usedTokens: 450,
-        maxTokens: 200000,
-      });
-      expect(yield* read({ sessionId: "unknown-session" })).toBeUndefined();
+      // A poll whose tail names no model still reports usage.
+      expect((yield* read({ sessionId: "1234" }))?.usedTokens).toBe(450);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("falls back to the newest session when the id names no folder", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const home = yield* fs.makeTempDirectoryScoped({ prefix: "t3-kimi-fallback-" });
+      const sessionsRoot = path.join(home, ".kimi-code", "sessions", "wd_proj_abc");
+      for (const [name, tokens, time] of [
+        ["session_old", 10, 1_000],
+        ["session_new", 20, 2_000],
+      ] as const) {
+        const directory = path.join(sessionsRoot, name, "agents", "main");
+        yield* fs.makeDirectory(directory, { recursive: true });
+        const wirePath = path.join(directory, "wire.jsonl");
+        yield* fs.writeFileString(
+          wirePath,
+          `${line({ type: "token_counting.measured", tokens })}\n`,
+        );
+        yield* fs.utimes(wirePath, time, time);
+      }
+      const read = makeKimiContextUsageReader({ fs, path, environment: {}, homeDirectory: home });
+      expect(yield* read({ sessionId: "acp-id-that-names-nothing" })).toEqual({ usedTokens: 20 });
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 

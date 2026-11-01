@@ -1,6 +1,6 @@
 /**
- * Fork: Kimi Code quota from the CLI's own sign-in; never refreshes the token. UNVERIFIED against a
- * real account (endpoint, credential file and response shape): see docs/fork/CLOUD-HANDOFF.md.
+ * Fork: Kimi Code quota from the CLI's own sign-in; never refreshes the token. Endpoint, credential
+ * files and response shape verified against a real account on Kimi Code 2.3.3.
  */
 import type { ServerProviderUsageLimits, ServerProviderUsageWindow } from "@t3tools/contracts";
 import {
@@ -11,17 +11,19 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import { resolveKimiShareDirectory } from "./kimiSession.ts";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 /** The ACP registry agent id this applies to. */
-export const KIMI_REGISTRY_AGENT_ID = "kimi";
+const KIMI_REGISTRY_AGENT_ID = "kimi";
 
 const DEFAULT_KIMI_CODE_BASE_URL = "https://api.kimi.com/coding/v1";
 const SESSION_WINDOW_MINS = 5 * 60;
 const WEEKLY_WINDOW_MINS = 7 * 24 * 60;
-const SIGN_IN_AGAIN_MESSAGE = "Kimi sign-in expired. Run `kimi login` in a terminal to refresh it.";
+// Kimi's sign-in lasts 15 minutes and the CLI renews it whenever it runs; T3 never renews it.
+const SIGN_IN_AGAIN_MESSAGE = "Kimi sign-in is stale. Quota returns the next time you use Kimi.";
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -199,13 +201,51 @@ export function parseKimiCredentials(text: string): KimiCredential | undefined {
   };
 }
 
-export function resolveKimiCredentialsPath(input: {
+export function resolveKimiCredentialsDirectory(input: {
   readonly path: Path.Path;
   readonly environment: Readonly<Record<string, string | undefined>>;
   readonly homeDirectory: string;
 }): string {
-  return input.path.join(resolveKimiShareDirectory(input), "credentials", "kimi-code.json");
+  return input.path.join(resolveKimiShareDirectory(input), "credentials");
 }
+
+/**
+ * The CLI keeps one sign-in file per environment (`kimi-code.json`, `kimi-code-env-<hash>.json`) and
+ * rewrites the one in use when it refreshes, so the most recently written file with a token is current.
+ */
+const readNewestKimiCredential = Effect.fnUntraced(function* (
+  fs: FileSystem.FileSystem,
+  path: Path.Path,
+  directory: string,
+) {
+  const names = yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => []));
+  let newest: { readonly credential: KimiCredential; readonly mtime: number } | undefined;
+  let sawFile = false;
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    const file = path.join(directory, name);
+    const text = yield* fs.readFileString(file).pipe(Effect.option);
+    if (text._tag === "None") continue;
+    sawFile = true;
+    const credential = parseKimiCredentials(text.value);
+    if (credential === undefined) continue;
+    const info = yield* fs.stat(file).pipe(Effect.option);
+    const mtime =
+      info._tag === "Some" ? Option.getOrElse(Option.map(info.value.mtime, Number), () => 0) : 0;
+    if (newest === undefined || mtime > newest.mtime) newest = { credential, mtime };
+  }
+  return { credential: newest?.credential, sawFile };
+});
+
+/** Whether an ACP instance runs Kimi: the registry agent, or a local `kimi` command. */
+export const isKimiAgent = (settings: {
+  readonly source: string;
+  readonly agentId?: string;
+  readonly commandPath?: string;
+}): boolean =>
+  settings.source === "local"
+    ? /^kimi(\.exe|\.cmd)?$/i.test((settings.commandPath ?? "").split(/[\\/]/).pop() ?? "")
+    : settings.agentId === KIMI_REGISTRY_AGENT_ID;
 
 export const resolveKimiUsageUrl = (
   environment: Readonly<Record<string, string | undefined>>,
@@ -226,14 +266,15 @@ export const probeKimiUsage = Effect.fn("KimiUsage.probe")(function* (input: {
     message: string,
   ): ServerProviderUsageLimits => makeUnavailableUsageLimits({ checkedAt, reason, message });
 
-  const credentialsPath = resolveKimiCredentialsPath({ ...input, path });
-  const text = yield* fs.readFileString(credentialsPath).pipe(Effect.option);
-  if (text._tag === "None") {
-    return unavailable("unsupported", "Sign in with `kimi login` to see Kimi quota.");
-  }
-  const credential = parseKimiCredentials(text.value);
+  const { credential, sawFile } = yield* readNewestKimiCredential(
+    fs,
+    path,
+    resolveKimiCredentialsDirectory({ ...input, path }),
+  );
   if (credential === undefined) {
-    return unavailable("probeFailed", "Could not read the Kimi CLI sign-in. Run `kimi login`.");
+    return sawFile
+      ? unavailable("probeFailed", "Could not read the Kimi CLI sign-in. Run `kimi login`.")
+      : unavailable("unsupported", "Sign in with `kimi login` to see Kimi quota.");
   }
   if (credential.expiresAtMs !== undefined && credential.expiresAtMs <= nowMs) {
     return unavailable("probeFailed", SIGN_IN_AGAIN_MESSAGE);

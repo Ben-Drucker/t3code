@@ -11,23 +11,29 @@ import {
   parseKimiCredentials,
   parseKimiUsagePayload,
   probeKimiUsage,
+  isKimiAgent,
   readKimiResetsAt,
-  resolveKimiCredentialsPath,
+  resolveKimiCredentialsDirectory,
   resolveKimiUsageUrl,
 } from "./kimiUsage.ts";
 
 const NOW = Date.parse("2026-10-31T12:00:00.000Z");
 
-// Redacted shape of a Kimi Code `/usages` response. Counters arrive as strings.
+// Redacted copy of a real Kimi Code `/usages` response (2.3.3, 2026-11-01). Counters arrive as
+// strings; the wallet and ratio blocks are ignored.
 const USAGES_FIXTURE = {
-  user: { userId: "redacted", region: "REGION_OVERSEAS" },
-  usage: { limit: "100", remaining: "40", resetTime: "2026-11-03T00:00:00Z" },
+  usage: { limit: "100", used: "40", remaining: "60", resetTime: "2026-11-03T18:38:33.770861Z" },
   limits: [
     {
       window: { duration: 300, timeUnit: "TIME_UNIT_MINUTE" },
-      detail: { limit: "50", remaining: "45", resetTime: "2026-10-31T15:00:00Z" },
+      detail: { limit: "100", remaining: "90", resetTime: "2026-10-31T15:00:00.770861Z" },
     },
   ],
+  booster_wallet: { id: "redacted", status: "STATUS_ACTIVE", allowTopup: true },
+  usages: {
+    limit_5h: { used_ratio: 0.1, reset_time: "2026-10-31T15:00:00Z" },
+    limit_7d: { used_ratio: 0.4, reset_time: "2026-11-03T18:38:33Z" },
+  },
 };
 
 describe("parseKimiUsagePayload", () => {
@@ -38,15 +44,15 @@ describe("parseKimiUsagePayload", () => {
         kind: "session",
         label: "5-hour",
         usedPercent: 10,
-        resetsAt: "2026-10-31T15:00:00.000Z",
+        resetsAt: "2026-10-31T15:00:00.770Z",
         windowDurationMins: 300,
       },
       {
         id: "weekly",
         kind: "weekly",
         label: "Weekly",
-        usedPercent: 60,
-        resetsAt: "2026-11-03T00:00:00.000Z",
+        usedPercent: 40,
+        resetsAt: "2026-11-03T18:38:33.770Z",
         windowDurationMins: 10_080,
       },
     ]);
@@ -122,21 +128,29 @@ describe("kimi helpers", () => {
     expect(parseKimiCredentials("[]")).toBeUndefined();
   });
 
-  it.effect("finds credentials under KIMI_SHARE_DIR or ~/.kimi", () =>
+  it.effect("finds credentials under KIMI_CODE_HOME or ~/.kimi-code", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
-      expect(resolveKimiCredentialsPath({ path, environment: {}, homeDirectory: "/home/u" })).toBe(
-        path.join("/home/u", ".kimi", "credentials", "kimi-code.json"),
-      );
       expect(
-        resolveKimiCredentialsPath({
+        resolveKimiCredentialsDirectory({ path, environment: {}, homeDirectory: "/home/u" }),
+      ).toBe(path.join("/home/u", ".kimi-code", "credentials"));
+      expect(
+        resolveKimiCredentialsDirectory({
           path,
-          environment: { KIMI_SHARE_DIR: "/data/kimi" },
+          environment: { KIMI_CODE_HOME: "/data/kimi" },
           homeDirectory: "/home/u",
         }),
-      ).toBe(path.join("/data/kimi", "credentials", "kimi-code.json"));
+      ).toBe(path.join("/data/kimi", "credentials"));
     }).pipe(Effect.provide(NodeServices.layer)),
   );
+
+  it("recognises the registry agent and a local kimi command", () => {
+    expect(isKimiAgent({ source: "registry", agentId: "kimi" })).toBe(true);
+    expect(isKimiAgent({ source: "registry", agentId: "claude-acp" })).toBe(false);
+    expect(isKimiAgent({ source: "local", commandPath: "/home/u/.kimi-code/bin/kimi" })).toBe(true);
+    expect(isKimiAgent({ source: "local", commandPath: "C:\\tools\\kimi.exe" })).toBe(true);
+    expect(isKimiAgent({ source: "local", commandPath: "/usr/bin/kimi-helper" })).toBe(false);
+  });
 
   it("honours KIMI_CODE_BASE_URL", () => {
     expect(resolveKimiUsageUrl({})).toBe("https://api.kimi.com/coding/v1/usages");
@@ -162,10 +176,15 @@ describe("probeKimiUsage", () => {
       const path = yield* Path.Path;
       const home = yield* fs.makeTempDirectoryScoped({ prefix: "t3-kimi-home-" });
       if (credentials !== null) {
-        yield* fs.makeDirectory(path.join(home, ".kimi", "credentials"), { recursive: true });
+        yield* fs.makeDirectory(path.join(home, ".kimi-code", "credentials"), { recursive: true });
         yield* fs.writeFileString(
-          path.join(home, ".kimi", "credentials", "kimi-code.json"),
+          path.join(home, ".kimi-code", "credentials", "kimi-code-env-abc.json"),
           credentials,
+        );
+        // The CLI also leaves a token-less stub next to the live file.
+        yield* fs.writeFileString(
+          path.join(home, ".kimi-code", "credentials", "kimi-code.json"),
+          '{"note":"stub"}',
         );
       }
       const client = HttpClient.make((request) =>
@@ -237,7 +256,7 @@ describe("probeKimiUsage", () => {
           Effect.tap((limits) =>
             Effect.sync(() => {
               expect(limits.unavailable?.reason).toBe("probeFailed");
-              expect(limits.unavailable?.message).toContain("kimi login");
+              expect(limits.unavailable?.message).toContain("stale");
             }),
           ),
         ),

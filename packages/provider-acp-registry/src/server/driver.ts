@@ -59,7 +59,7 @@ import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.ts";
 import * as AcpRegistryAuth from "./auth.ts";
 import * as AcpRegistryAuthenticationState from "./authenticationState.ts";
-import { KIMI_REGISTRY_AGENT_ID, probeKimiUsage } from "./kimiUsage.ts";
+import { isKimiAgent, probeKimiUsage } from "./kimiUsage.ts";
 import { resolveUsageLimitsAfterProbe } from "@t3tools/provider-core/server/usageLimits";
 
 const DRIVER_KIND = ProviderDriverKind.make("acpRegistry");
@@ -584,8 +584,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
       Effect.provideService(Crypto.Crypto, crypto),
     );
     // Fork: Kimi's ACP server reports no quota, so read it from the Kimi Code service.
-    const reportsKimiQuota =
-      effectiveConfig.source !== "local" && effectiveConfig.agentId === KIMI_REGISTRY_AGENT_ID;
+    const reportsKimiQuota = isKimiAgent(effectiveConfig);
     const withKimiUsage = Effect.fn("AcpRegistryDriver.withKimiUsage")(function* (
       provider: ServerProvider,
       published: ServerProvider["usageLimits"],

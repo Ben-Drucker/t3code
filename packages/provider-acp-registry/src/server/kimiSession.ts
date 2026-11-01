@@ -1,12 +1,15 @@
 /**
- * Fork: live context usage for Kimi. Kimi's ACP server drops its per-step status event, but the CLI
- * appends it to its session files as it goes. UNVERIFIED layout: see docs/fork/CLOUD-HANDOFF.md.
+ * Fork: live context usage for Kimi Code. Its ACP server sends no per-step usage, but the CLI
+ * appends it to the session's `agents/main/wire.jsonl` as it goes. Layout verified against Kimi Code
+ * 2.3.3: `<share>/sessions/<bucket>/<session>/agents/main/wire.jsonl`, where each model step ends
+ * with a `token_counting.measured` record whose `tokens` is the current context size.
  */
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
-// Subagent bursts in wire.jsonl can leave 300+ KB between status events, so read a wide tail.
+// A tool-heavy step can leave a lot of text between usage records, so read a wide tail.
 const TAIL_BYTES = 1024 * 1024;
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
@@ -24,7 +27,7 @@ export const resolveKimiShareDirectory = (input: {
   readonly environment: Readonly<Record<string, string | undefined>>;
   readonly homeDirectory: string;
 }): string =>
-  input.environment.KIMI_SHARE_DIR?.trim() || input.path.join(input.homeDirectory, ".kimi");
+  input.environment.KIMI_CODE_HOME?.trim() || input.path.join(input.homeDirectory, ".kimi-code");
 
 /** Complete lines of a file tail; the first line is dropped when the tail starts mid-file. */
 const tailLines = (text: string, truncated: boolean): ReadonlyArray<string> => {
@@ -40,64 +43,63 @@ const parseLine = (line: string): unknown => {
   }
 };
 
-/** The first object under `value` that has numeric `context_tokens` or `max_context_tokens`. */
-function findStatus(
-  value: unknown,
-  depth = 0,
-): { contextTokens?: number; maxTokens?: number } | undefined {
-  const record = asRecord(value);
-  if (record === undefined || depth > 6) return undefined;
-  const contextTokens = positiveNumber(record.context_tokens);
-  const maxTokens = positiveNumber(record.max_context_tokens);
-  if (contextTokens !== undefined || maxTokens !== undefined) {
-    return {
-      ...(contextTokens === undefined ? {} : { contextTokens }),
-      ...(maxTokens === undefined ? {} : { maxTokens }),
-    };
-  }
-  for (const child of Object.values(record)) {
-    const found = findStatus(child, depth + 1);
-    if (found !== undefined) return found;
-  }
-  return undefined;
-}
-
 export interface KimiContextUsage {
   readonly usedTokens: number;
   readonly maxTokens?: number;
 }
 
-/**
- * `context.jsonl` carries `{"role":"_usage","token_count":N}` after every model step (N is the
- * current context size); `wire.jsonl` carries the status event with the window size.
- */
-export function parseKimiContextUsage(input: {
-  readonly contextLines: ReadonlyArray<string>;
-  readonly wireLines: ReadonlyArray<string>;
-}): KimiContextUsage | undefined {
+/** Newest context size and the model alias in force, from the tail of a wire file. */
+export function parseKimiWireTail(lines: ReadonlyArray<string>): {
+  readonly usedTokens?: number;
+  readonly modelAlias?: string;
+} {
   let usedTokens: number | undefined;
-  for (let index = input.contextLines.length - 1; index >= 0; index -= 1) {
-    const record = asRecord(parseLine(input.contextLines[index]!));
-    if (record?.role === "_usage") {
-      usedTokens = positiveNumber(record.token_count);
-      if (usedTokens !== undefined) break;
+  let modelAlias: string | undefined;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const record = asRecord(parseLine(lines[index]!));
+    if (record === undefined) continue;
+    if (
+      usedTokens === undefined &&
+      (record.type === "token_counting.measured" || record.type === "token_counting.turn_recorded")
+    ) {
+      usedTokens = positiveNumber(record.tokens);
     }
+    if (
+      modelAlias === undefined &&
+      (record.type === "llm.request" || record.type === "profile.bind") &&
+      typeof record.modelAlias === "string"
+    ) {
+      modelAlias = record.modelAlias;
+    }
+    if (usedTokens !== undefined && modelAlias !== undefined) break;
   }
-  let maxTokens: number | undefined;
-  let wireTokens: number | undefined;
-  for (let index = input.wireLines.length - 1; index >= 0; index -= 1) {
-    const status = findStatus(parseLine(input.wireLines[index]!));
-    if (status === undefined) continue;
-    wireTokens ??= status.contextTokens;
-    maxTokens ??= status.maxTokens;
-    if (wireTokens !== undefined && maxTokens !== undefined) break;
-  }
-  const used = usedTokens ?? wireTokens;
-  if (used === undefined) return undefined;
-  return { usedTokens: used, ...(maxTokens === undefined ? {} : { maxTokens }) };
+  return {
+    ...(usedTokens === undefined ? {} : { usedTokens }),
+    ...(modelAlias === undefined ? {} : { modelAlias }),
+  };
 }
 
-/** Reads the newest `context.jsonl`/`wire.jsonl` lines of a Kimi session. Never fails. */
+/** `max_context_size` per `[models."<alias>"]` section of the CLI's config.toml. */
+export function parseKimiModelWindows(configText: string): ReadonlyMap<string, number> {
+  const windows = new Map<string, number>();
+  let alias: string | undefined;
+  for (const line of configText.split("\n")) {
+    const header = /^\s*\[models\.(?:"([^"]+)"|([^\]\s]+))\]\s*$/.exec(line);
+    if (header !== null) {
+      alias = header[1] ?? header[2];
+      continue;
+    }
+    if (/^\s*\[/.test(line)) {
+      alias = undefined;
+      continue;
+    }
+    const size = alias === undefined ? null : /^\s*max_context_size\s*=\s*(\d+)/.exec(line);
+    if (alias !== undefined && size !== null) windows.set(alias, Number(size[1]));
+  }
+  return windows;
+}
+
+/** Reads the newest context size of a Kimi Code session from its files. Never fails. */
 export const makeKimiContextUsageReader = (input: {
   readonly fs: FileSystem.FileSystem;
   readonly path: Path.Path;
@@ -105,23 +107,47 @@ export const makeKimiContextUsageReader = (input: {
   readonly homeDirectory: string;
 }) => {
   const { fs, path } = input;
-  const sessionDirectories = new Map<string, string>();
-  // The window size rarely changes; keep it for polls whose wire tail holds no status event.
-  const windowSizes = new Map<string, number>();
+  const shareDirectory = resolveKimiShareDirectory(input);
+  const sessionsRoot = path.join(shareDirectory, "sessions");
+  const wireFiles = new Map<string, string>();
+  let modelWindows: ReadonlyMap<string, number> | undefined;
 
+  const wireFileIn = (sessionDirectory: string) =>
+    path.join(sessionDirectory, "agents", "main", "wire.jsonl");
+
+  const mtimeMillis = (target: string) =>
+    fs.stat(target).pipe(
+      Effect.map((info) => Option.getOrElse(Option.map(info.mtime, Number), () => 0)),
+      Effect.orElseSucceed(() => 0),
+    );
+
+  // The ACP session id names the session folder, with or without Kimi's `session_` prefix.
   const locate = Effect.fnUntraced(function* (sessionId: string) {
-    const cached = sessionDirectories.get(sessionId);
+    const cached = wireFiles.get(sessionId);
     if (cached !== undefined) return cached;
-    const sessionsRoot = path.join(resolveKimiShareDirectory(input), "sessions");
+    const names = [sessionId, `session_${sessionId.replace(/^session_/, "")}`];
     const buckets = yield* fs.readDirectory(sessionsRoot);
+    let newest: { readonly file: string; readonly mtime: number } | undefined;
     for (const bucket of buckets) {
-      const candidate = path.join(sessionsRoot, bucket, sessionId);
-      if (yield* fs.exists(candidate)) {
-        sessionDirectories.set(sessionId, candidate);
-        return candidate;
+      for (const name of names) {
+        const file = wireFileIn(path.join(sessionsRoot, bucket, name));
+        if (yield* fs.exists(file)) {
+          wireFiles.set(sessionId, file);
+          return file;
+        }
+      }
+      // Fallback for an id that names no folder: the most recently written session.
+      const sessions = yield* fs
+        .readDirectory(path.join(sessionsRoot, bucket))
+        .pipe(Effect.orElseSucceed(() => []));
+      for (const session of sessions) {
+        const file = wireFileIn(path.join(sessionsRoot, bucket, session));
+        const mtime = yield* mtimeMillis(file);
+        if (mtime > (newest?.mtime ?? 0)) newest = { file, mtime };
       }
     }
-    return undefined;
+    if (newest !== undefined) wireFiles.set(sessionId, newest.file);
+    return newest?.file;
   });
 
   const readTail = Effect.fnUntraced(function* (filePath: string) {
@@ -138,18 +164,26 @@ export const makeKimiContextUsageReader = (input: {
     );
   });
 
+  const windowFor = Effect.fnUntraced(function* (modelAlias: string | undefined) {
+    if (modelAlias === undefined) return undefined;
+    if (modelWindows === undefined || !modelWindows.has(modelAlias)) {
+      const text = yield* fs
+        .readFileString(path.join(shareDirectory, "config.toml"))
+        .pipe(Effect.orElseSucceed(() => ""));
+      modelWindows = parseKimiModelWindows(text);
+    }
+    return modelWindows.get(modelAlias);
+  });
+
   return (request: { readonly sessionId: string }): Effect.Effect<KimiContextUsage | undefined> =>
     Effect.gen(function* () {
-      const directory = yield* locate(request.sessionId);
-      if (directory === undefined) return undefined;
-      const contextLines = yield* readTail(path.join(directory, "context.jsonl"));
-      const wireLines = yield* readTail(path.join(directory, "wire.jsonl")).pipe(
-        Effect.orElseSucceed(() => []),
-      );
-      const usage = parseKimiContextUsage({ contextLines, wireLines });
-      if (usage === undefined) return undefined;
-      if (usage.maxTokens !== undefined) windowSizes.set(request.sessionId, usage.maxTokens);
-      const maxTokens = usage.maxTokens ?? windowSizes.get(request.sessionId);
-      return maxTokens === undefined ? usage : { usedTokens: usage.usedTokens, maxTokens };
+      const file = yield* locate(request.sessionId);
+      if (file === undefined) return undefined;
+      const tail = parseKimiWireTail(yield* readTail(file));
+      if (tail.usedTokens === undefined) return undefined;
+      const maxTokens = yield* windowFor(tail.modelAlias);
+      return maxTokens === undefined
+        ? { usedTokens: tail.usedTokens }
+        : { usedTokens: tail.usedTokens, maxTokens };
     }).pipe(Effect.orElseSucceed(() => undefined));
 };

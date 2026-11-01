@@ -1266,15 +1266,22 @@ describe("AcpRegistryAdapterV2", () => {
       const shareDirectory = yield* fileSystem.makeTempDirectoryScoped({
         prefix: "t3-kimi-share-",
       });
-      const sessionDirectory = path.join(shareDirectory, "sessions", "bucket", CLAUDE_ROOT_SESSION);
-      yield* fileSystem.makeDirectory(sessionDirectory, { recursive: true });
+      const mainDirectory = path.join(
+        shareDirectory,
+        "sessions",
+        "wd_bucket",
+        CLAUDE_ROOT_SESSION,
+        "agents",
+        "main",
+      );
+      yield* fileSystem.makeDirectory(mainDirectory, { recursive: true });
       yield* fileSystem.writeFileString(
-        path.join(sessionDirectory, "context.jsonl"),
-        `${JSON.stringify({ role: "_usage", token_count: 7_000 })}\n`,
+        path.join(shareDirectory, "config.toml"),
+        '[models."kimi-code/test"]\nmax_context_size = 200000\n',
       );
       yield* fileSystem.writeFileString(
-        path.join(sessionDirectory, "wire.jsonl"),
-        `${JSON.stringify({ message: { max_context_tokens: 200_000 } })}\n`,
+        path.join(mainDirectory, "wire.jsonl"),
+        `${JSON.stringify({ type: "llm.request", modelAlias: "kimi-code/test" })}\n${JSON.stringify({ type: "token_counting.measured", tokens: 7_000 })}\n`,
       );
       const gate = makeProviderReplayGate(["accepted"]);
       const { prompt, idle } = claudeFrames;
@@ -1290,7 +1297,7 @@ describe("AcpRegistryAdapterV2", () => {
         ],
         gate,
         false,
-        { agentId: "kimi", environment: { KIMI_SHARE_DIR: shareDirectory } },
+        { agentId: "kimi", environment: { KIMI_CODE_HOME: shareDirectory } },
       );
       yield* session.runtime.startTurn(session.turnInput(1));
       // The reply is still being held back, so only the file poll can have produced this reading.
