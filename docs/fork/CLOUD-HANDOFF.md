@@ -5,6 +5,35 @@ nightly `v0.1.6-nightly.20261031.3969` (`main` @ `e5909e53`). Read `MODS.md` for
 and `HANDOFF.md`/`BACKGROUND.md`/`FEATURES-AND-TWEAKS.md` for the original plan (those four plan
 files are copies from the `network-inventory` repo; see "Corrections to the plan" below).
 
+## Mac verification update (2026-11-02)
+
+The Mac session ran everything below against real providers in an isolated dev state
+(`~/.t3-fork-dev`, browser pane), then merged upstream nightly `0.1.7-nightly.20261102.4093` into
+`mine` (`11b048da`) and installed an unsigned build as `/Applications/T3 Code (Nightly).app`.
+
+| Mod              | Claude                           | Codex           | Antigravity | Kimi Code 2.3.3 (local `kimi acp`)         |
+| ---------------- | -------------------------------- | --------------- | ----------- | ------------------------------------------ |
+| 1 Live streaming | not judged for smoothness        | not judged      | not tested  | reasoning streams live                     |
+| 2 Context meter  | stored per step; meter is opt-in | stored per step | not tested  | works after fix `3549a760` (19% in a turn) |
+| 3 Tasks tab      | works (needs fix `6fc9c6b9`)     | works           | not tested  | todo/plan shows in the timeline            |
+| 4 Kimi quota     | n/a                              | n/a             | n/a         | weekly and 5-hour bars after `baa81dc3`    |
+
+Fixes found on the Mac: `6fc9c6b9` (Claude todo tools env var), `cd0c91c7` (Kimi Code 2.3.3 layout,
+credentials, local command), `3549a760` (stray `.DS_Store` broke the Kimi session lookup silently),
+`baa81dc3` (quota must be set in `checkProvider`, not enrichment). Details are in `MODS.md`.
+
+Still open: Antigravity needs a sign-in and was not tested; streaming smoothness on Claude and Codex
+and the 100 ms throttle are not judged; the meter's opt-in default means it looks "missing" on a
+fresh profile; `ChatView.browser.test.tsx` and two `AcpRegistrySupport.test.ts` install tests
+(5 s timeouts under load) were not compared against pristine upstream; the Kimi token is never
+refreshed by T3 (stale message after idle). The old Kimi 1.x registry agent is not supported by the
+new session reader. Dev-run hygiene: use the browser-pane dev server, never `dev:desktop` (stray
+watchers relaunched "T3 Code (Dev)" apps and flooded the Dock, plus macOS 27 keeps a
+background-task entry for them).
+
+The rest of this file is the cloud session's original text; the Kimi paths below
+(`~/.kimi/...`) are for Kimi 1.x and are superseded by `MODS.md`.
+
 ## Status per mod
 
 | #   | Mod                              | Code                 | Verified in the cloud                                                                                    | NOT verified (Mac)                                                                              |
