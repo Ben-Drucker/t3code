@@ -541,7 +541,50 @@ export interface ClaudeAgentSdkQuerySession {
     toolUseId: string,
   ) => Effect.Effect<boolean, ClaudeAgentSdkQueryRunnerError>;
   readonly interrupt: Effect.Effect<void, ClaudeAgentSdkQueryRunnerError>;
+  /** Claude's own account of what fills the window; absent on runners that cannot ask. */
+  readonly getContextUsage?: Effect.Effect<
+    ClaudeContextUsageReport,
+    ClaudeAgentSdkQueryRunnerError
+  >;
   readonly close: Effect.Effect<void, ClaudeAgentSdkQueryRunnerError>;
+}
+
+export interface ClaudeContextUsageReport {
+  readonly usedTokens: number;
+  readonly breakdown: ReadonlyArray<{
+    readonly category: "messages" | "skills" | "system";
+    readonly tokens: number;
+  }>;
+}
+
+/** Folds Claude's /context rows into messages, skills, and tools/system. Free space and the compaction reserve are not content. */
+export function claudeContextUsageReport(response: {
+  readonly categories: ReadonlyArray<{
+    readonly name: string;
+    readonly tokens: number;
+    readonly kind: "used" | "free" | "buffer" | "deferred";
+  }>;
+}): ClaudeContextUsageReport {
+  const totals = { messages: 0, skills: 0, system: 0 };
+  for (const row of response.categories) {
+    if (row.kind !== "used") continue;
+    const name = row.name.toLowerCase();
+    const bucket =
+      name === "messages" || name === "since last update"
+        ? "messages"
+        : name === "skills"
+          ? "skills"
+          : "system";
+    totals[bucket] += Math.max(0, Math.round(row.tokens));
+  }
+  return {
+    usedTokens: totals.messages + totals.skills + totals.system,
+    breakdown: [
+      { category: "messages", tokens: totals.messages },
+      { category: "skills", tokens: totals.skills },
+      { category: "system", tokens: totals.system },
+    ],
+  };
 }
 
 type ClaudeQueryStreamExit = Exit.Exit<void, ClaudeAgentSdkQueryRunnerError>;
@@ -1237,6 +1280,10 @@ export const layerQueryRunner: Layer.Layer<
                   }),
                 ),
               ),
+            getContextUsage: Effect.tryPromise({
+              try: () => queryRuntime.getContextUsage(),
+              catch: (cause) => queryRunnerError(cause, "getContextUsage"),
+            }).pipe(Effect.map(claudeContextUsageReport)),
             interrupt: Effect.tryPromise({
               try: () => queryRuntime.interrupt(),
               catch: (cause) => queryRunnerError(cause, "interrupt"),
@@ -5109,6 +5156,50 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               startedAt: context.startedAt,
               completedAt: null,
               tokenUsage,
+            },
+          });
+        });
+
+        // The turn's final usage lacks a split; Claude reports one on request, best effort.
+        const emitClaudeContextBreakdown = Effect.fnUntraced(function* (
+          context: ActiveClaudeTurnContext,
+        ) {
+          const liveQuery = yield* Ref.get(queryContext);
+          const getContextUsage = liveQuery?.query.getContextUsage;
+          if (getContextUsage === undefined) return;
+          const report = yield* getContextUsage.pipe(
+            Effect.timeoutOption("3 seconds"),
+            Effect.map(Option.getOrUndefined),
+            Effect.orElseSucceed(() => undefined),
+          );
+          if (report === undefined || report.usedTokens <= 0) return;
+          const now = yield* DateTime.now;
+          const maxTokens = claudeContextWindow(context.input.modelSelection);
+          yield* emitProviderEvent({
+            type: "provider_turn.updated",
+            driver: CLAUDE_PROVIDER,
+            threadId: context.input.threadId,
+            providerTurn: {
+              id: context.providerTurnId,
+              providerThreadId: context.input.providerThread.id,
+              nodeId: context.input.rootNodeId,
+              runAttemptId: context.input.attemptId,
+              nativeTurnRef: {
+                driver: CLAUDE_PROVIDER,
+                nativeId: context.nativeTurnId,
+                strength: "strong",
+              },
+              ordinal: context.providerTurnOrdinal,
+              status: "running",
+              startedAt: context.startedAt,
+              completedAt: null,
+              tokenUsage: {
+                usedTokens: report.usedTokens,
+                maxTokens,
+                breakdown: [...report.breakdown],
+                ...claudeAutoCompactThreshold(adapterOptions.settings.autoCompactWindow, maxTokens),
+                updatedAt: DateTime.formatIso(now),
+              },
             },
           });
         });
@@ -9452,6 +9543,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               next.delete(context.providerTurnId);
               return next;
             });
+            yield* emitClaudeContextBreakdown(context);
             const usageLimited =
               context.authenticationFailureMessage === undefined &&
               (context.rejectedRateLimitTypes.size > 0 ||

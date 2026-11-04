@@ -27,6 +27,14 @@ export function isToolLifecycleItemType(value: string): value is ToolLifecycleIt
   return TOOL_LIFECYCLE_ITEM_TYPES.includes(value as ToolLifecycleItemType);
 }
 
+// What fills the window, when the provider says so. Free space is not a row.
+export const ThreadContextBreakdown = Schema.Array(
+  Schema.Struct({
+    category: Schema.Literals(["reasoning", "messages", "skills", "system"]),
+    tokens: NonNegativeInt,
+  }),
+);
+
 export const ThreadTokenUsageSnapshot = Schema.Struct({
   usedTokens: NonNegativeInt,
   totalProcessedTokens: Schema.optional(NonNegativeInt),
@@ -44,15 +52,7 @@ export const ThreadTokenUsageSnapshot = Schema.Struct({
   durationMs: Schema.optional(NonNegativeInt),
   compactsAutomatically: Schema.optional(Schema.Boolean),
   autoCompactThreshold: Schema.optional(PositiveInt),
-  // What fills the window, when the provider says so. Free space is not a row.
-  breakdown: Schema.optional(
-    Schema.Array(
-      Schema.Struct({
-        category: Schema.Literals(["reasoning", "messages", "skills", "system"]),
-        tokens: NonNegativeInt,
-      }),
-    ),
-  ),
+  breakdown: Schema.optional(ThreadContextBreakdown),
   cost: Schema.optional(
     Schema.Struct({
       amount: Schema.Number.check(Schema.isFinite()),

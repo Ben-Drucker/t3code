@@ -84,7 +84,7 @@ import {
   ToolActivityIcon,
   ToolActivitySource,
 } from "./providerRuntime.ts";
-import { ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
+import { ThreadContextBreakdown, ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
 
 export const OrchestrationV2Actor = Schema.Literals(["user", "agent", "system"]);
 export type OrchestrationV2Actor = typeof OrchestrationV2Actor.Type;
@@ -223,6 +223,7 @@ export const OrchestrationV2ProviderTurnTokenUsage = Schema.Struct({
   reasoningOutputTokens: Schema.optional(NonNegativeInt),
   promptCacheTtlMs: Schema.optional(PositiveInt),
   autoCompactThreshold: Schema.optional(PositiveInt),
+  breakdown: Schema.optional(ThreadContextBreakdown),
   promptCacheExpiresAt: Schema.optional(Schema.String),
   updatedAt: Schema.String,
 });
