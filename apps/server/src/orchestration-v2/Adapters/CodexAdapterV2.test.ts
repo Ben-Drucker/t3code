@@ -112,7 +112,7 @@ describe("CodexAdapterV2 context usage", () => {
       inputTokens: 45_000,
       cachedInputTokens: 10_000,
       outputTokens: 5_000,
-      reasoningOutputTokens: 1_000,
+      reasoningOutputTokens: 5_000,
       updatedAt: "2026-08-29T00:00:00.000Z",
     });
   });

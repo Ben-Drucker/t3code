@@ -20,8 +20,8 @@ export const CONTEXT_BREAKDOWN_LABELS: Record<ContextBreakdownCategory, string> 
   system: "Tools & system",
 };
 
-// Prose and code average a little under four characters per token.
-const CHARS_PER_TOKEN = 3.7;
+// Measured on GPT-6.1 Sol Codex logs: tool output and messages run about 4.1 characters per token.
+const CHARS_PER_TOKEN = 4.1;
 
 function textLength(value: unknown): number {
   if (typeof value === "string") return value.length;
@@ -55,12 +55,15 @@ function measureItem(item: ThreadStructureTurnItem): {
       return { messages: item.markdown.length, skills: 0 };
     case "command_execution":
     case "dynamic_tool": {
-      const chars = textLength(item.input) + textLength(item.output);
+      const chars = textLength(item.input) + (item.outputChars ?? textLength(item.output));
       return isSkillItem(item) ? { messages: 0, skills: chars } : { messages: chars, skills: 0 };
     }
     case "file_change":
       return {
-        messages: item.diffStr?.length ?? (item.newStr?.length ?? 0) + (item.oldStr?.length ?? 0),
+        messages:
+          item.changeChars ??
+          item.diffStr?.length ??
+          (item.newStr?.length ?? 0) + (item.oldStr?.length ?? 0),
         skills: 0,
       };
     case "file_search":

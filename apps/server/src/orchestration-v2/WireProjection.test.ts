@@ -158,7 +158,7 @@ describe("orchestration V2 wire projection", () => {
 
   it("omits even small dynamic tool results while retaining input", () => {
     const item = { ...base, output: { ok: true } } satisfies OrchestrationV2TurnItem;
-    expect(projectTurnItemForWire(item)).toEqual({ ...base, outputOmitted: true });
+    expect(projectTurnItemForWire(item)).toEqual({ ...base, outputOmitted: true, outputChars: 11 });
     expect(item.output).toEqual({ ok: true });
   });
 

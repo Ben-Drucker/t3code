@@ -8,7 +8,7 @@ describe("estimateContextBreakdown", () => {
   it("assigns the unexplained remainder to tools and system", () => {
     const result = estimateContextBreakdown({
       entries: [],
-      messageChars: 7400,
+      messageChars: 8200,
       usedTokens: 10_000,
     });
     const byCategory = Object.fromEntries(result.categories.map((c) => [c.category, c.tokens]));
@@ -20,7 +20,7 @@ describe("estimateContextBreakdown", () => {
   it("counts skill reads as skills and prefers reported reasoning", () => {
     const result = estimateContextBreakdown({
       entries: [
-        entry({ type: "dynamic_tool", toolName: "Skill", input: {}, output: "z".repeat(370) }),
+        entry({ type: "dynamic_tool", toolName: "Skill", input: {}, output: "z".repeat(410) }),
       ],
       messageChars: 0,
       usedTokens: 5_000,
@@ -31,9 +31,25 @@ describe("estimateContextBreakdown", () => {
     expect(byCategory.reasoning).toBe(700);
   });
 
+  it("sizes tool output the wire withheld from the reported character count", () => {
+    const result = estimateContextBreakdown({
+      entries: [
+        entry({
+          type: "command_execution",
+          input: "ls",
+          outputOmitted: true,
+          outputChars: 41_000,
+        }),
+      ],
+      messageChars: 0,
+      usedTokens: 50_000,
+    });
+    expect(result.categories.find((c) => c.category === "messages")?.tokens).toBe(10_000 + 0);
+  });
+
   it("drops everything before the last compaction", () => {
     const result = estimateContextBreakdown({
-      entries: [entry({ type: "compaction", summary: "s".repeat(370) })],
+      entries: [entry({ type: "compaction", summary: "s".repeat(410) })],
       messageChars: 0,
       usedTokens: 4_000,
     });

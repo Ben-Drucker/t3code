@@ -172,14 +172,16 @@ export function projectTurnItemForWire(item: OrchestrationV2TurnItem): Orchestra
       return {
         ...projected,
         ...(failed ? { outputIndicatesFailure: true } : {}),
-        ...(output?.trim() ? { outputOmitted: true } : {}),
+        ...(output?.trim() ? { outputOmitted: true, outputChars: output.length } : {}),
       };
     }
     case "file_change": {
-      const { diffStr, oldStr: _old, newStr: _new, ...projected } = item;
+      const { diffStr, oldStr, newStr, ...projected } = item;
+      const changeChars = diffStr?.length ?? (newStr?.length ?? 0) + (oldStr?.length ?? 0);
+      const sized = changeChars > 0 ? { ...projected, changeChars } : projected;
       return item.status === "failed" && diffStr?.trim()
-        ? { ...projected, diffStr: truncateDetail(diffStr) }
-        : projected;
+        ? { ...sized, diffStr: truncateDetail(diffStr) }
+        : sized;
     }
     case "subagent":
       return {
@@ -195,11 +197,22 @@ export function projectTurnItemForWire(item: OrchestrationV2TurnItem): Orchestra
         ...projected,
         input: summarizeDynamicValue(item.input),
         ...(output === undefined ? {} : { output }),
-        ...(hasDynamicValue(rawOutput) ? { outputOmitted: true } : {}),
+        ...(hasDynamicValue(rawOutput)
+          ? { outputOmitted: true, outputChars: item.outputChars ?? dynamicValueChars(rawOutput) }
+          : {}),
       };
     }
     default:
       return item;
+  }
+}
+
+function dynamicValueChars(value: unknown): number {
+  if (typeof value === "string") return value.length;
+  try {
+    return JSON.stringify(omitToolOutputImageData(value))?.length ?? 0;
+  } catch {
+    return 0;
   }
 }
 

@@ -198,6 +198,7 @@ export function canReuseCodexContextUsage(previous: ModelSelection, next: ModelS
 export function codexProviderTurnTokenUsage(
   tokenUsage: CodexSchema.V2ThreadTokenUsageUpdatedNotification["tokenUsage"],
   updatedAt: string,
+  reasoningAtCompaction = 0,
 ) {
   return {
     usedTokens: Math.max(0, tokenUsage.last.totalTokens),
@@ -205,7 +206,11 @@ export function codexProviderTurnTokenUsage(
     inputTokens: Math.max(0, tokenUsage.last.inputTokens),
     cachedInputTokens: Math.max(0, tokenUsage.last.cachedInputTokens),
     outputTokens: Math.max(0, tokenUsage.last.outputTokens),
-    reasoningOutputTokens: Math.max(0, tokenUsage.last.reasoningOutputTokens),
+    // Codex keeps all reasoning in context until a compaction drops it.
+    reasoningOutputTokens: Math.max(
+      0,
+      tokenUsage.total.reasoningOutputTokens - reasoningAtCompaction,
+    ),
     updatedAt,
   };
 }
@@ -4492,6 +4497,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 tokenUsage: codexProviderTurnTokenUsage(
                   payload.tokenUsage,
                   DateTime.formatIso(now),
+                  usageStateForThread(payload.threadId).reasoningAtCompaction,
                 ),
               },
             });
@@ -4720,6 +4726,13 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             nativeItemId,
             updatedAt,
           );
+          if (status === "completed") {
+            const nativeThreadId = context.providerThread.nativeThreadRef?.nativeId;
+            if (nativeThreadId) {
+              const usageState = usageStateForThread(nativeThreadId);
+              usageState.reasoningAtCompaction = usageState.baseline?.reasoningTokens ?? 0;
+            }
+          }
           if (status === "running") context.runningCompactionItemIds.add(nativeItemId);
           else context.runningCompactionItemIds.delete(nativeItemId);
           yield* emitProviderEvent({

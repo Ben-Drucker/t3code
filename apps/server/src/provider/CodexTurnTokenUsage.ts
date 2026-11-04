@@ -22,6 +22,8 @@ interface CodexTurnTokenUsageAccumulator {
 export interface CodexTurnTokenUsageState {
   baseline: CodexCumulativeTokenUsage | undefined;
   activeTurnId: string | undefined;
+  /** Thread-wide reasoning total when the context was last compacted; compaction drops it. */
+  reasoningAtCompaction: number;
   readonly byTurnId: Map<string, CodexTurnTokenUsageAccumulator>;
 }
 
@@ -43,6 +45,7 @@ export function makeCodexTurnTokenUsageState(): CodexTurnTokenUsageState {
   return {
     baseline: undefined,
     activeTurnId: undefined,
+    reasoningAtCompaction: 0,
     byTurnId: new Map(),
   };
 }
