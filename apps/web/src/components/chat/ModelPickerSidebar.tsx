@@ -168,6 +168,7 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
                   accentColor={entry.accentColor}
                   acpRegistryAgentId={entry.acpRegistryAgentId}
                   acpRegistryIconUrl={entry.acpRegistryIconUrl}
+                  customIconUrl={entry.customIconUrl}
                   showBadge={showInstanceBadge}
                   className="size-6 z-30"
                   iconClassName="size-5"

@@ -155,6 +155,7 @@ export function useCommandPaletteThreadItems(input: {
           }
           acpRegistryAgentId={providerEntry?.acpRegistryAgentId}
           acpRegistryIconUrl={providerEntry?.acpRegistryIconUrl}
+          customIconUrl={providerEntry?.customIconUrl}
         />
       );
     },

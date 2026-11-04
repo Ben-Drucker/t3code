@@ -150,6 +150,8 @@ function providerEnvironmentsEqual(
   );
 }
 
+const CUSTOM_ICON_URL_PATTERN = /^(?:https:\/\/|data:image\/)\S+$/;
+
 function readConfigString(config: unknown, key: string): string | null {
   if (config === null || typeof config !== "object") return null;
   const value = (config as Record<string, unknown>)[key];
@@ -840,6 +842,17 @@ export function ProviderInstanceCard({
     );
   };
 
+  const updateCustomIconUrl = (value: string) => {
+    const trimmed = value.trim();
+    const { customIconUrl: _omit, ...rest } = instance;
+    if (trimmed.length === 0) {
+      onUpdate(rest as ProviderInstanceConfig);
+      return;
+    }
+    if (!CUSTOM_ICON_URL_PATTERN.test(trimmed)) return;
+    onUpdate({ ...rest, customIconUrl: trimmed } as ProviderInstanceConfig);
+  };
+
   const updateConfig = (nextConfig: Record<string, unknown> | undefined) => {
     const { config: _omit, ...rest } = instance;
     onUpdate(
@@ -900,6 +913,7 @@ export function ProviderInstanceCard({
       driverKind={driverKind ?? instance.driver}
       displayName={displayName}
       accentColor={accentColor}
+      customIconUrl={instance.customIconUrl}
       acpRegistryAgentId={
         readConfigString(instance.config, "source") === "local"
           ? undefined
@@ -1274,6 +1288,30 @@ export function ProviderInstanceCard({
                 value={instance.displayName ?? ""}
                 onCommit={updateDisplayName}
                 placeholder={driverOption?.label ?? "Instance label"}
+                spellCheck={false}
+              />
+            </div>
+          }
+        />
+        <SettingsRow
+          title="Icon"
+          description="An https or data:image URL shown in place of the default icon."
+          control={
+            <div
+              inert={readOnly}
+              aria-disabled={readOnly || undefined}
+              className={cn(
+                "flex w-full min-w-0 items-center justify-end gap-2 @min-[32rem]/settings-row:w-auto",
+                readOnly && "opacity-50 select-none",
+              )}
+            >
+              <DraftInput
+                id={`provider-instance-${instanceId}-icon-url`}
+                size="sm"
+                className="min-w-0 flex-1 @min-[32rem]/settings-row:w-56"
+                value={instance.customIconUrl ?? ""}
+                onCommit={updateCustomIconUrl}
+                placeholder="https://example.com/icon.png"
                 spellCheck={false}
               />
             </div>

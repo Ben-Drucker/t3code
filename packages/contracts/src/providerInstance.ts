@@ -76,6 +76,13 @@ export const ProviderInstanceConfig = Schema.Struct({
   driver: ProviderDriverKind,
   displayName: Schema.optional(TrimmedNonEmptyString),
   accentColor: Schema.optional(TrimmedNonEmptyString),
+  // Picker and usage icon override; `data:` URLs keep the image inside settings.
+  customIconUrl: Schema.optional(
+    TrimmedNonEmptyString.check(
+      Schema.isPattern(/^(?:https:\/\/|data:image\/)\S+$/),
+      Schema.isMaxLength(65_536),
+    ),
+  ),
   environment: Schema.optionalKey(ProviderInstanceEnvironment),
   enabled: Schema.optionalKey(Schema.Boolean),
   config: Schema.optionalKey(Schema.Unknown),

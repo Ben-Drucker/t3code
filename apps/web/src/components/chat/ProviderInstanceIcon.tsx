@@ -63,6 +63,7 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
   accentColor?: string | undefined;
   acpRegistryAgentId?: string | undefined;
   acpRegistryIconUrl?: string | undefined;
+  customIconUrl?: string | undefined;
   showBadge?: boolean;
   badgeContent?: "initials" | "none";
   size?: "default" | "compact";
@@ -99,7 +100,16 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
       style={accentStyle}
       data-provider-accent-color={accentColor}
     >
-      {isAcpRegistry ? (
+      {props.customIconUrl ? (
+        <img
+          src={props.customIconUrl}
+          alt=""
+          referrerPolicy="no-referrer"
+          draggable={false}
+          className={cn("size-5 shrink-0 rounded-sm object-contain", iconClassName)}
+          aria-hidden
+        />
+      ) : isAcpRegistry ? (
         <AcpRegistryAgentIcon
           className={cn("size-5 rounded-none bg-transparent", iconClassName)}
           fallbackClassName="size-full"

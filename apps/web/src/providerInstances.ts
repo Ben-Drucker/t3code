@@ -33,6 +33,7 @@ export interface ProviderInstanceEntry {
   readonly accentColor?: string | undefined;
   readonly acpRegistryAgentId?: string | undefined;
   readonly acpRegistryIconUrl?: string | undefined;
+  readonly customIconUrl?: string | undefined;
   readonly continuationGroupKey?: string | undefined;
   readonly enabled: boolean;
   readonly installed: boolean;
@@ -132,18 +133,23 @@ function applyProviderInstanceBranding(
   const explicitInstance = Object.hasOwn(settings.providerInstances, entry.instanceId)
     ? settings.providerInstances[entry.instanceId]
     : undefined;
-  if (entry.driverKind !== "acpRegistry" || explicitInstance === undefined) return entry;
+  if (explicitInstance === undefined) return entry;
+  const branded =
+    explicitInstance.customIconUrl === undefined
+      ? entry
+      : { ...entry, customIconUrl: explicitInstance.customIconUrl };
+  if (entry.driverKind !== "acpRegistry") return branded;
   const config =
     explicitInstance.config !== null && typeof explicitInstance.config === "object"
       ? (explicitInstance.config as Readonly<Record<string, unknown>>)
       : null;
   if (config?.source === "local") {
-    return { ...entry, acpRegistryAgentId: undefined, acpRegistryIconUrl: undefined };
+    return { ...branded, acpRegistryAgentId: undefined, acpRegistryIconUrl: undefined };
   }
   const agentId = config?.agentId;
   const iconUrl = config?.registryIconUrl;
   return {
-    ...entry,
+    ...branded,
     ...(typeof agentId === "string" && agentId.trim()
       ? { acpRegistryAgentId: agentId.trim() }
       : {}),
