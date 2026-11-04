@@ -99,6 +99,8 @@ preflight() {
   xcode-select -p >/dev/null 2>&1 \
     || die "Xcode command line tools are missing. Run 'xcode-select --install', finish the installer, then re-run."
 
+  # shellcheck disable=SC1091
+  [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
   if ! rust_ok; then
     if command -v rustup >/dev/null 2>&1; then
       confirm "Rust is older than 1.85. Update it with rustup?" || die "Rust 1.85 or newer is required."
