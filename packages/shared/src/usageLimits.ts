@@ -157,6 +157,11 @@ export type LimitPresentations = ReadonlyMap<
     readonly serverConfig: {
       readonly providers: readonly ServerProvider[];
       readonly usageLimitSources?: UsageLimitSourceSnapshots | undefined;
+      readonly settings?: {
+        readonly providerInstances?:
+          | Readonly<Record<string, { readonly customIconUrl?: string | undefined }>>
+          | undefined;
+      };
     } | null;
   }
 >;
@@ -239,6 +244,7 @@ export interface LimitAccount {
   readonly email: string | undefined;
   readonly plan: string | undefined;
   readonly accentColor: string | undefined;
+  readonly customIconUrl?: string | undefined;
   readonly environments: ReadonlyArray<{
     readonly environmentId: EnvironmentId;
     readonly label: string;
@@ -302,6 +308,7 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
       displayName: previous.displayName ?? next.displayName,
       plan: planSources.get(key)?.plan ?? previous.plan ?? next.plan,
       accentColor: previous.accentColor ?? next.accentColor,
+      customIconUrl: previous.customIconUrl ?? next.customIconUrl,
       environments,
       sourceLabel: environments.length > 0 ? null : (previous.sourceLabel ?? next.sourceLabel),
       redeem:
@@ -334,6 +341,9 @@ export function collectLimitAccounts(presentations: LimitPresentations): readonl
         email: provider.auth.email,
         plan: provider.auth.label,
         accentColor: provider.accentColor,
+        customIconUrl:
+          presentation.serverConfig?.settings?.providerInstances?.[provider.instanceId]
+            ?.customIconUrl,
         environments: [{ environmentId, label }],
         sourceLabel: null,
         redeem: { environmentId, input: { instanceId: provider.instanceId } },
