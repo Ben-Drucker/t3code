@@ -253,6 +253,7 @@ import {
   type ComposerDispatchMode,
 } from "@t3tools/client-runtime/state/composer-dispatch";
 import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow";
+import { resolveContextBreakdown } from "../../lib/contextBreakdown";
 import {
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
@@ -429,6 +430,7 @@ export interface ChatComposerProps {
   activeProjectId: ProjectId | null;
 
   contextWindowEntries: Parameters<typeof deriveLatestContextWindowSnapshot>[0];
+  contextWindowMessageChars: number;
   contextWindowLiveUsage: Parameters<typeof deriveLatestContextWindowSnapshot>[1];
   contextWindowProviderThread: Parameters<typeof deriveLatestContextWindowSnapshot>[2];
   compactThreadUnavailable: boolean;
@@ -555,6 +557,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     reportedModelSelection,
     activeProjectId,
     contextWindowEntries,
+    contextWindowMessageChars,
     contextWindowLiveUsage,
     contextWindowProviderThread,
     compactThreadUnavailable,
@@ -606,6 +609,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     contextWindowLiveUsage,
     contextWindowProviderThread,
   );
+  const contextBreakdown =
+    settings.contextWindowMeterEnabled && activeContextWindow
+      ? resolveContextBreakdown({
+          reported: activeContextWindow.breakdown,
+          entries: contextWindowEntries,
+          messageChars: contextWindowMessageChars,
+          usedTokens: activeContextWindow.usedTokens,
+          reportedReasoningTokens: activeContextWindow.reasoningOutputTokens,
+        })
+      : null;
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const composerDraftTargetKey = composerTargetKey(composerDraftTarget);
   const {
@@ -1858,6 +1871,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (!trigger) return;
     if (item.type === "path") {
       if (!isPathSuggestionCurrent(item.searchTarget, trigger, environmentId, gitCwd)) return;
+      if (item.directoryCompletion !== undefined) {
+        // Stay in the path trigger so the menu lists the folder's contents next.
+        applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, item.directoryCompletion, {
+          expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+        });
+        return;
+      }
       const replacement = `${serializeComposerFileLink(item.path)} `;
       const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
         snapshot.value,
@@ -3213,6 +3233,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onToggleOption={onSelectActivePendingUserInputOption}
                     onAdvance={onAdvanceActivePendingUserInput}
                     onDismiss={onDismissActivePendingUserInput}
+                    onFocusCustomAnswer={() => composerEditorRef.current?.focusAtEnd()}
                   />
                 ) : !isComposerCollapsedMobile && showPlanFollowUpPrompt && activeProposedPlan ? (
                   <ComposerPlanFollowUpBanner
@@ -3508,6 +3529,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     activeContextWindow={
                       settings.contextWindowMeterEnabled ? activeContextWindow : null
                     }
+                    contextBreakdown={contextBreakdown}
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     pendingAction={pendingPrimaryAction}

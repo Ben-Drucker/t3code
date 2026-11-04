@@ -120,6 +120,9 @@ const IGNORE_CHECK_CHUNK_SIZE = 1000;
 /** Children classified at once when listing a folder; each symlink costs a realpath and a stat. */
 const SYMLINK_RESOLVE_BATCH_SIZE = 64;
 
+/** Most entries a file-inclusive listing returns; typing narrows it further. */
+const BROWSE_MAX_ENTRIES = 200;
+
 const resolveBrowseTarget = Effect.fn("WorkspaceEntries.resolveBrowseTarget")(function* (
   input: FilesystemBrowseInput,
   path: Path.Path,
@@ -229,23 +232,53 @@ export const make = Effect.gen(function* () {
 
       const showHidden = endsWithSeparator || prefix.startsWith(".");
       const lowerPrefix = prefix.toLowerCase();
-      const entries: Array<{ readonly name: string; readonly fullPath: string }> = [];
-      for (const dirent of dirents) {
-        if (
-          dirent.isDirectory() &&
+      const includeFiles = input.includeFiles === true;
+      const matches = dirents.filter(
+        (dirent) =>
           dirent.name.toLowerCase().startsWith(lowerPrefix) &&
-          (showHidden || !dirent.name.startsWith("."))
-        ) {
-          entries.push({
-            name: dirent.name,
-            fullPath: path.join(parentPath, dirent.name),
-          });
+          (showHidden || !dirent.name.startsWith(".")) &&
+          (dirent.isDirectory() || (includeFiles && (dirent.isFile() || dirent.isSymbolicLink()))),
+      );
+      const entries: Array<{
+        readonly name: string;
+        readonly fullPath: string;
+        readonly kind?: "file" | "directory";
+      }> = [];
+      // Cap before the per-link stat so a huge folder costs one readdir and a bounded number of stats.
+      const candidates = includeFiles
+        ? matches
+            .toSorted(
+              (left, right) =>
+                Number(!left.isDirectory()) - Number(!right.isDirectory()) ||
+                left.name.localeCompare(right.name),
+            )
+            .slice(0, BROWSE_MAX_ENTRIES)
+        : matches;
+      for (const dirent of candidates) {
+        const fullPath = path.join(parentPath, dirent.name);
+        if (!includeFiles) {
+          entries.push({ name: dirent.name, fullPath });
+          continue;
         }
+        // A symlink is a folder only if its target is; one stat per link, never per file.
+        const isDirectory = dirent.isSymbolicLink()
+          ? yield* Effect.promise(() =>
+              NodeFSP.stat(fullPath).then(
+                (stats) => stats.isDirectory(),
+                () => false,
+              ),
+            )
+          : dirent.isDirectory();
+        entries.push({ name: dirent.name, fullPath, kind: isDirectory ? "directory" : "file" });
       }
+      const kindRank = (kind: "file" | "directory" | undefined) => (kind === "file" ? 1 : 0);
 
       return {
         parentPath,
-        entries: entries.toSorted((left, right) => left.name.localeCompare(right.name)),
+        entries: entries.toSorted(
+          (left, right) =>
+            kindRank(left.kind) - kindRank(right.kind) || left.name.localeCompare(right.name),
+        ),
       };
     },
   );

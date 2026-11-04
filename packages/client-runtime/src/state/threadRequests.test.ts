@@ -297,7 +297,7 @@ describe("pending v2 questions", () => {
             header: "Next",
             question: "What should happen next?",
             required: true,
-            allowCustomAnswer: false,
+            allowCustomAnswer: true,
             multiSelect: false,
             options: [{ label: "Continue", value: "  continue  ", description: "Resume work" }],
           },

@@ -37,12 +37,14 @@ import {
   type EnvironmentQueryTarget,
 } from "~/state/pullRequests";
 import { useEnvironmentQuery } from "~/state/query";
+import { filesystemEnvironment, useFilesystemReadAccess } from "~/state/filesystem";
 import { useComposerPathSearch, useDebouncedValue, useThreadSearch } from "~/state/queries";
 import {
   matchesPullRequestQuery,
   rankPullRequestMatches,
 } from "../pullRequest/pullRequestList.logic";
 import type { ComposerCommandItem } from "./ComposerCommandMenu";
+import { filesystemPathDirectoryPrefix, isFilesystemPathQuery } from "./composerFilesystemPath";
 import {
   searchSlashCommandItems,
   slashCommandItemsForPromptPosition,
@@ -120,11 +122,47 @@ export function useComposerMenuItems({
     ...identity,
     machine: environmentMachines.get(identity.environmentId) ?? ("server" as const),
   }));
+  // A query that starts like a disk path (`/`, `~`, `./`, `../`) lists that folder directly.
+  const diskPathQuery = isPathTrigger && isFilesystemPathQuery(pathTriggerQuery);
   const workspaceEntries = useComposerPathSearch({
     environmentId,
-    cwd: isPathTrigger ? gitCwd : null,
-    query: isPathTrigger ? pathTriggerQuery : null,
+    cwd: isPathTrigger && !diskPathQuery ? gitCwd : null,
+    query: isPathTrigger && !diskPathQuery ? pathTriggerQuery : null,
   });
+  const debouncedDiskPath = useDebouncedValue(diskPathQuery ? pathTriggerQuery.trim() : null, 40);
+  const diskPathAccess = useFilesystemReadAccess(diskPathQuery ? environmentId : null);
+  const diskPathListing = useEnvironmentQuery(
+    debouncedDiskPath !== null && diskPathAccess.canReadFiles
+      ? filesystemEnvironment.browse({
+          environmentId,
+          input: {
+            partialPath: debouncedDiskPath,
+            includeFiles: true,
+            ...(gitCwd ? { cwd: gitCwd } : {}),
+          },
+        })
+      : null,
+  );
+  const diskPathItems: ComposerCommandItem[] =
+    diskPathQuery && debouncedDiskPath !== null
+      ? (diskPathListing.data?.entries ?? []).map((entry) => {
+          const kind = entry.kind ?? "directory";
+          return {
+            id: `disk:${kind}:${entry.fullPath}`,
+            type: "path" as const,
+            path: entry.fullPath,
+            pathKind: kind,
+            searchTarget: { environmentId, cwd: gitCwd, query: debouncedDiskPath },
+            ...(kind === "directory"
+              ? {
+                  directoryCompletion: `@${filesystemPathDirectoryPrefix(debouncedDiskPath)}${entry.name}/`,
+                }
+              : {}),
+            label: entry.name,
+            description: entry.fullPath.slice(0, Math.max(0, entry.fullPath.lastIndexOf("/"))),
+          };
+        })
+      : [];
 
   const pullRequestListTargets =
     composerTriggerKind !== "pull-request" ||
@@ -186,6 +224,7 @@ export function useComposerMenuItems({
 
   const items = ((): ComposerCommandItem[] => {
     if (!composerTrigger) return [];
+    if (composerTrigger.kind === "path" && diskPathQuery) return diskPathItems;
     if (composerTrigger.kind === "path") {
       return [
         ...matchComposerThreadItems({
@@ -374,7 +413,14 @@ export function useComposerMenuItems({
     return [];
   })();
   const isLoading =
-    (composerTriggerKind === "path" && pathTriggerQuery.length > 0 && workspaceEntries.isPending) ||
+    (composerTriggerKind === "path" &&
+      !diskPathQuery &&
+      pathTriggerQuery.length > 0 &&
+      workspaceEntries.isPending) ||
+    (diskPathQuery &&
+      (debouncedDiskPath !== pathTriggerQuery.trim() ||
+        diskPathAccess.isPending ||
+        diskPathListing.isPending)) ||
     ((composerTriggerKind === "skill" || composerTriggerKind === "slash-command") &&
       workspaceSkillsScanning) ||
     (composerTriggerKind === "pull-request" &&

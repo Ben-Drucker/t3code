@@ -246,6 +246,8 @@ export function derivePendingThreadRequests(
         questions: item.questions.map((question) => ({
           ...question,
           multiSelect: question.multiSelect ?? false,
+          // Every question takes a typed answer, whatever the provider marked.
+          allowCustomAnswer: true,
         })),
         responseCapability,
         dismissible: item.responseMode === "message" || responseCapability === "message",

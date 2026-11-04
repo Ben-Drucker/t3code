@@ -44,6 +44,15 @@ export const ThreadTokenUsageSnapshot = Schema.Struct({
   durationMs: Schema.optional(NonNegativeInt),
   compactsAutomatically: Schema.optional(Schema.Boolean),
   autoCompactThreshold: Schema.optional(PositiveInt),
+  // What fills the window, when the provider says so. Free space is not a row.
+  breakdown: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        category: Schema.Literals(["reasoning", "messages", "skills", "system"]),
+        tokens: NonNegativeInt,
+      }),
+    ),
+  ),
   cost: Schema.optional(
     Schema.Struct({
       amount: Schema.Number.check(Schema.isFinite()),

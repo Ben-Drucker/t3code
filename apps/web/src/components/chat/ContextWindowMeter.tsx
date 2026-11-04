@@ -7,6 +7,7 @@ import {
 } from "./ContextWindowMeter.logic";
 import { Minimize2Icon } from "lucide-react";
 import { composerFloatingLayerProps } from "./composerEventScope";
+import { CONTEXT_BREAKDOWN_LABELS, type ContextBreakdown } from "~/lib/contextBreakdown";
 
 function formatPercentage(value: number | null): string | null {
   if (value === null || !Number.isFinite(value)) {
@@ -20,12 +21,14 @@ function formatPercentage(value: number | null): string | null {
 
 export function ContextWindowMeter(props: {
   usage: ContextWindowSnapshot;
+  breakdown?: ContextBreakdown | null | undefined;
   modelDisplayName?: string | null;
   onCompact?: (() => void) | undefined;
   compactDisabled?: boolean | undefined;
   compactDisabledReason?: string | null | undefined;
 }) {
-  const { usage, modelDisplayName, onCompact, compactDisabled, compactDisabledReason } = props;
+  const { usage, breakdown, modelDisplayName, onCompact, compactDisabled, compactDisabledReason } =
+    props;
   const usedPercentage = formatPercentage(usage.usedPercentage);
   const normalizedPercentage = Math.max(0, Math.min(100, usage.usedPercentage ?? 0));
   const radius = 9.75;
@@ -113,7 +116,9 @@ export function ContextWindowMeter(props: {
               </div>
             )}
           </div>
-          {usage.maxTokens !== null ? (
+          {breakdown ? (
+            <ContextBreakdownView usage={usage} breakdown={breakdown} />
+          ) : usage.maxTokens !== null ? (
             <div
               className="h-1.5 w-full overflow-hidden rounded-full bg-muted/60"
               role="progressbar"
@@ -176,4 +181,106 @@ export function ContextWindowMeter(props: {
 
 export function ContextWindowMeterPlaceholder() {
   return <span aria-hidden="true" className="size-7 shrink-0" />;
+}
+
+const SEGMENT_COLORS = {
+  messages: "#3b78d8",
+  system: "#e5793e",
+  reasoning: "#4fb08f",
+  skills: "#8a8a8a",
+  buffer: "#c4c4c4",
+  free: "#ebebeb",
+} as const;
+
+function formatSharePercentage(tokens: number, maxTokens: number): string {
+  const value = (tokens / maxTokens) * 100;
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)}%`;
+}
+
+/** A stacked bar plus legend: what fills the window, the autocompact reserve, and free space. */
+function ContextBreakdownView(props: {
+  usage: ContextWindowSnapshot;
+  breakdown: ContextBreakdown;
+}) {
+  const { usage, breakdown } = props;
+  const maxTokens = usage.maxTokens ?? null;
+  const bufferTokens =
+    maxTokens !== null && usage.autoCompactThreshold != null
+      ? Math.max(0, maxTokens - usage.autoCompactThreshold)
+      : 0;
+  const freeTokens =
+    maxTokens !== null ? Math.max(0, maxTokens - usage.usedTokens - bufferTokens) : 0;
+  const rows = [
+    ...[...breakdown.categories]
+      .toSorted((left, right) => right.tokens - left.tokens)
+      .map((row) => ({
+        key: row.category as string,
+        label: CONTEXT_BREAKDOWN_LABELS[row.category],
+        tokens: row.tokens,
+        color: SEGMENT_COLORS[row.category] as string,
+        approximate: breakdown.estimated,
+      })),
+    ...(bufferTokens > 0
+      ? [
+          {
+            key: "buffer",
+            label: "Autocompact buffer",
+            tokens: bufferTokens,
+            color: SEGMENT_COLORS.buffer as string,
+            approximate: false,
+          },
+        ]
+      : []),
+    ...(maxTokens !== null
+      ? [
+          {
+            key: "free",
+            label: "Free space",
+            tokens: freeTokens,
+            color: SEGMENT_COLORS.free as string,
+            approximate: false,
+          },
+        ]
+      : []),
+  ];
+  const barTotal = maxTokens ?? Math.max(1, usage.usedTokens);
+  return (
+    <div className="flex flex-col gap-2">
+      <div
+        className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted/40"
+        role="img"
+        aria-label="Context window breakdown"
+      >
+        {rows.map((row) =>
+          row.tokens > 0 ? (
+            <div
+              key={row.key}
+              style={{ width: `${(row.tokens / barTotal) * 100}%`, backgroundColor: row.color }}
+            />
+          ) : null,
+        )}
+      </div>
+      <div className="flex flex-col gap-1">
+        {rows.map((row) => (
+          <div key={row.key} className="flex items-center gap-2 text-2xs leading-4">
+            <span
+              aria-hidden="true"
+              className="size-2 shrink-0 rounded-xs"
+              style={{ backgroundColor: row.color }}
+            />
+            <span className="flex-1 text-secondary-label">{row.label}</span>
+            <span className="tabular-nums text-secondary-label">
+              {row.approximate ? "~" : ""}
+              {formatContextWindowTokens(row.tokens)}
+            </span>
+            {maxTokens !== null ? (
+              <span className="w-10 text-right font-medium tabular-nums text-secondary-label">
+                {formatSharePercentage(row.tokens, maxTokens)}
+              </span>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

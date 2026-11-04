@@ -17,7 +17,8 @@ type NullableContextWindowUsage = {
     : ThreadTokenUsageSnapshot[Key];
 };
 
-export type ContextWindowSnapshot = NullableContextWindowUsage & {
+export type ContextWindowSnapshot = Omit<NullableContextWindowUsage, "breakdown"> & {
+  readonly breakdown?: ThreadTokenUsageSnapshot["breakdown"] | null;
   readonly remainingTokens: number | null;
   readonly usedPercentage: number | null;
   readonly remainingPercentage: number | null;
@@ -125,6 +126,7 @@ export function deriveLatestContextWindowSnapshot(
       compactsAutomatically: providerUsage.compactsAutomatically ?? null,
       cost: providerUsage.cost ?? null,
       autoCompactThreshold: providerUsage.autoCompactThreshold ?? null,
+      breakdown: providerUsage.breakdown ?? null,
       updatedAt: DateTime.formatIso(providerUsageUpdatedAt),
     };
   }

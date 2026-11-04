@@ -25,6 +25,7 @@ interface PendingUserInputPanelProps {
   onToggleOption: (questionId: string, optionValue: string) => void;
   onAdvance: () => void;
   onDismiss: (requestId: RuntimeRequestId) => void;
+  onFocusCustomAnswer?: (() => void) | undefined;
 }
 
 export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserInputPanel({
@@ -38,6 +39,7 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
   onToggleOption,
   onAdvance,
   onDismiss,
+  onFocusCustomAnswer,
 }: PendingUserInputPanelProps) {
   if (pendingUserInputs.length === 0) return null;
   const activePrompt = pendingUserInputs[0];
@@ -56,6 +58,7 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
       onToggleOption={onToggleOption}
       onAdvance={onAdvance}
       onDismiss={onDismiss}
+      onFocusCustomAnswer={onFocusCustomAnswer}
     />
   );
 });
@@ -71,7 +74,9 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   onToggleOption,
   onAdvance,
   onDismiss,
+  onFocusCustomAnswer,
 }: {
+  onFocusCustomAnswer?: (() => void) | undefined;
   prompt: PendingUserInput;
   cwd: string | undefined;
   threadRef: ScopedThreadRef;
@@ -325,6 +330,34 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
                   </button>
                 );
               })}
+              <button
+                type="button"
+                aria-pressed={customAnswerActive}
+                disabled={disabled || isResponding}
+                data-pending-user-input-custom
+                onClick={() => onFocusCustomAnswer?.()}
+                className={cn(
+                  questionTextAlign,
+                  "group flex w-full items-start gap-2.5 rounded-md bg-transparent py-1.5 ps-2 sm:ps-1.5 outline-none transition-colors duration-150 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/25",
+                  customAnswerActive ? "text-foreground" : "text-foreground/70 hover:bg-muted/30",
+                  (disabled || isResponding) && "opacity-50 cursor-not-allowed",
+                  !disabled && !isResponding && "cursor-pointer",
+                )}
+              >
+                <span className="pointer-events-none flex h-5 shrink-0 items-center">
+                  {activeQuestion.multiSelect ? (
+                    <CheckboxMark checked={customAnswerActive} />
+                  ) : (
+                    <OptionRadio checked={customAnswerActive} />
+                  )}
+                </span>
+                <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                  <span className="text-sm font-medium">Custom answer</span>
+                  <span className="text-secondary-label text-2xs">
+                    Type your own answer in the message box below
+                  </span>
+                </div>
+              </button>
             </div>
           </ComposerBanner.Body>
         </ComposerBanner.Scroll>
