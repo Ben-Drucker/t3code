@@ -1085,6 +1085,18 @@ function OpenCommandPaletteDialog(props: {
       });
     }
 
+    sourceItems.push({
+      kind: "action",
+      value: `action:add-project:${environmentId}:welcome-wizard`,
+      searchTerms: ["welcome", "wizard", "import", "sessions", "history", "codex", "claude"],
+      title: "Welcome Wizard",
+      description: "Import projects and past sessions from other tools",
+      icon: <UserPlusIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate({ to: "/welcome", hash: `agents:${environmentId}` });
+      },
+    });
+
     return [{ value: `sources:${environmentId}`, label: "Sources", items: sourceItems }];
   };
 
