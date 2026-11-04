@@ -127,6 +127,7 @@ export type SidebarProviderEntry = Pick<
   | "accentColor"
   | "acpRegistryAgentId"
   | "acpRegistryIconUrl"
+  | "customIconUrl"
   | "models"
 >;
 function compactSidebarTimeLabel(label: string): string {
