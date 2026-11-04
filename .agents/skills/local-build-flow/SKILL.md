@@ -16,12 +16,14 @@ Do not use `dev:desktop` or any Electron dev run. It floods the Dock with
 1. Run `scripts/fork.sh status` and note the drift from upstream.
 2. If `git status -s` shows changes, ask whether to commit them first. Run
    `vp run typecheck` before committing (pre-commit also runs fmt, lint, knip).
-3. Run `scripts/fork.sh deploy` in the background (about 2 minutes). It builds the
+3. Run `scripts/fork.sh deploy` in the background (about 3 minutes, with a
+   progress bar and ETA). It builds the
    DMG, checks the version and that no `app-update.yml` is inside, quits T3, swaps
    the app into `/Applications`, and relaunches it. Its build log is
    `$T3_FORK_OUT/build.log`.
 4. Report whether the app launched and the installed version. Mention the
    rollback copy only if something went wrong.
 
-On a new machine, run `scripts/fork.sh setup` first. Do not touch `~/.t3`. Take a
+The same command sets up a new machine (toolchains, remotes, dependencies), so no
+separate setup step exists. Do not touch `~/.t3`. Take a
 backup (`cp -Rp ~/.t3 ~/.t3-backup-<date>`) only if a build changes stored data.

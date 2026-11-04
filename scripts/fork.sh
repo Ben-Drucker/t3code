@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # Personal-fork helper: set up a machine, show drift from upstream, build and install the macOS app.
 #
-#   scripts/fork.sh setup [--yes]     one-time machine setup (toolchains, remotes, dependencies)
-#   scripts/fork.sh status [--no-fetch]  how far the fork is from pingdotgg/t3code
-#   scripts/fork.sh build             build the DMG for the current checkout
-#   scripts/fork.sh install           verify the DMG and swap it into /Applications
-#   scripts/fork.sh deploy            build + install (the old /local-build-flow)
+#   scripts/fork.sh deploy [--yes] [--allow-dirty]   set up anything missing, build, install
+#   scripts/fork.sh status [--no-fetch]              how far the fork is from pingdotgg/t3code
+#   scripts/fork.sh build                            build the DMG only
+#   scripts/fork.sh install                          install the DMG for this checkout only
+#
+# On a new machine: clone the fork, then run `scripts/fork.sh deploy`. It installs missing
+# toolchains (after asking, or with --yes), adds the upstream remote, installs dependencies,
+# builds, and swaps the app into /Applications. Re-running it on a ready machine skips the setup.
 #
 # Environment:
-#   T3_FORK_OUT      where DMGs, logs and the rollback app go (default ~/Code/T3ForkContainer)
+#   T3_FORK_OUT      where DMGs, logs, step timings and the rollback app go (default ~/Code/T3ForkContainer)
 #   T3_FORK_BRANCH   branch builds must come from (default mine)
 #   T3_UPSTREAM_URL  upstream repository (default https://github.com/pingdotgg/t3code.git)
 set -euo pipefail
@@ -21,6 +24,7 @@ APP_NAME="T3 Code (Nightly)"
 APP="/Applications/$APP_NAME.app"
 VP_ENV="$HOME/.config/vite-plus/env"
 NODE_VERSION="$(sed -n 's/.*"node": *"\([0-9.]*\)".*/\1/p' "$REPO/package.json" | head -1)"
+TIMINGS="$OUT/step-times"
 ASSUME_YES=0
 ALLOW_DIRTY=0
 NO_FETCH=0
@@ -36,7 +40,7 @@ confirm() {
 
 # Runs a command under the Node version the repo pins, with the repo's task runner on PATH.
 in_node() {
-  [ -f "$VP_ENV" ] || die "Vite+ is not installed. Run: scripts/fork.sh setup"
+  [ -f "$VP_ENV" ] || die "Vite+ is not installed. Run: scripts/fork.sh deploy"
   # shellcheck disable=SC1090
   . "$VP_ENV"
   (cd "$REPO" && vp env exec --node "$NODE_VERSION" bash -c "$1")
@@ -48,13 +52,13 @@ in_node() {
 current_version() {
   local tag
   tag="$(git -C "$REPO" describe --tags --match 'v*nightly*' --abbrev=0 HEAD 2>/dev/null)" \
-    || die "No nightly tag is reachable from HEAD. Run: scripts/fork.sh status"
+    || die "No nightly tag is reachable from HEAD. Run: scripts/fork.sh deploy"
   printf '%s' "${tag#v}"
 }
 
 cmd_status() {
   cd "$REPO"
-  git remote get-url upstream >/dev/null 2>&1 || die "No 'upstream' remote. Run: scripts/fork.sh setup"
+  git remote get-url upstream >/dev/null 2>&1 || die "No 'upstream' remote. Run: scripts/fork.sh deploy"
   if [ "$NO_FETCH" = 0 ]; then
     say "Fetching upstream"
     git fetch --quiet --tags upstream main
@@ -78,16 +82,7 @@ cmd_status() {
   printf 'Version installed in /Applications: %s\n' "$installed"
 }
 
-# ---------------------------------------------------------------- setup
-
-ensure_remote() {
-  if git -C "$REPO" remote get-url upstream >/dev/null 2>&1; then
-    echo "upstream remote: $(git -C "$REPO" remote get-url upstream)"
-  else
-    git -C "$REPO" remote add upstream "$UPSTREAM_URL"
-    echo "added upstream remote: $UPSTREAM_URL"
-  fi
-}
+# ---------------------------------------------------------------- setup pieces
 
 rust_ok() {
   command -v rustc >/dev/null 2>&1 || return 1
@@ -97,62 +92,55 @@ rust_ok() {
   [ -n "$minor" ] && [ "$minor" -ge 85 ]
 }
 
-cmd_setup() {
+# Everything that may need a question or a long interactive install runs here, before the progress bar.
+preflight() {
   [ "$(uname -s)" = Darwin ] || die "This script builds the macOS app and only runs on macOS."
   [ "$(uname -m)" = arm64 ] || echo "warning: the build targets Apple Silicon (arm64); this machine is $(uname -m)."
+  xcode-select -p >/dev/null 2>&1 \
+    || die "Xcode command line tools are missing. Run 'xcode-select --install', finish the installer, then re-run."
 
-  say "Xcode command line tools"
-  if xcode-select -p >/dev/null 2>&1; then
-    echo "found at $(xcode-select -p)"
-  else
-    echo "Missing. Run 'xcode-select --install', finish the installer, then re-run setup."
-    exit 1
-  fi
-
-  say "Rust (1.85 or newer)"
-  if rust_ok; then
-    rustc --version
-  elif command -v rustup >/dev/null 2>&1; then
-    confirm "Update Rust with rustup?" && rustup update stable
-    rust_ok || die "Rust is still older than 1.85."
-  else
-    confirm "Install Rust with rustup?" || die "Rust is required for the desktop build."
-    curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y
-    # shellcheck disable=SC1091
-    . "$HOME/.cargo/env"
-  fi
-
-  say "Vite+ (task runner and Node $NODE_VERSION manager)"
-  if [ -f "$VP_ENV" ]; then
-    echo "found $VP_ENV"
-  else
-    confirm "Install Vite+ from https://vite.plus?" || die "Vite+ is required."
-    curl -fsSL https://vite.plus | bash
-  fi
-  [ -f "$VP_ENV" ] || die "Vite+ install did not create $VP_ENV. Open a new shell and re-run setup."
-
-  say "Git remotes and tags"
-  ensure_remote
-  git -C "$REPO" fetch --quiet --tags upstream main
-  git -C "$REPO" fetch --quiet --tags origin
-  if [ "$(git -C "$REPO" branch --show-current)" != "$BRANCH" ]; then
-    if git -C "$REPO" show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
-      git -C "$REPO" switch "$BRANCH" 2>/dev/null || git -C "$REPO" switch --track "origin/$BRANCH"
+  if ! rust_ok; then
+    if command -v rustup >/dev/null 2>&1; then
+      confirm "Rust is older than 1.85. Update it with rustup?" || die "Rust 1.85 or newer is required."
+      rustup update stable
     else
-      echo "warning: origin has no '$BRANCH' branch; staying on $(git -C "$REPO" branch --show-current)."
+      confirm "Rust is not installed. Install it with rustup?" || die "Rust is required for the desktop build."
+      curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y
+      # shellcheck disable=SC1091
+      . "$HOME/.cargo/env"
     fi
+    rust_ok || die "Rust is still older than 1.85."
   fi
 
-  say "Dependencies (Node $NODE_VERSION)"
-  in_node 'vp i'
+  if [ ! -f "$VP_ENV" ]; then
+    confirm "Vite+ (task runner and Node $NODE_VERSION manager) is not installed. Install it from https://vite.plus?" \
+      || die "Vite+ is required."
+    curl -fsSL https://vite.plus | bash
+    [ -f "$VP_ENV" ] || die "The Vite+ install did not create $VP_ENV. Open a new shell and re-run."
+  fi
 
   mkdir -p "$OUT"
-  say "Ready"
-  echo "Output directory: $OUT"
-  cmd_status
-  echo
-  echo "Next: scripts/fork.sh deploy"
+  check_tree_early
 }
+
+# Branch and cleanliness are checked before any work starts. A fresh clone may not be on the fork branch yet.
+check_tree_early() {
+  cd "$REPO"
+  git remote get-url upstream >/dev/null 2>&1 || git remote add upstream "$UPSTREAM_URL"
+  if [ "$(git branch --show-current)" != "$BRANCH" ]; then
+    git fetch --quiet origin "$BRANCH" 2>/dev/null || true
+    git switch "$BRANCH" 2>/dev/null || git switch --track "origin/$BRANCH" 2>/dev/null \
+      || die "Could not switch to '$BRANCH'. Set T3_FORK_BRANCH or create the branch."
+  fi
+  check_tree
+}
+
+step_sync() {
+  git -C "$REPO" fetch --quiet --tags upstream main
+  git -C "$REPO" fetch --quiet --tags origin
+}
+
+step_deps() { in_node 'vp i'; }
 
 # ---------------------------------------------------------------- build
 
@@ -176,7 +164,7 @@ cmd_build() {
   version="$(current_version)"
   log="$OUT/build.log"
   mkdir -p "$OUT"
-  say "Building $version (about 2 minutes, log: $log)"
+  echo "Building $version (log: $log)"
   # Never set the update-repository variables: they add app-update.yml and the app would self-update from upstream.
   if ! in_node "env -u GITHUB_REPOSITORY -u T3CODE_DESKTOP_UPDATE_REPOSITORY \
       node scripts/build-desktop-artifact.ts --platform mac --target dmg --arch arm64 \
@@ -196,7 +184,6 @@ cmd_install() {
   dmg="$(dmg_path "$version")"
   [ -f "$dmg" ] || die "No DMG for $version at $dmg. Run: scripts/fork.sh build"
 
-  say "Verifying the build"
   mount="$(hdiutil attach -nobrowse -readonly "$dmg" 2>/dev/null | awk -F'\t' '/\/Volumes\//{print $NF}' | tail -1)"
   [ -n "$mount" ] || die "Could not mount $dmg"
   built="$mount/$APP_NAME.app"
@@ -205,16 +192,14 @@ cmd_install() {
   [ "$built_version" = "$version" ] || die "DMG contains version $built_version, expected $version."
   [ ! -e "$built/Contents/Resources/app-update.yml" ] \
     || die "The build contains app-update.yml and would self-update from upstream. Rebuild without update variables."
-  echo "version $built_version, no self-update config"
 
-  say "Replacing $APP"
   if pgrep -f "$APP_NAME" >/dev/null 2>&1; then
     osascript -e "tell application \"$APP_NAME\" to quit" >/dev/null 2>&1 || true
     local waited=0
     while pgrep -f "$APP_NAME" >/dev/null 2>&1; do
       sleep 1
       waited=$((waited + 1))
-      [ "$waited" -lt 30 ] || die "$APP_NAME is still running after 30 seconds. Quit it and re-run install."
+      [ "$waited" -lt 30 ] || die "$APP_NAME is still running after 30 seconds. Quit it and re-run."
     done
   fi
   rm -rf "$OUT/T3-old-nightly.app"
@@ -224,17 +209,88 @@ cmd_install() {
   hdiutil detach "$mount" -quiet >/dev/null 2>&1 || true
   trap - EXIT
   open "$APP"
+  echo "Installed $version"
+}
 
-  say "Done"
-  local count
-  count="$(find /Applications -maxdepth 1 -name 'T3*.app' | wc -l | tr -d ' ')"
-  echo "Installed $version. T3 apps in /Applications: $count."
+# ---------------------------------------------------------------- deploy with progress
+
+# Step name, function, and a first-run estimate in seconds. Measured times replace the estimates.
+STEPS=("Fetching upstream:step_sync:5" "Installing dependencies:step_deps:15" "Building the app:cmd_build:130" "Installing:cmd_install:12")
+
+estimate_for() {
+  local name="$1" fallback="$2" saved=""
+  [ -f "$TIMINGS" ] && saved="$(awk -F'\t' -v n="$name" '$1 == n { v = $2 } END { print v }' "$TIMINGS")"
+  printf '%s' "${saved:-$fallback}"
+}
+
+record_time() {
+  local tmp="$TIMINGS.tmp"
+  { [ -f "$TIMINGS" ] && grep -v "^$1	" "$TIMINGS" || true; printf '%s\t%s\n' "$1" "$2"; } >"$tmp"
+  mv "$tmp" "$TIMINGS"
+}
+
+fmt_secs() { printf '%d:%02d' $(($1 / 60)) $(($1 % 60)); }
+
+draw_bar() { # done_seconds total_seconds label step_index step_count
+  local done_s="$1" total="$2" label="$3" idx="$4" count="$5" width=28 pct filled left
+  [ "$total" -gt 0 ] || total=1
+  pct=$((done_s * 100 / total)); [ "$pct" -le 99 ] || pct=99
+  filled=$((pct * width / 100))
+  left=$((total - done_s)); [ "$left" -ge 0 ] || left=0
+  printf '\r\033[K[%s%s] %3d%%  %d/%d %s  ~%s left' \
+    "$(printf '%*s' "$filled" '' | tr ' ' '#')" "$(printf '%*s' $((width - filled)) '' | tr ' ' '-')" \
+    "$pct" "$idx" "$count" "$label" "$(fmt_secs "$left")"
+}
+
+cmd_deploy() {
+  preflight
+  local log="$OUT/deploy.log" total=0 spent=0 idx=0 count=${#STEPS[@]} entry name fn fallback est
+  : >"$log"
+  for entry in "${STEPS[@]}"; do
+    IFS=: read -r name fn fallback <<<"$entry"
+    total=$((total + $(estimate_for "$name" "$fallback")))
+  done
+  say "Deploying $(current_version) (estimated $(fmt_secs "$total"); log: $log)"
+  local started_all interactive=0
+  started_all="$(date +%s)"
+  [ -t 1 ] && interactive=1
+
+  for entry in "${STEPS[@]}"; do
+    IFS=: read -r name fn fallback <<<"$entry"
+    est="$(estimate_for "$name" "$fallback")"
+    idx=$((idx + 1))
+    local started pid elapsed
+    started="$(date +%s)"
+    ("$fn") >>"$log" 2>&1 &
+    pid=$!
+    [ "$interactive" = 1 ] || echo "[$idx/$count] $name (about $(fmt_secs "$est"))"
+    while kill -0 "$pid" 2>/dev/null; do
+      elapsed=$(($(date +%s) - started))
+      # A step that runs past its estimate holds just under its share instead of overflowing.
+      [ "$elapsed" -le "$est" ] || elapsed=$est
+      [ "$interactive" = 0 ] || draw_bar $((spent + elapsed)) "$total" "$name" "$idx" "$count"
+      sleep 1
+    done
+    if ! wait "$pid"; then
+      [ "$interactive" = 0 ] || printf '\n'
+      tail -25 "$log"
+      die "'$name' failed. Full log: $log"
+    fi
+    elapsed=$(($(date +%s) - started))
+    record_time "$name" "$elapsed"
+    spent=$((spent + est))
+  done
+  [ "$interactive" = 0 ] || { draw_bar "$total" "$total" "done" "$count" "$count"; printf '\r\033[K'; }
+
+  local count_apps
+  count_apps="$(find /Applications -maxdepth 1 -name 'T3*.app' | wc -l | tr -d ' ')"
+  echo "Done in $(fmt_secs $(($(date +%s) - started_all))). Installed $(current_version); T3 apps in /Applications: $count_apps."
   [ ! -e "$OUT/T3-old-nightly.app" ] || echo "Rollback copy: $OUT/T3-old-nightly.app (quit T3 and move it back into /Applications)."
 }
 
 # ---------------------------------------------------------------- main
 
-[ $# -ge 1 ] || { sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 1; }
+[ $# -ge 1 ] || { sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 1; }
 cmd="$1"; shift
 for arg in "$@"; do
   case "$arg" in
@@ -246,10 +302,9 @@ for arg in "$@"; do
 done
 
 case "$cmd" in
-  setup) cmd_setup ;;
+  deploy) cmd_deploy ;;
   status) cmd_status ;;
   build) cmd_build ;;
   install) cmd_install ;;
-  deploy) cmd_build && cmd_install ;;
-  *) die "Unknown command '$cmd'. Use setup, status, build, install, or deploy." ;;
+  *) die "Unknown command '$cmd'. Use deploy, status, build, or install." ;;
 esac
