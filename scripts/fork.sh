@@ -233,16 +233,36 @@ record_time() {
 
 fmt_secs() { printf '%d:%02d' $(($1 / 60)) $(($1 % 60)); }
 
-draw_bar() { # done_seconds total_seconds label step_index step_count
-  local done_s="$1" total="$2" label="$3" idx="$4" count="$5" width=28 pct filled left
-  [ "$total" -gt 0 ] || total=1
-  pct=$((done_s * 100 / total)); [ "$pct" -le 99 ] || pct=99
-  filled=$((pct * width / 100))
-  left=$((total - done_s)); [ "$left" -ge 0 ] || left=0
-  printf '\r\033[K[%s%s] %3d%%  %d/%d %s  ~%s left' \
-    "$(printf '%*s' "$filled" '' | tr ' ' '#')" "$(printf '%*s' $((width - filled)) '' | tr ' ' '-')" \
-    "$pct" "$idx" "$count" "$label" "$(fmt_secs "$left")"
+bar_text() { # percent width
+  local filled=$(($1 * $2 / 100))
+  printf '[%s%s]' "$(printf '%*s' "$filled" '' | tr ' ' '#')" "$(printf '%*s' $(($2 - filled)) '' | tr ' ' '-')"
 }
+
+# Newest non-empty line of a log, with terminal control codes removed, cut to the terminal width.
+last_line() { # file width
+  tail -c 4000 "$1" 2>/dev/null | tr '\r' '\n' | sed $'s/\033\\[[0-9;?]*[A-Za-z]//g' | grep -v '^[[:space:]]*$' | tail -1 | cut -c1-"$2"
+}
+
+# Two lines that redraw in place: the whole deploy, then the current step with its newest log line.
+# Every number moves each second, so the display never looks stuck.
+draw_progress() { # overall_done overall_total idx count label step_elapsed step_est tick activity_log
+  local done_s="$1" total="$2" idx="$3" count="$4" label="$5" se="$6" sest="$7" tick="$8" act="$9"
+  local cols spin='|/-\' pct spct left sleft line1 line2 detail over=""
+  cols="$(tput cols 2>/dev/null || echo 100)"
+  [ "$total" -gt 0 ] || total=1
+  [ "$sest" -gt 0 ] || sest=1
+  pct=$((done_s * 100 / total)); [ "$pct" -le 99 ] || pct=99
+  spct=$((se * 100 / sest)); [ "$spct" -le 99 ] || spct=99
+  left=$((total - done_s)); [ "$left" -ge 0 ] || left=0
+  sleft=$((sest - se))
+  if [ "$sleft" -lt 0 ]; then over="over estimate by $(fmt_secs $((-sleft)))"; sleft=0; fi
+  line1="$(printf 'Total  %s %3d%%  %d/%d  ~%s left' "$(bar_text "$pct" 28)" "$pct" "$idx" "$count" "$(fmt_secs "$left")")"
+  line2="$(printf '%s %s %s %3d%%  ~%s left %s' "${spin:$((tick % 4)):1}" "$label" "$(bar_text "$spct" 16)" "$spct" "$(fmt_secs "$sleft")" "$over")"
+  detail="$(last_line "$act" $((cols - 4)))"
+  printf '\r\033[K%s\n\033[K%s\n\033[K  %s\033[2A\r' "$line1" "$line2" "$detail"
+}
+
+clear_progress() { printf '\r\033[K\n\033[K\n\033[K\033[2A\r'; }
 
 cmd_deploy() {
   preflight
@@ -261,20 +281,22 @@ cmd_deploy() {
     IFS=: read -r name fn fallback <<<"$entry"
     est="$(estimate_for "$name" "$fallback")"
     idx=$((idx + 1))
-    local started pid elapsed
+    local started pid elapsed tick=0 shown act="$log"
+    [ "$fn" != cmd_build ] || act="$OUT/build.log"
     started="$(date +%s)"
     ("$fn") >>"$log" 2>&1 &
     pid=$!
     [ "$interactive" = 1 ] || echo "[$idx/$count] $name (about $(fmt_secs "$est"))"
     while kill -0 "$pid" 2>/dev/null; do
       elapsed=$(($(date +%s) - started))
-      # A step that runs past its estimate holds just under its share instead of overflowing.
-      [ "$elapsed" -le "$est" ] || elapsed=$est
-      [ "$interactive" = 0 ] || draw_bar $((spent + elapsed)) "$total" "$name" "$idx" "$count"
+      # The overall bar holds just under this step's share once it runs past its estimate.
+      shown=$elapsed; [ "$shown" -le "$est" ] || shown=$est
+      [ "$interactive" = 0 ] || draw_progress $((spent + shown)) "$total" "$idx" "$count" "$name" "$elapsed" "$est" "$tick" "$act"
+      tick=$((tick + 1))
       sleep 1
     done
     if ! wait "$pid"; then
-      [ "$interactive" = 0 ] || printf '\n'
+      [ "$interactive" = 0 ] || clear_progress
       tail -25 "$log"
       die "'$name' failed. Full log: $log"
     fi
@@ -282,7 +304,7 @@ cmd_deploy() {
     record_time "$name" "$elapsed"
     spent=$((spent + est))
   done
-  [ "$interactive" = 0 ] || { draw_bar "$total" "$total" "done" "$count" "$count"; printf '\r\033[K'; }
+  [ "$interactive" = 0 ] || clear_progress
 
   local count_apps
   count_apps="$(find /Applications -maxdepth 1 -name 'T3*.app' | wc -l | tr -d ' ')"
