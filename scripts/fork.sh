@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Personal-fork helper: set up a machine, show drift from upstream, build and install the macOS app.
 #
-#   scripts/fork.sh deploy [--yes] [--allow-dirty]   set up anything missing, build, install
+#   scripts/fork.sh deploy [--ask] [--allow-dirty]   set up anything missing, build, install
 #   scripts/fork.sh status [--no-fetch]              how far the fork is from pingdotgg/t3code
 #   scripts/fork.sh build                            build the DMG only
 #   scripts/fork.sh install                          install the DMG for this checkout only
 #
 # On a new machine: clone the fork, then run `scripts/fork.sh deploy`. It installs missing
-# toolchains (after asking, or with --yes), adds the upstream remote, installs dependencies,
+# toolchains (without asking; pass --ask to be prompted), adds the upstream remote, installs dependencies,
 # builds, and swaps the app into /Applications. Re-running it on a ready machine skips the setup.
 #
 # Environment:
@@ -25,7 +25,7 @@ APP="/Applications/$APP_NAME.app"
 VP_ENV="$HOME/.config/vite-plus/env"
 NODE_VERSION="$(sed -n 's/.*"node": *"\([0-9.]*\)".*/\1/p' "$REPO/package.json" | head -1)"
 TIMINGS="$OUT/step-times"
-ASSUME_YES=0
+ASSUME_YES=1
 ALLOW_DIRTY=0
 NO_FETCH=0
 
@@ -297,6 +297,7 @@ cmd="$1"; shift
 for arg in "$@"; do
   case "$arg" in
     --yes|-y) ASSUME_YES=1 ;;
+    --ask) ASSUME_YES=0 ;;
     --allow-dirty) ALLOW_DIRTY=1 ;;
     --no-fetch) NO_FETCH=1 ;;
     *) die "Unknown option: $arg" ;;
