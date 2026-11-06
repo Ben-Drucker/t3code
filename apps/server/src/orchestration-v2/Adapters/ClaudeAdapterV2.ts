@@ -245,11 +245,14 @@ function claudePromptCacheTtlMs(
 // getContextUsage reports a 150,000 window as a 117,000 threshold, for every catalog model.
 const CLAUDE_AUTO_COMPACT_RESERVE_TOKENS = 33_000;
 
-function claudeAutoCompactThreshold(autoCompactWindow: string, maxTokens: number | null) {
+function claudeAutoCompactLimits(autoCompactWindow: string, catalogTokens: number | null) {
   const windowTokens = Number(autoCompactWindow);
-  return windowTokens > 0 && (maxTokens === null || windowTokens < maxTokens)
-    ? { autoCompactThreshold: windowTokens - CLAUDE_AUTO_COMPACT_RESERVE_TOKENS }
-    : {};
+  return windowTokens > 0 && (catalogTokens === null || windowTokens < catalogTokens)
+    ? {
+        maxTokens: windowTokens,
+        autoCompactThreshold: windowTokens - CLAUDE_AUTO_COMPACT_RESERVE_TOKENS,
+      }
+    : { maxTokens: catalogTokens };
 }
 
 function claudeMessageInputTokens(usage: {
@@ -280,7 +283,7 @@ export function claudeProviderTurnTokenUsage(
   const inputTokens = claudeMessageInputTokens(usage);
   const outputTokens = usage.output_tokens;
   const promptCacheTtlMs = claudePromptCacheTtlMs(usage.cache_creation);
-  const maxTokens = claudeContextWindow(modelSelection);
+  const limits = claudeAutoCompactLimits(autoCompactWindow, claudeContextWindow(modelSelection));
   // The cache lifetime starts with the request, not when its response ends.
   const promptCacheExpiresAt =
     promptCacheTtlMs === undefined || requestedAt === undefined
@@ -288,13 +291,12 @@ export function claudeProviderTurnTokenUsage(
       : DateTime.formatIso(DateTime.add(requestedAt, { milliseconds: promptCacheTtlMs }));
   return {
     usedTokens: inputTokens + outputTokens,
-    maxTokens,
+    ...limits,
     inputTokens,
     cachedInputTokens: usage.cache_read_input_tokens ?? 0,
     outputTokens,
     reasoningOutputTokens: 0,
     ...(promptCacheTtlMs === undefined ? {} : { promptCacheTtlMs }),
-    ...claudeAutoCompactThreshold(autoCompactWindow, maxTokens),
     ...(promptCacheExpiresAt === undefined ? {} : { promptCacheExpiresAt }),
     updatedAt,
   };
@@ -5174,7 +5176,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           );
           if (report === undefined || report.usedTokens <= 0) return;
           const now = yield* DateTime.now;
-          const maxTokens = claudeContextWindow(context.input.modelSelection);
+          const limits = claudeAutoCompactLimits(
+            adapterOptions.settings.autoCompactWindow,
+            claudeContextWindow(context.input.modelSelection),
+          );
           yield* emitProviderEvent({
             type: "provider_turn.updated",
             driver: CLAUDE_PROVIDER,
@@ -5195,9 +5200,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               completedAt: null,
               tokenUsage: {
                 usedTokens: report.usedTokens,
-                maxTokens,
+                ...limits,
                 breakdown: [...report.breakdown],
-                ...claudeAutoCompactThreshold(adapterOptions.settings.autoCompactWindow, maxTokens),
                 updatedAt: DateTime.formatIso(now),
               },
             },
@@ -8793,7 +8797,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 ? Math.round(postTokens)
                 : undefined;
             if (afterTokenCount !== undefined) {
-              const maxTokens = claudeContextWindow(context.input.modelSelection);
+              const limits = claudeAutoCompactLimits(
+                adapterOptions.settings.autoCompactWindow,
+                claudeContextWindow(context.input.modelSelection),
+              );
               yield* emitProviderEvent({
                 type: "provider_turn.updated",
                 driver: CLAUDE_PROVIDER,
@@ -8814,11 +8821,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   completedAt: null,
                   tokenUsage: {
                     usedTokens: afterTokenCount,
-                    maxTokens,
-                    ...claudeAutoCompactThreshold(
-                      adapterOptions.settings.autoCompactWindow,
-                      maxTokens,
-                    ),
+                    ...limits,
                     updatedAt: DateTime.formatIso(now),
                   },
                 },

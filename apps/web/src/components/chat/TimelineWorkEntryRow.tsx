@@ -1,4 +1,5 @@
 import { TimelinePendingApprovalRow } from "./TimelinePendingApprovalRow";
+import { useRightPanelStore } from "~/rightPanelStore";
 import { WorkLogDetails, WorkLogRow } from "./WorkLog";
 import {
   getQuestionAnswerPreview,
@@ -356,13 +357,19 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
     plainOutput !== undefined &&
     workEntry.projectedItem !== undefined &&
     turnItemNeedsDetailFetch(workEntry.projectedItem.item);
-  const canExpandProjectedItem =
-    plainOutput !== undefined
+  const isTodoList = workEntry.projectedItem?.item.type === "todo_list";
+  const openTasksPanel = () => {
+    if (threadRef) useRightPanelStore.getState().open(threadRef, "tasks");
+  };
+  const canExpandProjectedItem = isTodoList
+    ? false
+    : plainOutput !== undefined
       ? Boolean(plainOutput || viewedImage || workEntry.questionAnswer || plainOutputFetches)
       : workEntry.projectedItem === undefined
         ? canExpand
         : isReasoning
-          ? Boolean(workEntry.detail?.trim())
+          ? // A one-line thought already shows in full on the collapsed row.
+            (workEntry.detail?.trim().includes("\n") ?? false)
           : Boolean(
               viewedImage ||
               workEntry.questionAnswer ||
@@ -394,21 +401,34 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
   const accessibleDisplayText = showFailedIndicator
     ? `${accessiblePreview}, tool call failed`
     : accessiblePreview;
-  const rowToggleProps = canExpandProjectedItem
+  const rowToggleProps = isTodoList
     ? {
         role: "button" as const,
         tabIndex: 0 as const,
         "aria-label": accessibleDisplayText,
-        "aria-expanded": expanded,
-        onClick: toggleExpanded,
+        onClick: openTasksPanel,
         onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
           if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
             e.preventDefault();
-            toggleExpanded();
+            openTasksPanel();
           }
         },
       }
-    : {};
+    : canExpandProjectedItem
+      ? {
+          role: "button" as const,
+          tabIndex: 0 as const,
+          "aria-label": accessibleDisplayText,
+          "aria-expanded": expanded,
+          onClick: toggleExpanded,
+          onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
+            if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+              e.preventDefault();
+              toggleExpanded();
+            }
+          },
+        }
+      : {};
 
   return (
     <WorkLogRow

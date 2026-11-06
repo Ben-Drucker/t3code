@@ -212,6 +212,7 @@ function ContextBreakdownView(props: {
     maxTokens !== null ? Math.max(0, maxTokens - usage.usedTokens - bufferTokens) : 0;
   const rows = [
     ...[...breakdown.categories]
+      .filter((row) => row.tokens > 0)
       .toSorted((left, right) => right.tokens - left.tokens)
       .map((row) => ({
         key: row.category as string,
