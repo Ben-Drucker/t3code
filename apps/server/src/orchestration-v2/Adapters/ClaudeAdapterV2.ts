@@ -2978,6 +2978,17 @@ const ClaudeBypassSettings = Schema.StructWithRest(
 const decodeClaudeBypassSettings = Schema.decodeUnknownEffect(
   fromLenientJson(ClaudeBypassSettings),
 );
+const ClaudeModelWindowSettings = Schema.Struct({
+  modelSettings: Schema.optionalKey(
+    Schema.Record(
+      Schema.String,
+      Schema.Struct({ autoCompactWindow: Schema.optionalKey(Schema.Number) }),
+    ),
+  ),
+});
+const decodeClaudeModelWindowSettings = Schema.decodeUnknownEffect(
+  fromLenientJson(ClaudeModelWindowSettings),
+);
 const decodeClaudeLaunchArgBypassSettings = Schema.decodeUnknownEffect(ClaudeBypassSettings);
 
 function claudeSdkBypassSettings(settings: typeof ClaudeBypassSettings.Type) {
@@ -4997,6 +5008,34 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
     },
   );
 
+  // Claude Code's per-model "Auto-compact after" in its own settings file applies when the provider
+  // field is empty. The file is reread every few seconds so edits apply without a restart.
+  let modelAutoCompactWindows:
+    | { readonly readAt: number; readonly windows: Map<string, number> }
+    | undefined;
+  const autoCompactWindowFor = Effect.fnUntraced(function* (modelSelection: ModelSelection) {
+    const configured = adapterOptions.settings.autoCompactWindow;
+    if (configured.length > 0) return configured;
+    const now = DateTime.toEpochMillis(yield* DateTime.now);
+    if (modelAutoCompactWindows === undefined || now - modelAutoCompactWindows.readAt > 5_000) {
+      const settings = yield* fileSystem.readFileString(path.join(homePath, "settings.json")).pipe(
+        Effect.flatMap(decodeClaudeModelWindowSettings),
+        Effect.orElseSucceed(() => ({}) as typeof ClaudeModelWindowSettings.Type),
+      );
+      const windows = new Map<string, number>();
+      for (const [model, entry] of Object.entries(settings.modelSettings ?? {})) {
+        if (entry.autoCompactWindow !== undefined && entry.autoCompactWindow > 0) {
+          windows.set(model, entry.autoCompactWindow);
+        }
+      }
+      modelAutoCompactWindows = { readAt: now, windows };
+    }
+    const window = modelAutoCompactWindows.windows.get(
+      modelSelection.model.replace(/\[[^\]]*\]$/, ""),
+    );
+    return window === undefined ? "" : String(window);
+  });
+
   const readToolSearchSetting = (filePath: string) =>
     fileSystem.readFileString(filePath).pipe(
       Effect.flatMap(decodeClaudeEnvSettings),
@@ -5450,18 +5489,19 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           // arrives after generation, so it leaves the cache expiry unknown.
           if (requestStarted && context.streamUsage !== null) context.streamUsage.requestedAt = now;
           const maxTokens = claudeContextWindow(context.input.modelSelection);
+          const autoCompactWindow = yield* autoCompactWindowFor(context.input.modelSelection);
           const tokenUsage =
             typeof usage === "number"
               ? {
                   usedTokens: usage,
-                  ...claudeAutoCompactLimits(adapterOptions.settings.autoCompactWindow, maxTokens),
+                  ...claudeAutoCompactLimits(autoCompactWindow, maxTokens),
                   updatedAt: DateTime.formatIso(now),
                 }
               : claudeProviderTurnTokenUsage(
                   usage,
                   maxTokens,
                   DateTime.formatIso(now),
-                  adapterOptions.settings.autoCompactWindow,
+                  autoCompactWindow,
                   context.streamUsage?.requestedAt,
                 );
           if (typeof usage !== "number") {
@@ -5506,7 +5546,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           if (report === undefined || report.usedTokens <= 0) return;
           const now = yield* DateTime.now;
           const limits = claudeAutoCompactLimits(
-            adapterOptions.settings.autoCompactWindow,
+            yield* autoCompactWindowFor(context.input.modelSelection),
             claudeContextWindow(context.input.modelSelection),
           );
           yield* emitProviderEvent({
