@@ -240,7 +240,7 @@ bar_text() { # percent width
 
 # Newest non-empty line of a log, with terminal control codes removed, cut to the terminal width.
 last_line() { # file width
-  tail -c 4000 "$1" 2>/dev/null | tr '\r' '\n' | sed $'s/\033\\[[0-9;?]*[A-Za-z]//g' | grep -v '^[[:space:]]*$' | tail -1 | cut -c1-"$2"
+  tail -c 4000 "$1" 2>/dev/null | tr '\r' '\n' | sed $'s/\033\\[[0-9;?]*[A-Za-z]//g' | grep -v '^[[:space:]]*$' | tail -1 | cut -c1-"$2" || true
 }
 
 # Two lines that redraw in place: the whole deploy, then the current step with its newest log line.
