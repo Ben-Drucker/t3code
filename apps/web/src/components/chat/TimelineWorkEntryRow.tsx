@@ -375,8 +375,11 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
               workEntry.questionAnswer ||
               turnItemHasDetail(workEntry.projectedItem.item),
             );
+  // An expanded shell command points its prompt down so the open row stands out in long output.
+  const expandedCommand = expanded && workEntry.projectedItem?.item.type === "command_execution";
   const iconWrapperClass = cn(
     "flex size-4 items-center justify-center",
+    expandedCommand && "rotate-90",
     showWarningIndicator
       ? "text-warning"
       : showDestructiveRowStyle
@@ -434,6 +437,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
     <WorkLogRow
       data-v2-item-type={workEntry.projectedItem?.item.type}
       data-v2-item-visibility={workEntry.projectedItem?.visibility}
+      tinted={expandedCommand}
       {...rowToggleProps}
       icon={
         <span

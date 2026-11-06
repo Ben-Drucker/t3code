@@ -960,6 +960,13 @@ function markdownHeadingRenderer(level: 1 | 2 | 3 | 4 | 5 | 6) {
 }
 
 // Native word selection stops at hyphens and dots, so a double-click takes the whole span.
+function copyInlineCode(event: ReactMouseEvent<HTMLElement>) {
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed) return;
+  const text = event.currentTarget.textContent ?? "";
+  if (text) void writeTextToClipboard(text, "code").catch(() => {});
+}
+
 function selectInlineCode(event: ReactMouseEvent<HTMLElement>) {
   window.getSelection()?.selectAllChildren(event.currentTarget);
 }
@@ -1358,7 +1365,12 @@ const CHAT_MARKDOWN_COMPONENTS = {
         );
       }
       return (
-        <code {...props} className={className} onDoubleClick={selectInlineCode}>
+        <code
+          {...props}
+          className={cn(className, "cursor-pointer")}
+          onClick={copyInlineCode}
+          onDoubleClick={selectInlineCode}
+        >
           {children}
         </code>
       );

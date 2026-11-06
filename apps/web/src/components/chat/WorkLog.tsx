@@ -83,12 +83,13 @@ function WorkLogLine({ icon, label, trailing, wrapLabel }: RowContent) {
 const interactionClassName =
   "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70";
 
-function useRowClassName(interactive: boolean) {
+function useRowClassName(interactive: boolean, tinted = false) {
   const grouped = use(GroupedRows);
   return cn(
     "group/timeline-row relative w-full min-w-0 rounded-md px-0.5 text-left transition-colors",
     grouped ? "py-0" : "py-0.5",
     interactive && interactionClassName,
+    tinted && "bg-foreground/[0.03]",
   );
 }
 
@@ -113,10 +114,11 @@ export function WorkLogRow({
   label,
   trailing,
   wrapLabel = false,
+  tinted = false,
   children,
   ...rowProps
-}: RowContent & Omit<ComponentProps<"div">, "className" | "style">) {
-  const className = useRowClassName(rowProps.onClick !== undefined);
+}: RowContent & { tinted?: boolean } & Omit<ComponentProps<"div">, "className" | "style">) {
+  const className = useRowClassName(rowProps.onClick !== undefined, tinted);
   return (
     <div {...rowProps} className={className}>
       <WorkLogLine icon={icon} label={label} trailing={trailing} wrapLabel={wrapLabel} />
