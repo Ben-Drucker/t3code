@@ -718,6 +718,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "usage-data",
+    title: "Send usage data",
+    to: "/settings/maintenance",
+    scope: "project-defaults",
+    searchTerms: ["telemetry analytics usage data tracking privacy opt out posthog relay traces"],
+  },
+  {
     id: "background-activity",
     title: "Background activity",
     to: "/settings/maintenance",

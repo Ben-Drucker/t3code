@@ -24,6 +24,7 @@ import type { ManagedPolicyDocument } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import { getTelemetryIdentity } from "./Identify.ts";
 import * as AnalyticsService from "./AnalyticsService.ts";
 
@@ -113,7 +114,11 @@ const recordTwentyEvents = Effect.gen(function* () {
   }
 });
 
-const analyticsLayerWith = (client: HttpClient.HttpClient, policy?: ManagedPolicyDocument) =>
+const analyticsLayerWith = (
+  client: HttpClient.HttpClient,
+  policy?: ManagedPolicyDocument,
+  telemetryEnabled = true,
+) =>
   AnalyticsService.layer.pipe(
     Layer.provideMerge(
       ServerConfig.ServerConfig.layerTest(process.cwd(), { prefix: "t3-telemetry-retry-" }),
@@ -133,6 +138,7 @@ const analyticsLayerWith = (client: HttpClient.HttpClient, policy?: ManagedPolic
         Layer.succeed(HostProcess.Architecture, "x64"),
         Layer.succeed(HttpClient.HttpClient, client),
         ManagedPolicy.layerTest(policy),
+        ServerSettingsService.layerTest({ telemetryEnabled }),
       ),
     ),
   );
@@ -151,6 +157,7 @@ const sendFor = (
     AnalyticsService.AnalyticsService | Effect.Services<typeof getTelemetryIdentity>
   > = recordTwentyEvents,
   policy?: ManagedPolicyDocument,
+  telemetryEnabled = true,
 ) =>
   Effect.gen(function* () {
     const batches: Array<ReadonlyArray<SentEvent>> = [];
@@ -165,7 +172,7 @@ const sendFor = (
         return yield* respond(request);
       }),
     );
-    const runtimeLayer = analyticsLayerWith(client, policy);
+    const runtimeLayer = analyticsLayerWith(client, policy, telemetryEnabled);
 
     yield* Effect.gen(function* () {
       yield* record;
@@ -270,6 +277,15 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("AnalyticsService
       }),
   );
 
+  it.effect("sends nothing while the Settings toggle is off, despite the environment", () =>
+    Effect.gen(function* () {
+      const off = yield* sendFor(1, respondWithStatus(204), recordTwentyEvents, undefined, false);
+      assert.deepEqual(off, []);
+      const on = yield* sendFor(1, respondWithStatus(204), recordTwentyEvents, undefined, true);
+      assert.equal(on.length, 1);
+    }),
+  );
+
   it.effect("drops a batch the endpoint rejects without sending it again", () =>
     Effect.gen(function* () {
       const batches = yield* sendFor(10, respondWithStatus(400));
@@ -332,6 +348,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("AnalyticsService
             Layer.succeed(HostProcess.Platform, "linux"),
             Layer.succeed(HostProcess.Architecture, "arm64"),
             ManagedPolicy.layerTest(),
+            ServerSettingsService.layerTest({ telemetryEnabled: true }),
           ),
         ),
         Layer.provideMerge(NodeHttpServer.layerTest),
@@ -423,6 +440,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("AnalyticsService
             Layer.succeed(HostProcess.Platform, "linux"),
             Layer.succeed(HostProcess.Architecture, "arm64"),
             ManagedPolicy.layerTest(),
+            ServerSettingsService.layerTest({ telemetryEnabled: true }),
           ),
         ),
         Layer.provideMerge(NodeHttpServer.layerTest),

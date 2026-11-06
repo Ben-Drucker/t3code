@@ -22,6 +22,7 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import packageJson from "../../package.json" with { type: "json" };
 import * as ServerConfig from "../config.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import { getTelemetryIdentity, type TelemetryOwner } from "./Identify.ts";
 
 interface BufferedAnalyticsEvent {
@@ -125,9 +126,14 @@ export const make = Effect.gen(function* () {
   // A managed policy can switch analytics off over the environment, never on.
   const policyAllows =
     ManagedPolicy.deniedBy(yield* ManagedPolicy.ManagedPolicy, "telemetry") === undefined;
+  const serverSettings = yield* ServerSettingsService;
+  // The user's Settings choice, read on every send so a change applies without a restart.
+  const userAllows = serverSettings.getSettings.pipe(
+    Effect.map((settings) => settings.telemetryEnabled),
+    Effect.orElseSucceed(() => false),
+  );
   // A cached PATH does not establish consent from the current login shell.
-  const telemetryEnabled = Effect.suspend(() => {
-    if (!telemetryConfig.enabled || !policyAllows) return Effect.succeed(false);
+  const consentFromShell = Effect.suspend(() => {
     if (!awaitingShellConsent) return Effect.succeed(true);
     if (hostEnvironment.T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING === "1")
       return Effect.succeed(false);
@@ -141,6 +147,12 @@ export const make = Effect.gen(function* () {
         }),
       ),
       Effect.orElseSucceed(() => false),
+    );
+  });
+  const telemetryEnabled = Effect.suspend(() => {
+    if (!telemetryConfig.enabled || !policyAllows) return Effect.succeed(false);
+    return Effect.flatMap(userAllows, (allowed) =>
+      allowed ? consentFromShell : Effect.succeed(false),
     );
   });
   const httpClient = yield* HttpClient.HttpClient;

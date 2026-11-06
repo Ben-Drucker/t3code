@@ -1998,6 +1998,20 @@ export function MaintenanceSettingsPanel() {
             />
           }
         />
+        <SettingsRow
+          {...searchableSetting("usage-data")}
+          serverScoped
+          settingKeys={["telemetryEnabled"]}
+          description="Send anonymous product usage events and T3 Connect relay traces to T3 Code. Prompts and file contents are never included. T3 Connect relay traces stay off."
+          control={
+            <ScopedSwitch
+              settingKeys={["telemetryEnabled"]}
+              checked={settings.telemetryEnabled}
+              onCheckedChange={(checked) => updateSettings({ telemetryEnabled: Boolean(checked) })}
+              aria-label="Send usage data"
+            />
+          }
+        />
       </SettingsSection>
 
       <SettingsSection id="background" title="Background activity">

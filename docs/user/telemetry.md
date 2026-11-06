@@ -14,6 +14,10 @@ raw provider events, or child-agent output.
 
 T3 Code also sends relay connection traces to Axiom to diagnose T3 Connect connectivity.
 
+In this fork, product events are off by default. Turn them on in **Settings > General > Send usage data**.
+Relay tracing stays off unless `T3CODE_TELEMETRY_ENABLED=true` is set. The variable and a managed policy
+still switch both off, whatever the setting says.
+
 To disable product events and relay tracing, set `T3CODE_TELEMETRY_ENABLED=false` in the server's
 environment before starting it. Relay tracing also stops when `T3CODE_OTEL_SDK_DISABLED` or
 `OTEL_SDK_DISABLED` turns OpenTelemetry export off. The web app in a browser, including one the
