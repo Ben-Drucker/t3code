@@ -25,7 +25,8 @@ import {
   turnItemNeedsDetailFetch,
 } from "@t3tools/client-runtime/work-log/item-detail";
 import { claudeSkillInvocation } from "@t3tools/shared/toolActivity";
-import { memo, use, useState, type KeyboardEvent } from "react";
+import { observeResize } from "~/lib/observeResize";
+import { memo, use, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   workEntryDisplayIndicatesToolFailure,
   workEntrySignalsSevereFailure,
@@ -199,15 +200,29 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
     (settings) => settings.liveStreaming,
   );
   const [userToggled, setUserToggled] = useState(false);
+  // A one-line thought stays in the compact row; only multi-line thoughts get the full view.
+  const multilineThought = workEntry.detail?.trim().includes("\n") ?? false;
+  const thoughtLabelRef = useRef<HTMLSpanElement>(null);
+  const [thoughtOverflows, setThoughtOverflows] = useState(false);
   const autoOpenLiveReasoning =
     liveStreaming &&
     !userToggled &&
+    multilineThought &&
     workEntry.itemType === "reasoning" &&
     activity.isWorking &&
     workEntry.runId === activity.latestRunId &&
     workEntry.toolLifecycleStatus === "inProgress" &&
     (workEntry.detail?.trim() ?? "") !== "";
   const expanded = expandedState || autoOpenLiveReasoning;
+  const wrapsInRow = expanded && workEntry.itemType === "reasoning" && !multilineThought;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures whether the collapsed label is clipped by the DOM
+  useLayoutEffect(() => {
+    const el = thoughtLabelRef.current;
+    if (!el || expanded || workEntry.itemType !== "reasoning") return;
+    const measure = () => setThoughtOverflows(el.scrollWidth > el.clientWidth + 1);
+    measure();
+    return observeResize(el, measure);
+  }, [expanded, workEntry.itemType]);
   const toggleExpanded = () => {
     setUserToggled(true);
     const next = !expanded;
@@ -309,7 +324,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
     ? getQuestionTextPreview(workEntry.questionAnswer)
     : "";
   const previewText =
-    isReasoning && expanded
+    isReasoning && expanded && multilineThought
       ? workEntry.toolLifecycleStatus === "inProgress"
         ? "Thinking"
         : "Thought"
@@ -373,8 +388,8 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       : workEntry.projectedItem === undefined
         ? canExpand
         : isReasoning
-          ? // A one-line thought already shows in full on the collapsed row.
-            (workEntry.detail?.trim().includes("\n") ?? false)
+          ? // A one-line thought already shows in full on the collapsed row unless it overflows.
+            multilineThought || thoughtOverflows
           : Boolean(
               viewedImage ||
               workEntry.questionAnswer ||
@@ -462,9 +477,14 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
         <div className="min-w-0 flex-1 overflow-hidden">
           <p className="flex min-w-0 w-full items-baseline gap-1.5 text-sm leading-relaxed">
             <span
-              className={cn(answerPreview ? "min-w-0" : "min-w-0 flex-1", "truncate", headingClass)}
+              ref={thoughtLabelRef}
+              className={cn(
+                answerPreview ? "min-w-0" : "min-w-0 flex-1",
+                wrapsInRow ? "whitespace-normal break-words" : "truncate",
+                headingClass,
+              )}
             >
-              {isReasoning && !expanded ? (
+              {isReasoning && (!expanded || wrapsInRow) ? (
                 <ChatMarkdown
                   inline
                   text={workEntry.detail ?? previewText}
@@ -570,7 +590,9 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       {expanded && workEntry.questionAnswer ? (
         <QuestionAnswerHistory answer={workEntry.questionAnswer} />
       ) : null}
-      {expanded && isReasoning ? <ReasoningTraceContent entries={[workEntry]} /> : null}
+      {expanded && isReasoning && multilineThought ? (
+        <ReasoningTraceContent entries={[workEntry]} />
+      ) : null}
       {expanded &&
       !isReasoning &&
       !workEntry.questionAnswer &&
