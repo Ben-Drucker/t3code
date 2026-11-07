@@ -24,7 +24,7 @@ import { cn } from "~/lib/utils";
 import { ContextChip, ContextChipAction, ContextChipLabel } from "../ContextChip";
 import { ContextChipPopover } from "../contextChipParts";
 import { Button } from "../ui/button";
-import { Popover, PopoverClose, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { Popover, PopoverClose, PopoverPopup, PopoverTitle, PopoverTrigger } from "../ui/popover";
 import { getVirtualizedScrollFadeClassName } from "../ui/scroll-area";
 import { AssistantCitationCommentEditor } from "./AssistantCitationCommentEditor";
 import { resolveAssistantCitationCommentDismissal } from "./assistantCitationCommentDismissal";
@@ -138,6 +138,55 @@ export function AssistantCitationChip({
     </Link>
   );
   if (!composer) {
+    const detail = (
+      <div className="flex max-h-[calc(var(--available-height)_-_1rem_-_2px)] flex-col items-start gap-3 p-1 text-sm">
+        <AssistantCitationQuote citation={citation} />
+        <PopoverClose
+          render={<Button variant="outline" size="sm" render={<Link {...sourceLinkProps} />} />}
+        >
+          <ArrowUpRightIcon aria-hidden="true" />
+          Go to source
+        </PopoverClose>
+      </div>
+    );
+    const comment = citation.comment?.trim();
+    if (comment) {
+      // A comment makes the citation a two-part note: the quoted snippet, then what the user said about it.
+      return (
+        <Popover>
+          <PopoverTrigger
+            render={
+              <button
+                type="button"
+                aria-label={`Quoted assistant text with comment: ${label}. Show details`}
+                data-markdown-copy={serializeAssistantCitation(citation)}
+                className="my-1 flex w-full max-w-[min(36rem,100%)] cursor-pointer flex-col gap-1.5 rounded-lg border border-border/70 bg-muted/40 px-3 py-2 text-left align-top transition-colors hover:bg-muted/70 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+              />
+            }
+          >
+            <span className="flex min-w-0 items-start gap-2 text-muted-foreground">
+              <QuoteIcon aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+              <span
+                dir={textDirection(citation.text)}
+                className="line-clamp-3 min-w-0 whitespace-pre-line border-l-2 border-border pl-2 italic wrap-break-word"
+              >
+                {citation.text.trim()}
+              </span>
+            </span>
+            <span
+              dir={textDirection(comment)}
+              className="line-clamp-6 whitespace-pre-line wrap-break-word text-foreground"
+            >
+              {comment}
+            </span>
+          </PopoverTrigger>
+          <PopoverPopup side="top" width="lg" padding="compact">
+            <PopoverTitle className="sr-only">Quoted assistant text with comment</PopoverTitle>
+            {detail}
+          </PopoverPopup>
+        </Popover>
+      );
+    }
     return (
       <ContextChipPopover
         kind="citation"
@@ -146,15 +195,7 @@ export function AssistantCitationChip({
         accessibleLabel={`Quoted assistant text: ${label}`}
         copyMarkdown={serializeAssistantCitation(citation)}
       >
-        <div className="flex max-h-[calc(var(--available-height)_-_1rem_-_2px)] flex-col items-start gap-3 p-1 text-sm">
-          <AssistantCitationQuote citation={citation} />
-          <PopoverClose
-            render={<Button variant="outline" size="sm" render={<Link {...sourceLinkProps} />} />}
-          >
-            <ArrowUpRightIcon aria-hidden="true" />
-            Go to source
-          </PopoverClose>
-        </div>
+        {detail}
       </ContextChipPopover>
     );
   }
