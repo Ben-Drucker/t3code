@@ -56,6 +56,11 @@ current_version() {
   printf '%s' "${tag#v}"
 }
 
+# pgrep reads its pattern as a regex, so the parentheses in the app name must be escaped.
+app_running() {
+  pgrep -f "$(printf '%s' "$APP/Contents/MacOS/" | sed 's/[][()\\.*^$+?{}|]/\\&/g')"
+}
+
 cmd_status() {
   cd "$REPO"
   git remote get-url upstream >/dev/null 2>&1 || die "No 'upstream' remote. Run: scripts/fork.sh deploy"
@@ -195,10 +200,10 @@ cmd_install() {
   [ ! -e "$built/Contents/Resources/app-update.yml" ] \
     || die "The build contains app-update.yml and would self-update from upstream. Rebuild without update variables."
 
-  if pgrep -f "$APP_NAME" >/dev/null 2>&1; then
+  if app_running >/dev/null 2>&1; then
     osascript -e "tell application \"$APP_NAME\" to quit" >/dev/null 2>&1 || true
     local waited=0
-    while pgrep -f "$APP_NAME" >/dev/null 2>&1; do
+    while app_running >/dev/null 2>&1; do
       sleep 1
       waited=$((waited + 1))
       [ "$waited" -lt 30 ] || die "$APP_NAME is still running after 30 seconds. Quit it and re-run."
