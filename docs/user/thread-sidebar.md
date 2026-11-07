@@ -159,6 +159,15 @@ needs you. Use the pen button on a folder, or right-click it, to start a thread 
 Pinned threads stay above the folders, and Snoozed and Settled stay below them. In this mode you
 cannot drag threads, and the Working section is off. Each device keeps its own choice.
 
+### Subagents and side chats
+
+On web and desktop, a thread's subagents and side chats show as indented rows under it, up to
+five levels deep. Click a row to open it. A thread with nested rows has a chevron that folds them;
+they are open by default. A thread counts as working while it or anything under it works, and
+shows that it needs you when something under it needs approval or an answer. Nested rows follow
+their thread into the Working, Snoozed, and Settled sections. Settling, snoozing, pinning, and
+dragging apply to the top-level thread only. This does not apply to the Boring sidebar.
+
 ## Settle finished work
 
 Choose **Settle thread** from its menu to move finished work out of the active list
@@ -297,8 +306,8 @@ with what the thread knows, and the thread keeps working while you ask.
 
 On web and desktop, start a message with `/side` or `/btw`, then your question.
 You can also choose **Side chat** from the **+** menu in the right panel. The side
-chat opens as a tab there, with its own composer. Side chats do not show in the
-sidebar. Find one again under **Side chats** in thread details.
+chat opens as a tab there, with its own composer. On web and desktop it also shows under
+its thread in the sidebar, and you can find it under **Side chats** in thread details.
 
 A side chat works in the same folder as the thread and inherits its permissions
 when created, including for its first reply. Change permissions for an individual

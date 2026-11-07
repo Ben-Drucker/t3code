@@ -11,6 +11,11 @@ import {
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
   resolveSidebarRowThreadId,
+  buildSidebarChildren,
+  listSidebarChildRows,
+  listSidebarDescendants,
+  rollUpSidebarThreadStatus,
+  SIDEBAR_MAX_CHILD_DEPTH,
   orderItemsByPreferredIds,
   pinOrderKeyBetween,
   resolveSidebarSweepKeys,
@@ -174,6 +179,85 @@ describe("sidebar thread lineage helpers", () => {
     const loopA = subagentOf("thread-loop-a", ThreadId.make("thread-loop-b"));
     const loopB = subagentOf("thread-loop-b", loopA.id);
     expect(resolveSidebarRowThreadId(loopA.id, environmentId, [loopA, loopB])).toBe(loopA.id);
+  });
+});
+
+describe("sidebar child rows", () => {
+  const environmentId = EnvironmentId.make("environment-nest");
+  const keyOf = (id: string) => scopedThreadKey(scopeThreadRef(environmentId, ThreadId.make(id)));
+  const child = (id: string, parentId: string, kind: "subagent" | "fork" = "subagent") =>
+    makeThreadFixture({
+      id: ThreadId.make(id),
+      environmentId,
+      lineage: {
+        rootThreadId: ThreadId.make(parentId),
+        parentThreadId: ThreadId.make(parentId),
+        relationshipToParent: kind,
+      },
+    });
+  const root = makeThreadFixture({ id: ThreadId.make("root"), environmentId });
+  const none = new Set<string>();
+
+  it("nests subagents and side chats only, and skips archived and orphaned ones", () => {
+    const sideChat = makeThreadFixture({
+      id: ThreadId.make("side"),
+      environmentId,
+      lineage: {
+        rootThreadId: root.id,
+        parentThreadId: root.id,
+        relationshipToParent: null,
+        sideChat: true,
+      },
+    });
+    const archived = { ...child("archived", "root"), archivedAt: "2026-03-09T10:00:00.000Z" };
+    const children = buildSidebarChildren([
+      root,
+      child("a", "root"),
+      child("fork", "root", "fork"),
+      child("orphan", "missing"),
+      sideChat,
+      archived,
+    ]);
+    expect(listSidebarChildRows(keyOf("root"), children, none).map((row) => row.thread.id)).toEqual(
+      ["a", "side"],
+    );
+    expect(children.has(keyOf("missing"))).toBe(false);
+  });
+
+  it("caps rows at the max depth but rolls deeper descendants into status", () => {
+    const chain = [root];
+    for (let level = 1; level <= SIDEBAR_MAX_CHILD_DEPTH + 2; level++) {
+      chain.push(child(`n${level}`, level === 1 ? "root" : `n${level - 1}`));
+    }
+    const children = buildSidebarChildren(chain);
+    const rows = listSidebarChildRows(keyOf("root"), children, none);
+    expect(rows.map((row) => row.depth)).toEqual([1, 2, 3, 4, 5]);
+    expect(listSidebarDescendants(keyOf("root"), children)).toHaveLength(
+      SIDEBAR_MAX_CHILD_DEPTH + 2,
+    );
+  });
+
+  it("hides the children of a collapsed row and survives cycles", () => {
+    const children = buildSidebarChildren([root, child("a", "root"), child("b", "a")]);
+    expect(
+      listSidebarChildRows(keyOf("root"), children, new Set([keyOf("a")])).map(
+        (row) => row.thread.id,
+      ),
+    ).toEqual(["a"]);
+    const loopA = child("loop-a", "loop-b");
+    const loopB = child("loop-b", "loop-a");
+    const loops = buildSidebarChildren([root, loopA, loopB, child("c", "loop-a")]);
+    expect(listSidebarChildRows(keyOf("loop-a"), loops, none).length).toBeLessThanOrEqual(2);
+    expect(listSidebarDescendants(keyOf("loop-a"), loops).length).toBeLessThanOrEqual(3);
+  });
+
+  it("rolls descendant status up without hiding the parent's own attention state", () => {
+    expect(rollUpSidebarThreadStatus("waiting", ["ready", "working"])).toBe("working");
+    expect(rollUpSidebarThreadStatus("ready", ["preparing"])).toBe("working");
+    expect(rollUpSidebarThreadStatus("ready", ["ready"])).toBe("ready");
+    expect(rollUpSidebarThreadStatus("working", ["input", "approval"])).toBe("approval");
+    expect(rollUpSidebarThreadStatus("ready", ["working", "input"])).toBe("input");
+    expect(rollUpSidebarThreadStatus("input", ["approval"])).toBe("input");
   });
 });
 

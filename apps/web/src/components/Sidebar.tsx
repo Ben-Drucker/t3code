@@ -178,7 +178,12 @@ import {
 } from "./threadActionMenu.logic";
 import {
   applySidebarThreadDrop,
+  buildSidebarChildren,
   filterSidebarV2VisibleThreads,
+  listSidebarChildRows,
+  listSidebarDescendants,
+  resolveSidebarThreadStatus,
+  summarizeDescendantStatus,
   groupSidebarThreadsByProject,
   sidebarFolderExpansionKeys,
   buildBulkTitleRegenerationContextMenuItem,
@@ -260,6 +265,7 @@ import {
   type SidebarProviderEntry,
   type SidebarSweepAction,
 } from "./sidebar/SidebarThreadRow";
+import { SidebarChildThreadRow } from "./sidebar/SidebarChildThreadRow";
 import { SidebarDraftBlock } from "./sidebar/SidebarDraftBlock";
 import {
   SidebarProjectFolderHeader,
@@ -625,9 +631,20 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
   const working: EnvironmentThreadShell[] = [];
+  // A parent works while a subagent under it does, so its children never leave it for the shelf.
+  const childrenByParent = buildSidebarChildren(threads);
+  const hasWorkingDescendant = (thread: EnvironmentThreadShell) =>
+    childrenByParent.size > 0 &&
+    summarizeDescendantStatus(listSidebarDescendants(threadShellKey(thread), childrenByParent)) ===
+      "working" &&
+    resolveSidebarThreadStatus(thread) !== "working" &&
+    !thread.hasPendingApprovals &&
+    !thread.hasPendingUserInput &&
+    thread.pendingSubagentRequest == null;
   const inbox = (thread: EnvironmentThreadShell, manuallyMoved = false) =>
     workingShelfEnabled &&
-    (manuallyMoved ? isThreadWorking(thread) : inboxObservation.isWorking(thread))
+    ((manuallyMoved ? isThreadWorking(thread) : inboxObservation.isWorking(thread)) ||
+      hasWorkingDescendant(thread))
       ? working
       : active;
   const snoozed: EnvironmentThreadShell[] = [];
@@ -1431,6 +1448,16 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     }
     return mapping;
   })();
+
+  // Children show by default; only the parents the user folded are tracked.
+  const [foldedChildKeys, setFoldedChildKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleChildRows = (key: string) =>
+    setFoldedChildKeys((current) => {
+      const next = new Set(current);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  const childrenByParent = buildSidebarChildren(threads);
 
   const navigateToThread = (threadRef: ScopedThreadRef) => {
     if (useThreadSelectionStore.getState().selectedThreadKeys.size > 0) {
@@ -3323,7 +3350,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           : isCard
                             ? "card"
                             : "slim";
-                        return (
+                        const hasChildRows =
+                          projectFolders === null && childrenByParent.has(threadKey);
+                        const row = (
                           <SortableThreadRow
                             key={threadKey}
                             sortableId={threadKey}
@@ -3355,6 +3384,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             snoozeSupported={serverConfigs.has(thread.environmentId)}
                             pinningSupported={serverConfigs.has(thread.environmentId)}
                             isPinned={thread.pinnedAt != null}
+                            childrenExpanded={hasChildRows ? !foldedChildKeys.has(threadKey) : null}
+                            descendantStatus={
+                              hasChildRows
+                                ? summarizeDescendantStatus(
+                                    listSidebarDescendants(threadKey, childrenByParent),
+                                  )
+                                : null
+                            }
+                            onToggleChildren={toggleChildRows}
                             dropVerb={
                               dragState?.activeKey === threadKey
                                 ? resolveSidebarDropVerb(dragState.activeSection, dragTargetSection)
@@ -3424,6 +3462,31 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             onFileDropThreads={handleThreadFileDrop}
                           />
                         );
+                        if (!hasChildRows) return row;
+                        return [
+                          row,
+                          ...listSidebarChildRows(threadKey, childrenByParent, foldedChildKeys).map(
+                            ({ thread: child, depth, hasChildren }) => {
+                              const childKey = scopedThreadKey(
+                                scopeThreadRef(child.environmentId, child.id),
+                              );
+                              return (
+                                <SidebarChildThreadRow
+                                  key={childKey}
+                                  thread={child}
+                                  depth={depth}
+                                  expanded={hasChildren ? !foldedChildKeys.has(childKey) : null}
+                                  descendantStatus={summarizeDescendantStatus(
+                                    listSidebarDescendants(childKey, childrenByParent),
+                                  )}
+                                  isActive={routeThreadKey === childKey}
+                                  onActivate={navigateToThread}
+                                  onToggle={toggleChildRows}
+                                />
+                              );
+                            },
+                          ),
+                        ];
                       };
                       const from = isContextDrag ? null : (dragState?.activeSection ?? null);
                       const items: ReactNode[] = [

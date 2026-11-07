@@ -587,6 +587,113 @@ export function resolveSidebarRowThreadId(
   return thread?.id ?? threadId;
 }
 
+/** Rows nest this many levels under a top-level row; deeper threads only feed its status. */
+export const SIDEBAR_MAX_CHILD_DEPTH = 5;
+
+type SidebarNestThread = Pick<
+  SidebarThreadSummary,
+  "archivedAt" | "createdAt" | "environmentId" | "id" | "lineage"
+>;
+
+const sidebarThreadKey = (thread: Pick<SidebarNestThread, "environmentId" | "id">) =>
+  scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+
+/** Subagents and side chats by parent thread key, oldest first. A missing parent leaves them out. */
+export function buildSidebarChildren<T extends SidebarNestThread>(
+  threads: readonly T[],
+): ReadonlyMap<string, readonly T[]> {
+  const known = new Set(threads.map(sidebarThreadKey));
+  const children = new Map<string, T[]>();
+  for (const thread of threads) {
+    const parentId = thread.lineage.parentThreadId;
+    if (thread.archivedAt !== null || isListedThreadLineage(thread.lineage) || parentId === null) {
+      continue;
+    }
+    const parentKey = scopedThreadKey(scopeThreadRef(thread.environmentId, parentId));
+    if (!known.has(parentKey)) continue;
+    const siblings = children.get(parentKey);
+    if (siblings) siblings.push(thread);
+    else children.set(parentKey, [thread]);
+  }
+  for (const siblings of children.values()) {
+    siblings.sort(
+      (left, right) =>
+        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+    );
+  }
+  return children;
+}
+
+/**
+ * The child rows under one top-level row, depth first. Collapsed rows hide their own
+ * children; the depth cap and the visited set keep deep chains and cycles finite.
+ */
+export function listSidebarChildRows<T extends SidebarNestThread>(
+  parentKey: string,
+  children: ReadonlyMap<string, readonly T[]>,
+  collapsed: ReadonlySet<string>,
+): ReadonlyArray<{ readonly thread: T; readonly depth: number; readonly hasChildren: boolean }> {
+  const rows: Array<{ thread: T; depth: number; hasChildren: boolean }> = [];
+  const visited = new Set([parentKey]);
+  const walk = (key: string, depth: number) => {
+    if (depth > SIDEBAR_MAX_CHILD_DEPTH || collapsed.has(key)) return;
+    for (const thread of children.get(key) ?? []) {
+      const childKey = sidebarThreadKey(thread);
+      if (visited.has(childKey)) continue;
+      visited.add(childKey);
+      rows.push({ thread, depth, hasChildren: (children.get(childKey)?.length ?? 0) > 0 });
+      walk(childKey, depth + 1);
+    }
+  };
+  walk(parentKey, 1);
+  return rows;
+}
+
+/** Every descendant at any depth, for rolling status up. */
+export function listSidebarDescendants<T extends SidebarNestThread>(
+  parentKey: string,
+  children: ReadonlyMap<string, readonly T[]>,
+): readonly T[] {
+  const found: T[] = [];
+  const visited = new Set([parentKey]);
+  const stack = [parentKey];
+  while (stack.length > 0) {
+    for (const thread of children.get(stack.pop()!) ?? []) {
+      const key = sidebarThreadKey(thread);
+      if (visited.has(key)) continue;
+      visited.add(key);
+      found.push(thread);
+      stack.push(key);
+    }
+  }
+  return found;
+}
+
+/**
+ * A parent works while any descendant does, and needs you when one does. Its own
+ * attention states stay as they are; a descendant's approval outranks its input.
+ */
+export function rollUpSidebarThreadStatus(
+  own: SidebarThreadStatus,
+  descendants: readonly SidebarThreadStatus[],
+): SidebarThreadStatus {
+  if (own === "approval" || own === "input" || own === "request") return own;
+  if (descendants.includes("approval")) return "approval";
+  if (descendants.includes("input")) return "input";
+  if (own === "preparing" || own === "working") return own;
+  return descendants.some((status) => status === "preparing" || status === "working")
+    ? "working"
+    : own;
+}
+
+/** The strongest state among a parent's descendants, or null when they add nothing to it. */
+export function summarizeDescendantStatus(
+  descendants: readonly Parameters<typeof resolveSidebarThreadStatus>[0][],
+): SidebarThreadStatus | null {
+  const rolled = rollUpSidebarThreadStatus("ready", descendants.map(resolveSidebarThreadStatus));
+  return rolled === "ready" ? null : rolled;
+}
+
 /**
  * `delegatedUnderParent` holds the tasks linked environments run for a thread
  * the sidebar lists, by thread key; they show under that thread, as subagents do.

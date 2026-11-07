@@ -80,6 +80,8 @@ import {
   resolveSidebarRowAccessibility,
   type SidebarDropVerb,
   resolveSidebarThreadStatus,
+  rollUpSidebarThreadStatus,
+  type SidebarThreadStatus,
   resolveThreadLastVisitedAt,
   shouldRecedeSidebarThread,
   resolveWorkingStartedAt,
@@ -87,6 +89,7 @@ import {
   useSidebarRowSubscriptionLease,
   setFileDragActive,
 } from "../Sidebar.logic";
+import { SidebarChildToggle } from "./SidebarChildThreadRow";
 import { resolveLocalCheckoutBranchMismatch } from "../BranchToolbar.logic";
 import {
   ThreadPullRequestBadgeControl,
@@ -547,6 +550,10 @@ type SidebarThreadRowProps = {
   snoozeSupported: boolean;
   pinningSupported: boolean;
   isPinned: boolean;
+  // Null unless the row has nested children (default sidebar only).
+  childrenExpanded?: boolean | null | undefined;
+  descendantStatus?: SidebarThreadStatus | null | undefined;
+  onToggleChildren?: ((threadKey: string) => void) | undefined;
   sortable?: SortableThreadRowBag | undefined;
   dropVerb: SidebarDropVerb | null;
   dragOverPinned: boolean;
@@ -711,7 +718,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     : null;
 
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
-  const status = resolveSidebarThreadStatus(thread);
+  const status = rollUpSidebarThreadStatus(
+    resolveSidebarThreadStatus(thread),
+    props.descendantStatus == null ? [] : [props.descendantStatus],
+  );
+  const childToggle =
+    props.childrenExpanded != null && props.onToggleChildren ? (
+      <SidebarChildToggle
+        expanded={props.childrenExpanded}
+        threadKey={threadKey}
+        onToggle={props.onToggleChildren}
+      />
+    ) : null;
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
   const wokeAtDate = props.wokeAt === null ? null : parseTimestampDate(props.wokeAt);
   const isWoke =
@@ -1256,6 +1274,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                   ) : null}
                 </span>
               )}
+              {childToggle}
               {draftIndicator}
               {title}
               {multiline ? titleLineIcons : null}
@@ -1437,6 +1456,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             )}
           >
             <div className="flex h-5 min-w-0 items-center gap-1.5">
+              {childToggle}
               {draftIndicator}
               {props.project ? (
                 <ProjectFavicon project={props.project} className="size-4 shrink-0" />
