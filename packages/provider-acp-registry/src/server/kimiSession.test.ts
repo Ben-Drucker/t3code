@@ -56,6 +56,23 @@ describe("parseKimiModelWindows", () => {
     expect(windows.get("kimi-code/k3-256k")).toBe(262144);
     expect(windows.size).toBe(2);
   });
+
+  it("prefers a model's overrides table, which the CLI keeps when it refreshes models", () => {
+    const windows = parseKimiModelWindows(
+      [
+        '[models."kimi-code/k3"]',
+        "max_context_size = 1048576",
+        "",
+        '[models."kimi-code/k3".overrides]',
+        "max_context_size = 375000",
+        "",
+        '[models."kimi-code/k3-256k"]',
+        "max_context_size = 262144",
+      ].join("\n"),
+    );
+    expect(windows.get("kimi-code/k3")).toBe(375000);
+    expect(windows.get("kimi-code/k3-256k")).toBe(262144);
+  });
 });
 
 describe("makeKimiContextUsageReader", () => {

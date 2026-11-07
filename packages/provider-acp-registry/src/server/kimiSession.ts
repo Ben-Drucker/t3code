@@ -79,24 +79,31 @@ export function parseKimiWireTail(lines: ReadonlyArray<string>): {
   };
 }
 
-/** `max_context_size` per `[models."<alias>"]` section of the CLI's config.toml. */
+/**
+ * `max_context_size` per `[models."<alias>"]` section of the CLI's config.toml. The CLI rewrites that
+ * value whenever it refreshes its model list, so `[models."<alias>".overrides]` wins when present.
+ */
 export function parseKimiModelWindows(configText: string): ReadonlyMap<string, number> {
-  const windows = new Map<string, number>();
-  let alias: string | undefined;
+  const base = new Map<string, number>();
+  const overrides = new Map<string, number>();
+  let target: { readonly alias: string; readonly sizes: Map<string, number> } | undefined;
   for (const line of configText.split("\n")) {
-    const header = /^\s*\[models\.(?:"([^"]+)"|([^\]\s]+))\]\s*$/.exec(line);
+    const header = /^\s*\[models\.(?:"([^"]+)"|([^\].\s]+))(\.overrides)?\]\s*$/.exec(line);
     if (header !== null) {
-      alias = header[1] ?? header[2];
+      target = {
+        alias: header[1] ?? header[2]!,
+        sizes: header[3] === undefined ? base : overrides,
+      };
       continue;
     }
     if (/^\s*\[/.test(line)) {
-      alias = undefined;
+      target = undefined;
       continue;
     }
-    const size = alias === undefined ? null : /^\s*max_context_size\s*=\s*(\d+)/.exec(line);
-    if (alias !== undefined && size !== null) windows.set(alias, Number(size[1]));
+    const size = target === undefined ? null : /^\s*max_context_size\s*=\s*(\d+)/.exec(line);
+    if (target !== undefined && size !== null) target.sizes.set(target.alias, Number(size[1]));
   }
-  return windows;
+  return new Map([...base, ...overrides]);
 }
 
 /** Reads the newest context size of a Kimi Code session from its files. Never fails. */
