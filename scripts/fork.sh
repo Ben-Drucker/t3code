@@ -11,13 +11,13 @@
 # builds, and swaps the app into /Applications. Re-running it on a ready machine skips the setup.
 #
 # Environment:
-#   T3_FORK_OUT      where DMGs, logs, step timings and the rollback app go (default ~/Code/T3ForkContainer)
+#   T3_FORK_OUT      where DMGs, logs, step timings and the rollback app go (default <repo>/.fork-out, git-ignored)
 #   T3_FORK_BRANCH   branch builds must come from (default mine)
 #   T3_UPSTREAM_URL  upstream repository (default https://github.com/pingdotgg/t3code.git)
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-OUT="${T3_FORK_OUT:-$HOME/Code/T3ForkContainer}"
+OUT="${T3_FORK_OUT:-$REPO/.fork-out}"
 BRANCH="${T3_FORK_BRANCH:-mine}"
 UPSTREAM_URL="${T3_UPSTREAM_URL:-https://github.com/pingdotgg/t3code.git}"
 APP_NAME="T3 Code (Nightly)"
