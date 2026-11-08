@@ -2009,7 +2009,7 @@ describe("AcpRegistryAdapterV2", () => {
         ],
         undefined,
         false,
-        "devin",
+        { agentId: "devin", environment: {} },
       );
       yield* session.runtime.startTurn(session.turnInput(1));
       const events = yield* session.throughMarker("tools complete");
@@ -2132,7 +2132,7 @@ describe("AcpRegistryAdapterV2", () => {
         ],
         undefined,
         false,
-        "devin",
+        { agentId: "devin", environment: {} },
       );
       const starting = yield* session.runtime
         .startTurn(session.turnInput(1))
