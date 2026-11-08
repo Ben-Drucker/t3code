@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Personal-fork helper: set up a machine, show drift from upstream, build and install the macOS app.
 #
-#   scripts/fork.sh deploy [--ask] [--allow-dirty]   set up anything missing, build, install
+#   scripts/fork.sh deploy [--ask] [--allow-dirty] [--foreground]
+#                                                    set up anything missing, build, install
 #   scripts/fork.sh status [--no-fetch]              how far the fork is from pingdotgg/t3code
 #   scripts/fork.sh build                            build the DMG only
 #   scripts/fork.sh install                          install the DMG for this checkout only
@@ -10,7 +11,12 @@
 # toolchains (without asking; pass --ask to be prompted), adds the upstream remote, installs dependencies,
 # builds, and swaps the app into /Applications. Re-running it on a ready machine skips the setup.
 #
+# Deploy runs detached by default, in its own session, so quitting the app it replaces (or the T3 Code
+# session that started it) cannot kill it. It prints the log path and returns; pass --foreground to run
+# it in the current terminal with the progress bar instead.
+#
 # Environment:
+#   T3_FORK_DETACHED set to 1 inside the detached child; do not set it yourself
 #   T3_FORK_OUT      where DMGs, logs, step timings and the rollback app go (default <repo>/.fork-out, git-ignored)
 #   T3_FORK_BRANCH   branch builds must come from (default mine)
 #   T3_UPSTREAM_URL  upstream repository (default https://github.com/pingdotgg/t3code.git)
@@ -28,6 +34,7 @@ TIMINGS="$OUT/step-times"
 ASSUME_YES=1
 ALLOW_DIRTY=0
 NO_FETCH=0
+FOREGROUND=0
 
 say() { printf '\n==> %s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
@@ -269,8 +276,25 @@ draw_progress() { # overall_done overall_total idx count label step_elapsed step
 
 clear_progress() { printf '\r\033[K\n\033[K\n\033[K\033[2A\r'; }
 
+# Re-runs deploy in a new session with no terminal, so nothing that ends the caller's session can reach it.
+# perl is the portable way to call setsid on macOS, which has no setsid command.
+deploy_detached() {
+  local out="$OUT/deploy-detached.log" args=(deploy)
+  [ "$ALLOW_DIRTY" = 0 ] || args+=(--allow-dirty)
+  : >"$out"
+  T3_FORK_DETACHED=1 nohup perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' \
+    bash "${BASH_SOURCE[0]}" "${args[@]}" >"$out" 2>&1 </dev/null &
+  echo "$!" >"$OUT/deploy.pid"
+  echo "Deploy started in the background (pid $!). Progress: tail -f $out"
+  echo "Details: $OUT/deploy.log"
+}
+
 cmd_deploy() {
   preflight
+  if [ "$FOREGROUND" = 0 ] && [ "${T3_FORK_DETACHED:-0}" != 1 ]; then
+    deploy_detached
+    return
+  fi
   local log="$OUT/deploy.log" total=0 spent=0 idx=0 count=${#STEPS[@]} entry name fn fallback est
   : >"$log"
   for entry in "${STEPS[@]}"; do
@@ -326,6 +350,7 @@ for arg in "$@"; do
     --yes|-y) ASSUME_YES=1 ;;
     --ask) ASSUME_YES=0 ;;
     --allow-dirty) ALLOW_DIRTY=1 ;;
+    --foreground) FOREGROUND=1 ;;
     --no-fetch) NO_FETCH=1 ;;
     *) die "Unknown option: $arg" ;;
   esac

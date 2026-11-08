@@ -2881,6 +2881,7 @@ const make = Effect.gen(function* () {
                   type: "thread.create",
                   createdBy: "agent",
                   creationSource: "mcp",
+                  launchedBy: scope.thread.threadId,
                   commandId,
                   threadId,
                   projectId: parent.thread.projectId,

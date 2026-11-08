@@ -62,6 +62,7 @@ it("stamps authoritative provenance on commands that create threads or messages"
       threadId: ThreadId.make("thread:elsewhere"),
       title: "Somewhere else",
     },
+    launchedBy: ThreadId.make("thread:forged-parent"),
   };
 
   const stamped = ThreadManagementService.withCreationProvenance(command, {
@@ -74,6 +75,7 @@ it("stamps authoritative provenance on commands that create threads or messages"
   });
   expect(stamped).not.toHaveProperty("linkOrigin");
   expect(stamped).not.toHaveProperty("delegatedFrom");
+  expect(stamped).not.toHaveProperty("launchedBy");
 });
 
 const layerReceiptsTest = CommandReceiptStore.layer.pipe(

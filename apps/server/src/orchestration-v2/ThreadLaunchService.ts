@@ -103,6 +103,8 @@ export interface ThreadLaunchInput {
   readonly linkOrigin?: OrchestrationV2LinkOrigin;
   /** The parent there, when that environment's agent delegated this as a task. */
   readonly delegatedFrom?: OrchestrationV2DelegatedFrom;
+  /** The thread whose agent launched this one. */
+  readonly launchedBy?: ThreadId;
 }
 
 type PreparationInput = Pick<
@@ -948,6 +950,7 @@ const make = Effect.gen(function* () {
                 ...(input.delegatedFrom === undefined
                   ? {}
                   : { delegatedFrom: input.delegatedFrom }),
+                ...(input.launchedBy === undefined ? {} : { launchedBy: input.launchedBy }),
                 createdBy: input.createdBy,
                 creationSource: input.creationSource,
               });

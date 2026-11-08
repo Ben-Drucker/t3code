@@ -19,6 +19,52 @@ import {
 } from "../Sidebar.logic";
 
 const CHILD_INDENT_REM = 0.875;
+// Where the first connector line runs, under the parent row's leading icon.
+const CONNECTOR_START_REM = 1.125;
+const CONNECTOR_CLASS = "pointer-events-none absolute border-sidebar-muted-foreground/30";
+
+/**
+ * The tree lines beside a nested row: a line down from the parent that curves right into this
+ * row, plus a line through it for each ancestor level, and for this level when siblings follow.
+ */
+function SidebarChildConnectors(props: {
+  depth: number;
+  isLast: boolean;
+  continuingLevels: readonly boolean[];
+}) {
+  const columnX = (level: number) => `${CONNECTOR_START_REM + (level - 1) * CHILD_INDENT_REM}rem`;
+  return (
+    <>
+      {props.continuingLevels.flatMap((continues, index) =>
+        continues
+          ? [
+              <span
+                key={`level-${index + 1}`}
+                aria-hidden
+                className={cn(CONNECTOR_CLASS, "inset-y-0 border-s")}
+                style={{ insetInlineStart: columnX(index + 1) }}
+              />,
+            ]
+          : [],
+      )}
+      {props.isLast ? null : (
+        <span
+          aria-hidden
+          className={cn(CONNECTOR_CLASS, "inset-y-0 border-s")}
+          style={{ insetInlineStart: columnX(props.depth) }}
+        />
+      )}
+      <span
+        aria-hidden
+        className={cn(CONNECTOR_CLASS, "top-0 h-1/2 rounded-es-md border-s border-b")}
+        style={{
+          insetInlineStart: columnX(props.depth),
+          width: `${CHILD_INDENT_REM - 0.125}rem`,
+        }}
+      />
+    </>
+  );
+}
 
 /** The chevron that folds a row's nested children; shared by top-level and child rows. */
 export function SidebarChildToggle(props: {
@@ -70,6 +116,8 @@ const STATUS_GLYPHS: Partial<
 export const SidebarChildThreadRow = memo(function SidebarChildThreadRow(props: {
   thread: SidebarThreadSummary;
   depth: number;
+  isLast: boolean;
+  continuingLevels: readonly boolean[];
   // Null when the row has no children of its own.
   expanded: boolean | null;
   descendantStatus: SidebarThreadStatus | null;
@@ -88,9 +136,14 @@ export const SidebarChildThreadRow = memo(function SidebarChildThreadRow(props: 
   const activate = () => props.onActivate(threadRef);
   return (
     <li
-      className="list-none"
+      className="relative list-none"
       style={{ paddingInlineStart: `${props.depth * CHILD_INDENT_REM}rem` }}
     >
+      <SidebarChildConnectors
+        depth={props.depth}
+        isLast={props.isLast}
+        continuingLevels={props.continuingLevels}
+      />
       <div
         role="button"
         tabIndex={0}

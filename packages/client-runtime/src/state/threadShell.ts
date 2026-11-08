@@ -669,7 +669,11 @@ export function createEnvironmentThreadShellAtoms(input: {
     const next = new Set<string>();
     for (const environmentId of environmentIds) {
       for (const thread of get(environmentThreadsAtom(environmentId))) {
-        const parent = thread.delegatedFrom;
+        const parent =
+          thread.delegatedFrom ??
+          (thread.launchedBy === undefined
+            ? undefined
+            : { environmentId, threadId: thread.launchedBy });
         if (
           parent !== undefined &&
           environmentIds.has(parent.environmentId) &&

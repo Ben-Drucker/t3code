@@ -593,22 +593,34 @@ export const SIDEBAR_MAX_CHILD_DEPTH = 5;
 type SidebarNestThread = Pick<
   SidebarThreadSummary,
   "archivedAt" | "createdAt" | "environmentId" | "id" | "lineage"
->;
+> &
+  Partial<Pick<SidebarThreadSummary, "launchedBy" | "latestUserMessageAt">>;
 
 const sidebarThreadKey = (thread: Pick<SidebarNestThread, "environmentId" | "id">) =>
   scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
 
-/** Subagents and side chats by parent thread key, oldest first. A missing parent leaves them out. */
+/** The thread a nested row hangs under: its subagent or side-chat parent, else the thread that launched it. */
+function sidebarNestParentId(thread: SidebarNestThread): ThreadId | null {
+  if (!isListedThreadLineage(thread.lineage)) return thread.lineage.parentThreadId;
+  return thread.launchedBy ?? null;
+}
+
+const sidebarChildActivityMs = (thread: SidebarNestThread) =>
+  firstValidTimestampMs(thread.latestUserMessageAt ?? thread.createdAt);
+
+/**
+ * Threads nested under a parent, by parent thread key: subagents, side chats and threads an
+ * agent launched. Newest first by the latest message from the user or the parent. A missing
+ * parent leaves them out.
+ */
 export function buildSidebarChildren<T extends SidebarNestThread>(
   threads: readonly T[],
 ): ReadonlyMap<string, readonly T[]> {
   const known = new Set(threads.map(sidebarThreadKey));
   const children = new Map<string, T[]>();
   for (const thread of threads) {
-    const parentId = thread.lineage.parentThreadId;
-    if (thread.archivedAt !== null || isListedThreadLineage(thread.lineage) || parentId === null) {
-      continue;
-    }
+    const parentId = sidebarNestParentId(thread);
+    if (thread.archivedAt !== null || parentId === null) continue;
     const parentKey = scopedThreadKey(scopeThreadRef(thread.environmentId, parentId));
     if (!known.has(parentKey)) continue;
     const siblings = children.get(parentKey);
@@ -618,10 +630,21 @@ export function buildSidebarChildren<T extends SidebarNestThread>(
   for (const siblings of children.values()) {
     siblings.sort(
       (left, right) =>
-        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+        sidebarChildActivityMs(right) - sidebarChildActivityMs(left) ||
+        left.id.localeCompare(right.id),
     );
   }
   return children;
+}
+
+export interface SidebarChildRow<T> {
+  readonly thread: T;
+  readonly depth: number;
+  readonly hasChildren: boolean;
+  /** The last visible sibling under its parent, where its connector ends. */
+  readonly isLast: boolean;
+  /** For each ancestor level below the top row, whether that ancestor has more siblings after it. */
+  readonly continuingLevels: readonly boolean[];
 }
 
 /**
@@ -632,20 +655,31 @@ export function listSidebarChildRows<T extends SidebarNestThread>(
   parentKey: string,
   children: ReadonlyMap<string, readonly T[]>,
   collapsed: ReadonlySet<string>,
-): ReadonlyArray<{ readonly thread: T; readonly depth: number; readonly hasChildren: boolean }> {
-  const rows: Array<{ thread: T; depth: number; hasChildren: boolean }> = [];
+): ReadonlyArray<SidebarChildRow<T>> {
+  const rows: Array<SidebarChildRow<T>> = [];
   const visited = new Set([parentKey]);
-  const walk = (key: string, depth: number) => {
+  const walk = (key: string, depth: number, continuingLevels: readonly boolean[]) => {
     if (depth > SIDEBAR_MAX_CHILD_DEPTH || collapsed.has(key)) return;
-    for (const thread of children.get(key) ?? []) {
+    const siblings = (children.get(key) ?? []).filter((thread) => {
       const childKey = sidebarThreadKey(thread);
-      if (visited.has(childKey)) continue;
+      if (visited.has(childKey)) return false;
       visited.add(childKey);
-      rows.push({ thread, depth, hasChildren: (children.get(childKey)?.length ?? 0) > 0 });
-      walk(childKey, depth + 1);
-    }
+      return true;
+    });
+    siblings.forEach((thread, index) => {
+      const childKey = sidebarThreadKey(thread);
+      const isLast = index === siblings.length - 1;
+      rows.push({
+        thread,
+        depth,
+        hasChildren: (children.get(childKey)?.length ?? 0) > 0,
+        isLast,
+        continuingLevels,
+      });
+      walk(childKey, depth + 1, [...continuingLevels, !isLast]);
+    });
   };
-  walk(parentKey, 1);
+  walk(parentKey, 1, []);
   return rows;
 }
 

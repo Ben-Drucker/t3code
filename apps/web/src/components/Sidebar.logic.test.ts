@@ -224,6 +224,36 @@ describe("sidebar child rows", () => {
     expect(children.has(keyOf("missing"))).toBe(false);
   });
 
+  it("lists launched threads too, newest user or parent message first, with connector hints", () => {
+    const launched = (id: string, parentId: string, at: string) =>
+      makeThreadFixture({
+        id: ThreadId.make(id),
+        environmentId,
+        launchedBy: ThreadId.make(parentId),
+        latestUserMessageAt: at,
+      });
+    const children = buildSidebarChildren([
+      root,
+      launched("old", "root", "2026-03-01T00:00:00.000Z"),
+      launched("new", "root", "2026-03-05T00:00:00.000Z"),
+      launched("grand", "new", "2026-03-06T00:00:00.000Z"),
+    ]);
+    expect(
+      listSidebarChildRows(keyOf("root"), children, none).map(
+        ({ thread, depth, isLast, continuingLevels }) => [
+          thread.id,
+          depth,
+          isLast,
+          continuingLevels,
+        ],
+      ),
+    ).toEqual([
+      ["new", 1, false, []],
+      ["grand", 2, true, [true]],
+      ["old", 1, true, []],
+    ]);
+  });
+
   it("caps rows at the max depth but rolls deeper descendants into status", () => {
     const chain = [root];
     for (let level = 1; level <= SIDEBAR_MAX_CHILD_DEPTH + 2; level++) {

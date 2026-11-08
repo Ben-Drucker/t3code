@@ -489,7 +489,7 @@ function useSidebarThreads(input: {
     connectedEnvironmentIds,
     optimisticDrop,
     workingShelfEnabled,
-    sortActiveBySend: folderGroups !== null,
+    sortActiveBySend: !workingShelfEnabled,
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
@@ -3496,7 +3496,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         return [
                           row,
                           ...listSidebarChildRows(threadKey, childrenByParent, foldedChildKeys).map(
-                            ({ thread: child, depth, hasChildren }) => {
+                            ({ thread: child, depth, hasChildren, isLast, continuingLevels }) => {
                               const childKey = scopedThreadKey(
                                 scopeThreadRef(child.environmentId, child.id),
                               );
@@ -3505,6 +3505,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   key={childKey}
                                   thread={child}
                                   depth={depth}
+                                  isLast={isLast}
+                                  continuingLevels={continuingLevels}
                                   expanded={hasChildren ? !foldedChildKeys.has(childKey) : null}
                                   descendantStatus={summarizeDescendantStatus(
                                     listSidebarDescendants(childKey, childrenByParent),

@@ -146,7 +146,12 @@ or **Settings → General → Working section** on iOS and Android. Each device 
 choice.
 
 While this is on, the active list is ordered by when each thread last came back to you, so you
-cannot drag or move threads within it. Your saved order returns when you turn it off.
+cannot drag or move threads within it. When it is off on web and desktop, the active list is ordered
+by the last prompt you sent each thread, newest first.
+
+Subagents, and threads an agent started with its thread tools, are listed under the thread that
+started them with a connecting line. Under each parent, the ones you or the parent messaged most
+recently come first.
 
 ### Group threads by project (beta)
 

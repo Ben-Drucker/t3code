@@ -3064,6 +3064,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ...(command.linkOrigin === undefined || command.delegatedFrom === undefined
         ? {}
         : { delegatedFrom: command.delegatedFrom }),
+      ...(command.launchedBy === undefined ||
+      command.createdBy !== "agent" ||
+      command.creationSource !== "mcp"
+        ? {}
+        : { launchedBy: command.launchedBy }),
       lineage: {
         parentThreadId: null,
         relationshipToParent: null,
