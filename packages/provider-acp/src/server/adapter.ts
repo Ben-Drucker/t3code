@@ -398,6 +398,11 @@ export interface AcpAdapterV2Flavor {
     policy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
   ) => string | undefined;
   /**
+   * Fork: later names a runtime gave a policy's session mode. When set, the first of the mode and its
+   * aliases the session advertises is applied, and none is applied if it advertises none of them.
+   */
+  readonly sessionModeAliases?: Readonly<Record<string, ReadonlyArray<string>>>;
+  /**
    * Native select-option values to apply for a runtime policy (e.g. Kiro's
    * `autopilot`), set on every session configure. A value the session does
    * not advertise is skipped; an agent rejecting it fails the session.
@@ -490,7 +495,14 @@ export interface AcpAdapterV2Flavor {
   readonly pollContextUsage?: (input: {
     readonly sessionId: string;
     readonly cwd: string;
-  }) => Effect.Effect<{ readonly usedTokens: number; readonly maxTokens?: number } | undefined>;
+  }) => Effect.Effect<
+    | {
+        readonly usedTokens: number;
+        readonly maxTokens?: number;
+        readonly breakdown?: ThreadTokenUsageSnapshot["breakdown"];
+      }
+    | undefined
+  >;
   readonly extractSubagentUpdate?: (
     toolCall: AcpToolCallState,
   ) => AcpAdapterV2SubagentUpdate | undefined;
@@ -1912,6 +1924,10 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             : flavor.extractSubagentUpdate?.(tool);
         let turnAttached = yield* Deferred.make<boolean>();
         const activeSessionId = yield* Ref.make<string | null>(null);
+        // Fork: a polled reading's split, applied to the usage update the poll raises.
+        const polledBreakdownBySessionId = yield* Ref.make(
+          new Map<string, ThreadTokenUsageSnapshot["breakdown"]>(),
+        );
         const contextUsageBySessionId = yield* Ref.make(
           new Map<string, ThreadTokenUsageSnapshot>(),
         );
@@ -5001,11 +5017,29 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             );
             if (stateEvent === undefined) return;
             if (stateEvent._tag === "UsageUpdated") {
+              const polledBreakdown = (yield* Ref.get(polledBreakdownBySessionId)).get(
+                notification.sessionId,
+              );
+              const previousUsage = (yield* Ref.get(contextUsageBySessionId)).get(
+                notification.sessionId,
+              );
+              const usage =
+                polledBreakdown === undefined
+                  ? stateEvent.usage
+                  : {
+                      ...stateEvent.usage,
+                      // A poll that does not know the window must not erase one already reported.
+                      ...(stateEvent.usage.maxTokens === undefined &&
+                      previousUsage?.maxTokens !== undefined
+                        ? { maxTokens: previousUsage.maxTokens }
+                        : {}),
+                      breakdown: polledBreakdown,
+                    };
               yield* Ref.update(contextUsageBySessionId, (current) =>
-                new Map(current).set(notification.sessionId, stateEvent.usage),
+                new Map(current).set(notification.sessionId, usage),
               );
               if (context?.nativeThreadId === notification.sessionId) {
-                context.contextUsage = stateEvent.usage;
+                context.contextUsage = usage;
               }
             } else {
               const metadata = yield* Ref.modify(nativeMetadataBySessionId, (current) => {
@@ -7396,7 +7430,20 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             if (!advertisedValues.includes(selection.value)) continue;
             yield* runtime.setConfigOption(selection.id, selection.value);
           }
-          const policyMode = flavor.sessionModeForPolicy?.(runtimePolicy);
+          const yieldedModeIds = (yield* runtime.getModeState)?.availableModes.map(
+            (mode) => mode.id,
+          );
+          const requestedPolicyMode = flavor.sessionModeForPolicy?.(runtimePolicy);
+          const policyMode =
+            requestedPolicyMode === undefined || flavor.sessionModeAliases === undefined
+              ? requestedPolicyMode
+              : [
+                  requestedPolicyMode,
+                  ...(flavor.sessionModeAliases[requestedPolicyMode] ?? []),
+                ].find(
+                  (candidate) =>
+                    candidate === "default" || (yieldedModeIds ?? []).includes(candidate),
+                );
           if (policyMode !== undefined) {
             yield* runtime.setMode(policyMode);
           }
@@ -8254,6 +8301,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   const usage = yield* pollContextUsage({ sessionId: requestedSessionId, cwd });
                   if (usage === undefined || usage.usedTokens === lastUsedTokens) continue;
                   lastUsedTokens = usage.usedTokens;
+                  yield* Ref.update(polledBreakdownBySessionId, (current) =>
+                    new Map(current).set(requestedSessionId, usage.breakdown),
+                  );
                   yield* handleSessionUpdate({
                     sessionId: requestedSessionId,
                     update: {

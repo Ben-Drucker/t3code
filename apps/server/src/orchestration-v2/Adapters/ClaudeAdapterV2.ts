@@ -1,3 +1,4 @@
+import { claudeTranscriptBreakdown } from "./ClaudeTranscriptBreakdown.ts";
 import * as DocumentText from "../../provider/DocumentText.ts";
 import {
   compactDynamicToolOutput,
@@ -5549,6 +5550,26 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           });
         });
 
+        // Claude's own split lumps new tool output into messages; the transcript tells them apart.
+        const readClaudeTranscriptBreakdown = Effect.fnUntraced(function* (
+          nativeThreadId: string,
+          usedTokens: number,
+        ) {
+          const projectsDir = path.join(homePath, "projects");
+          const projects = yield* fileSystem
+            .readDirectory(projectsDir)
+            .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
+          for (const project of projects) {
+            const transcript = yield* fileSystem
+              .readFileString(path.join(projectsDir, project, `${nativeThreadId}.jsonl`))
+              .pipe(Effect.option);
+            if (Option.isSome(transcript)) {
+              return claudeTranscriptBreakdown(transcript.value.split("\n"), usedTokens);
+            }
+          }
+          return undefined;
+        });
+
         // The turn's final usage lacks a split; Claude reports one on request, best effort.
         const emitClaudeContextBreakdown = Effect.fnUntraced(function* (
           context: ActiveClaudeTurnContext,
@@ -5562,6 +5583,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             Effect.orElseSucceed(() => undefined),
           );
           if (report === undefined || report.usedTokens <= 0) return;
+          const transcriptBreakdown = yield* readClaudeTranscriptBreakdown(
+            context.nativeThreadId,
+            report.usedTokens,
+          );
           const now = yield* DateTime.now;
           const limits = claudeAutoCompactLimits(
             context.autoCompactWindow,
@@ -5588,7 +5613,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               tokenUsage: {
                 usedTokens: report.usedTokens,
                 ...limits,
-                breakdown: [...report.breakdown],
+                breakdown: transcriptBreakdown ?? [...report.breakdown],
                 updatedAt: DateTime.formatIso(now),
               },
             },

@@ -9,8 +9,12 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 
+import { estimateKimiBreakdown, type KimiContextBreakdown } from "./kimiBreakdown.ts";
+
 // A tool-heavy step can leave a lot of text between usage records, so read a wide tail.
 const TAIL_BYTES = 1024 * 1024;
+// Past this size the split is skipped rather than read in full on every step.
+const BREAKDOWN_MAX_BYTES = 32 * 1024 * 1024;
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -46,6 +50,7 @@ const parseLine = (line: string): unknown => {
 export interface KimiContextUsage {
   readonly usedTokens: number;
   readonly maxTokens?: number;
+  readonly breakdown?: ReadonlyArray<KimiContextBreakdown>;
 }
 
 /** Newest context size and the model alias in force, from the tail of a wire file. */
@@ -190,8 +195,15 @@ export const makeKimiContextUsageReader = (input: {
       const tail = parseKimiWireTail(yield* readTail(file));
       if (tail.usedTokens === undefined) return undefined;
       const maxTokens = yield* windowFor(tail.modelAlias);
-      return maxTokens === undefined
-        ? { usedTokens: tail.usedTokens }
-        : { usedTokens: tail.usedTokens, maxTokens };
+      const size = Number((yield* fs.stat(file)).size);
+      const breakdown =
+        size > BREAKDOWN_MAX_BYTES
+          ? undefined
+          : estimateKimiBreakdown((yield* fs.readFileString(file)).split("\n"), tail.usedTokens);
+      return {
+        usedTokens: tail.usedTokens,
+        ...(maxTokens === undefined ? {} : { maxTokens }),
+        ...(breakdown === undefined ? {} : { breakdown }),
+      };
     }).pipe(Effect.orElseSucceed(() => undefined));
 };

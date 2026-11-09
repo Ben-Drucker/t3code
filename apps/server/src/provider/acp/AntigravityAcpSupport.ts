@@ -174,12 +174,20 @@ export function antigravityPermissionMode(runtimeMode: RuntimeMode): string {
   }
 }
 
+/** 1.5 renamed `auto_edit` to `accept-edits` and dropped `yolo`; permissions then stay with T3. */
+export const ANTIGRAVITY_SESSION_MODE_ALIASES = {
+  auto_edit: ["accept-edits"],
+  yolo: [],
+} as const;
+
 /** The runtime mode an Antigravity session mode grants; the inverse of `antigravityPermissionMode`. */
 export function antigravityRuntimeModeForSessionMode(modeId: string): RuntimeMode | undefined {
   switch (modeId) {
     case "yolo":
       return "full-access";
     case "auto_edit":
+      return "auto-accept-edits";
+    case "accept-edits":
       return "auto-accept-edits";
     case "default":
       return "approval-required";
