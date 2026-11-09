@@ -356,6 +356,9 @@ const dependencies = Layer.mergeAll(
   Layer.succeed(DesktopChannel.DesktopBrowserChannel, {
     available: true,
     awaitAttached: (key) => Effect.sync(() => desktopRenders(key.tabId)),
+    dock: () => Effect.void,
+    undock: () => Effect.void,
+    dockChanges: Stream.empty,
     detached: Stream.callback<{ threadId: string; tabId: string }>((queue) =>
       Effect.acquireRelease(
         Effect.sync(() => {
