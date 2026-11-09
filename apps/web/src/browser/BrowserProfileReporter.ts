@@ -19,6 +19,7 @@ export interface ProfileReport {
   readonly profiles: ClientSettings["browserProfiles"];
   readonly defaultProfileId: ClientSettings["browserDefaultProfileId"];
   readonly recordingFrameRate: ClientSettings["browserRecordingFrameRate"];
+  readonly previewBrowserMode: ClientSettings["browserPreviewMode"];
 }
 
 /** Server-browser environments this client may operate, with the config each currently runs. */
@@ -47,6 +48,7 @@ export function startBrowserProfileReporting(): () => void {
       profiles: settings.browserProfiles,
       defaultProfileId: settings.browserDefaultProfileId,
       recordingFrameRate: settings.browserRecordingFrameRate,
+      previewBrowserMode: settings.browserPreviewMode,
     };
     const targets = appAtomRegistry.get(reportTargetsAtom);
     for (const environmentId of takeDueProfileReports(reported, targets, input)) {
@@ -101,6 +103,7 @@ function sameReportInput(left: ProfileReport, right: ProfileReport): boolean {
   return (
     left.profiles === right.profiles &&
     left.defaultProfileId === right.defaultProfileId &&
-    left.recordingFrameRate === right.recordingFrameRate
+    left.recordingFrameRate === right.recordingFrameRate &&
+    left.previewBrowserMode === right.previewBrowserMode
   );
 }
