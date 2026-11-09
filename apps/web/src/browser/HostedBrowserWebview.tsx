@@ -8,7 +8,7 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { previewBridge } from "~/components/preview/previewBridge";
 import { usePreviewBridge } from "~/components/preview/usePreviewBridge";
-import { useClientSettingsHydrated } from "~/hooks/useSettings";
+import { useClientSettings, useClientSettingsHydrated } from "~/hooks/useSettings";
 import { cn, isMacPlatform } from "~/lib/utils";
 
 import { resolveBrowserSurfacePanelRect, useBrowserSurfaceStore } from "./browserSurfaceStore";
@@ -299,6 +299,33 @@ export function HostedBrowserWebview(props: {
     withDesktopTab(runtimeTabId, () => bridge.setShown(runtimeTabId, shown));
     return () => withDesktopTab(runtimeTabId, () => bridge.setShown(runtimeTabId, false));
   }, [clientSettingsHydrated, runtimeTabId, serverDriven, shown]);
+
+  const dockedChrome =
+    useClientSettings((settings) => settings.browserPreviewMode) === "chrome-docked";
+  const dockRect = active ? presentation.rect : null;
+  const dockX = dockRect?.x;
+  const dockY = dockRect?.y;
+  const dockWidth = dockRect?.width;
+  const dockHeight = dockRect?.height;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Reports the panel rect to the desktop window dock, one message per frame.
+  useEffect(() => {
+    const bridge = window.desktopBridge?.preview;
+    if (!bridge || !serverDriven || !dockedChrome) return;
+    const target = { threadId: threadRef.threadId, tabId };
+    const rect =
+      dockX === undefined || dockY === undefined || !dockWidth || !dockHeight
+        ? null
+        : { x: dockX, y: dockY, width: dockWidth, height: dockHeight };
+    const frame = window.requestAnimationFrame(() => void bridge.setDockRect({ ...target, rect }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [dockedChrome, serverDriven, threadRef.threadId, tabId, dockX, dockY, dockWidth, dockHeight]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Releases the dock rect when the preview unmounts.
+  useEffect(() => {
+    const bridge = window.desktopBridge?.preview;
+    if (!bridge || !serverDriven || !dockedChrome) return;
+    const target = { threadId: threadRef.threadId, tabId };
+    return () => void bridge.setDockRect({ ...target, rect: null });
+  }, [dockedChrome, serverDriven, threadRef.threadId, tabId]);
 
   if (!clientSettingsHydrated || !config) return null;
 
