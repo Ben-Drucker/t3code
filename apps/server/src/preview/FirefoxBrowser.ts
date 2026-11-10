@@ -119,6 +119,7 @@ export class FirefoxBrowser implements ServerBrowserBackend {
     readonly docked?: () => boolean;
     readonly allocateTab?: (request: PreviewAutomationRequest) => Promise<string>;
     readonly opened?: (key: { threadId: string; tabId: string }, pid: number) => Promise<void>;
+    readonly reveal?: (key: { threadId: string; tabId: string }, force: boolean) => Promise<void>;
     readonly closed?: (key: { threadId: string; tabId: string }) => Promise<void>;
     readonly status?: (
       status: PreviewAutomationStatus,
@@ -682,6 +683,10 @@ export class FirefoxBrowser implements ServerBrowserBackend {
         await this.switchTo(tab);
         if (created && this.options.docked?.() && this.connection.processId)
           await this.options.opened?.(tab, this.connection.processId);
+        // The dock takes its rectangle from the T3 preview panel, so the panel has to be shown.
+        const reveal = input.open ?? input.show;
+        if (this.options.docked?.() && reveal !== false)
+          await this.options.reveal?.(tab, reveal === true);
         if (input.url) await this.navigate(tab, { url: input.url }, request.timeoutMs);
         return await this.status(tab, request);
       } catch (cause) {

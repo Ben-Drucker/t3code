@@ -536,6 +536,10 @@ const make = Effect.gen(function* () {
       return snapshot.tabId;
     },
     opened: (key, pid) => runPromise(desktopChannel.dock(key, pid)),
+    reveal: (key, force) =>
+      runPromise(
+        manager.requestReveal({ threadId: ThreadId.make(key.threadId), tabId: key.tabId, force }),
+      ),
     closed: async (key) => {
       await runPromise(desktopChannel.undock(key));
       await runPromise(
