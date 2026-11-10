@@ -44,6 +44,8 @@ interface Dock {
   side: number | null;
   /** Chrome's share of the combined width, kept when the window is maximized. */
   ratio: number;
+  /** The panel closed after docking, so its next measurement asks for more room. */
+  reopened: boolean;
 }
 
 interface PidState {
@@ -91,7 +93,13 @@ export class WindowDockController {
     if (!found) return this.deps.emit({ type: "failed", key, reason: "no-window" });
     const id = idOf(key);
     const existing = [...this.docks.values()].find((dock) => dock.pid === pid);
-    const dock: Dock = { key, pid, side: existing?.side ?? null, ratio: existing?.ratio ?? 0 };
+    const dock: Dock = {
+      key,
+      pid,
+      side: existing?.side ?? null,
+      ratio: existing?.ratio ?? 0,
+      reopened: false,
+    };
     this.docks.set(id, dock);
     const early = this.earlyWidths.get(id);
     this.earlyWidths.delete(id);
@@ -119,7 +127,22 @@ export class WindowDockController {
   setPanelRect(key: DockKey, panel: ScreenRect | null): boolean {
     const id = idOf(key);
     const dock = this.docks.get(id);
-    if (dock?.side) return true;
+    if (dock?.side) {
+      if (!panel) {
+        dock.reopened = true;
+        return true;
+      }
+      // Measurements of the panel that just made room arrive before it closes; only a reopened panel grows the split.
+      if (dock.reopened) {
+        dock.reopened = false;
+        this.enterSide(
+          dock,
+          panelWidthToDips(panel.width, this.deps.mainWindow()?.getZoomFactor() ?? 1),
+        );
+        this.apply(dock.pid);
+      }
+      return true;
+    }
     if (!panel) {
       this.earlyWidths.delete(id);
       return false;
@@ -149,8 +172,9 @@ export class WindowDockController {
     window.setBounds({ ...before, width: before.width - width });
     // The window may refuse to shrink all the way, so Chrome takes what was actually freed.
     const freed = before.width - window.getBounds().width;
-    dock.side = freed >= 1 ? freed : width;
-    dock.ratio = dock.side / (before.width || 1);
+    const previousSide = dock.side ?? 0;
+    dock.side = previousSide + (freed >= 1 ? freed : width);
+    dock.ratio = dock.side / (before.width + previousSide || 1);
     for (const other of this.docks.values())
       if (other.pid === dock.pid) {
         other.side = dock.side;

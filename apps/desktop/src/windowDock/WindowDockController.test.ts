@@ -103,7 +103,16 @@ it("shrinks the window by the panel width, places Chrome beside it, and follows 
     { x: 610, y: 50, width: 300, height: 600 },
   ]);
   assert.strictEqual(t.calls.filter((c) => c[0] === "setFrame").length, 2);
+  assert.isTrue(t.controller.setPanelRect(key, panel));
+  assert.strictEqual(t.state.bounds.width, 500);
   assert.isTrue(t.controller.setPanelRect(key, null));
+  assert.isTrue(t.controller.setPanelRect(key, { ...panel, width: 200 }));
+  assert.strictEqual(t.state.bounds.width, 300);
+  assert.deepStrictEqual(t.calls.filter((c) => c[0] === "setFrame").at(-1), [
+    "setFrame",
+    9,
+    { x: 410, y: 50, width: 500, height: 600 },
+  ]);
 });
 
 it("restores the window width when Chrome closes", async () => {

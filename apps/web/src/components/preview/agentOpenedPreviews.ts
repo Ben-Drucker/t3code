@@ -40,8 +40,16 @@ export function revealServerTabs(
   options: { readonly autoShowFloatingPreview: boolean },
 ): void {
   if (!readEnvironmentSupportsServerBrowser(threadRef.environmentId)) return;
+  // A docked browser takes its place from the right panel's rectangle, so it never floats.
+  const docked = getClientSettings().browserPreviewMode !== "builtin";
   for (const session of sessions) {
     const force = session.revealRequest?.force === true;
+    if (docked && window.desktopBridge?.preview) {
+      const panel = useRightPanelStore.getState();
+      panel.openBrowser(threadRef, session.tabId);
+      panel.show(threadRef);
+      continue;
+    }
     if (!options.autoShowFloatingPreview && !force) continue;
     const surface = useRightPanelStore
       .getState()
