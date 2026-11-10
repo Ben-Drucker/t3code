@@ -37,6 +37,10 @@ export interface DesktopBrowserTabDebugger {
   readonly debugger: Electron.Debugger;
 }
 
+export type DockCommand =
+  | { readonly type: "dock"; readonly key: DesktopBrowserTabKey; readonly pid: number }
+  | { readonly type: "undock"; readonly key: DesktopBrowserTabKey };
+
 const keyOf = ({ threadId, tabId }: DesktopBrowserTabKey) => `${threadId}\u0000${tabId}`;
 
 interface AttachedTab {
@@ -96,6 +100,11 @@ export class DesktopBrowserHost extends Context.Service<
       readonly x: number;
       readonly y: number;
     }>;
+    /** The server's requests to glue a native Chrome window to a tab's panel. */
+    readonly dockCommands: Stream.Stream<DockCommand>;
+    readonly emitDockEvent: (
+      event: Extract<DesktopBrowserEventType, { readonly type: "dockClosed" | "dockFailed" }>,
+    ) => void;
     /** Whether a guest needs its frames painted while the panel hides it. */
     readonly painting: Stream.Stream<{
       readonly key: DesktopBrowserTabKey;
@@ -116,6 +125,7 @@ export const make = Effect.gen(function* () {
     readonly key: DesktopBrowserTabKey;
     readonly active: boolean;
   }>();
+  const dockCommands = yield* PubSub.unbounded<DockCommand>();
   const runFork = Effect.runForkWith(yield* Effect.context<never>());
   const tabs = new Map<string, AttachedTab>();
   /** Threads whose agent turn runs, by the server's account. */
@@ -484,6 +494,16 @@ export const make = Effect.gen(function* () {
         else endAgentTurn(command.value.threadId);
         return;
       }
+      if (command.value.type === "dock" || command.value.type === "undock") {
+        const { threadId, tabId } = command.value;
+        const key = { threadId, tabId };
+        const dockCommand: DockCommand =
+          command.value.type === "dock"
+            ? { type: "dock", key, pid: command.value.pid }
+            : { type: "undock", key };
+        runFork(PubSub.publish(dockCommands, dockCommand));
+        return;
+      }
       const tab = tabs.get(keyOf(command.value));
       if (!tab) return;
       if (command.value.type === "pointer") {
@@ -527,6 +547,8 @@ export const make = Effect.gen(function* () {
   return DesktopBrowserHost.of({
     pointers: Stream.fromPubSub(pointers),
     painting: Stream.fromPubSub(painting),
+    dockCommands: Stream.fromPubSub(dockCommands),
+    emitDockEvent: emit,
     // Subscribes before announcing, so no attach falls between the two.
     events: Stream.unwrap(
       Effect.gen(function* () {

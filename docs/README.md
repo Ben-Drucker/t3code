@@ -15,6 +15,7 @@
 - [SnapShots](./user/snap-shot.md)
 - [Visual replies](./user/html-renders.md)
 - [Import browser sessions](./user/browser-import.md)
+- [Use your own Chrome in the preview](./user/docked-chrome.md)
 - [Use T3 Code as your default browser](./user/default-browser.md)
 - [Devices](./user/devices.md)
 - [Usage and limits](./user/usage.md)

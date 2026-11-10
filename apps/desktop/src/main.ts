@@ -1,3 +1,4 @@
+import * as WindowDock from "./windowDock/WindowDock.ts";
 import * as MacPermissions from "./permissions/MacPermissions.ts";
 for (const stream of [process.stdout, process.stderr]) {
   stream.on("error", (err: NodeJS.ErrnoException) => {
@@ -174,9 +175,11 @@ const layerDesktopPreview = PreviewManager.layer.pipe(
   Layer.provideMerge(layerDesktopFoundation),
 );
 
+const layerDesktopWindowDock = WindowDock.layer.pipe(Layer.provideMerge(layerDesktopPreview));
+
 const layerDesktopWindow = DesktopWindow.layer.pipe(
   Layer.provideMerge(layerDesktopServerExposure),
-  Layer.provideMerge(layerDesktopPreview),
+  Layer.provideMerge(layerDesktopWindowDock),
 );
 
 const layerDesktopSnapShot = DesktopSnapShot.layer.pipe(

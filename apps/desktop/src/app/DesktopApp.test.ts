@@ -69,6 +69,7 @@ import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as MacPermissions from "../permissions/MacPermissions.ts";
 import * as PreviewManager from "../preview/Manager.ts";
+import * as WindowDock from "../windowDock/WindowDock.ts";
 
 it.effect.each([false, true])(
   "stops backends together before flushing history and cancels Linux registration, stop defect=%s",
@@ -234,6 +235,7 @@ it.effect.each([false, true])(
                 throw new Error("unexpected browser partition lookup");
               },
             }),
+            Layer.mock(WindowDock.WindowDock, {}),
             FileSystem.layerNoop({}),
             Layer.mock(NetService.NetService, {}),
             Path.layer,

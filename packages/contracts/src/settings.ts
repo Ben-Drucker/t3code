@@ -40,9 +40,11 @@ import {
   BrowserRecordingFrameRate,
   DEFAULT_BROWSER_RECORDING_FRAME_RATE,
   DEFAULT_PREVIEW_APPEARANCE,
+  DEFAULT_PREVIEW_BROWSER_MODE,
   DEFAULT_PREVIEW_ZOOM_FACTOR,
   FILL_PREVIEW_VIEWPORT,
   PreviewAppearancePreference,
+  PreviewBrowserMode,
   PreviewViewportSetting,
   PreviewZoomFactor,
 } from "./preview.ts";
@@ -426,6 +428,10 @@ export const ClientSettingsSchema = Schema.Struct({
 
   browserLinkTarget: BrowserLinkTarget.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_BROWSER_LINK_TARGET)),
+  ),
+
+  browserPreviewMode: PreviewBrowserMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_PREVIEW_BROWSER_MODE)),
   ),
 
   browserSearchEngine: BrowserSearchEngine.pipe(
@@ -1881,6 +1887,7 @@ export const ClientSettingsPatch = Schema.Struct({
   browserRecordingShowKeyPresses: Schema.optionalKey(Schema.Boolean),
   browserRecordingShowMousePresses: Schema.optionalKey(Schema.Boolean),
   browserLinkTarget: Schema.optionalKey(BrowserLinkTarget),
+  browserPreviewMode: Schema.optionalKey(PreviewBrowserMode),
   browserSearchEngine: Schema.optionalKey(BrowserSearchEngine),
   browserCustomSearchUrl: Schema.optionalKey(BrowserCustomSearchUrl),
   browserAutoShowFloatingPreview: Schema.optionalKey(Schema.Boolean),

@@ -35,6 +35,14 @@ export interface DesktopTabKey {
 
 const keyOf = ({ threadId, tabId }: DesktopTabKey) => `${threadId}\u0000${tabId}`;
 
+export type DockChange =
+  | { readonly type: "closed"; readonly key: DesktopTabKey }
+  | {
+      readonly type: "failed";
+      readonly key: DesktopTabKey;
+      readonly reason: "no-permission" | "no-window" | "unsupported";
+    };
+
 export class DesktopBrowserChannel extends Context.Service<
   DesktopBrowserChannel,
   {
@@ -51,6 +59,11 @@ export class DesktopBrowserChannel extends Context.Service<
       key: DesktopTabKey,
       pointer: { readonly phase: "move" | "click"; readonly x: number; readonly y: number },
     ) => Effect.Effect<void>;
+    /** Asks the desktop to glue the window of Chrome process `pid` to the tab's preview panel. */
+    readonly dock: (key: DesktopTabKey, pid: number) => Effect.Effect<void>;
+    readonly undock: (key: DesktopTabKey) => Effect.Effect<void>;
+    /** The user closed the docked window, or the desktop could not dock it. */
+    readonly dockChanges: Stream.Stream<DockChange>;
     /** Never fails. A failed write means a broken channel; the next backend starts with no turns. */
     readonly turn: (threadId: string, active: boolean) => Effect.Effect<void>;
   }
@@ -61,6 +74,7 @@ const make = Effect.gen(function* () {
   const inputFd = config.desktopBrowserFd;
   const controlFd = config.desktopBrowserControlFd;
   const changes = yield* PubSub.unbounded<{ key: DesktopTabKey; attached: boolean }>();
+  const dockChanges = yield* PubSub.unbounded<DockChange>();
   const attachedTabs = new Set<string>();
   // Missing reports protect desktop tabs until the renderer explicitly marks them hidden.
   const shownTabs = new Map<string, boolean>();
@@ -88,6 +102,13 @@ const make = Effect.gen(function* () {
         return Effect.void;
       }),
       isShown: () => false,
+      dock: Effect.fn("DesktopBrowserChannel.dock")(function () {
+        return Effect.void;
+      }),
+      undock: Effect.fn("DesktopBrowserChannel.undock")(function () {
+        return Effect.void;
+      }),
+      dockChanges: Stream.empty,
     });
   }
 
@@ -137,6 +158,10 @@ const make = Effect.gen(function* () {
         case "shown":
           shownTabs.set(id, event.shown);
           return Effect.void;
+        case "dockClosed":
+          return PubSub.publish(dockChanges, { type: "closed", key });
+        case "dockFailed":
+          return PubSub.publish(dockChanges, { type: "failed", key, reason: event.reason });
       }
     }),
     Effect.catchCause((cause) => Effect.logWarning("desktop browser channel stopped", { cause })),
@@ -232,6 +257,13 @@ const make = Effect.gen(function* () {
       return Effect.sync(() => attachedTabs.has(keyOf(key)));
     }),
     isShown: (key) => shownTabs.get(keyOf(key)) ?? true,
+    dock: Effect.fn("DesktopBrowserChannel.dock")(function (key, pid) {
+      return command({ type: "dock", ...key, pid });
+    }),
+    undock: Effect.fn("DesktopBrowserChannel.undock")(function (key) {
+      return command({ type: "undock", ...key });
+    }),
+    dockChanges: Stream.fromPubSub(dockChanges),
     endpoint,
     turn: Effect.fn("DesktopBrowserChannel.turn")(function (threadId, active) {
       return command({ type: "turn", threadId, active });

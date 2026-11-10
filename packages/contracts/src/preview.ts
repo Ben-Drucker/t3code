@@ -217,11 +217,18 @@ export const BrowserRecordingFrameRate = Schema.Literals(BROWSER_RECORDING_FRAME
 export type BrowserRecordingFrameRate = typeof BrowserRecordingFrameRate.Type;
 export const DEFAULT_BROWSER_RECORDING_FRAME_RATE: BrowserRecordingFrameRate = 30;
 
+const PREVIEW_BROWSER_MODES = ["builtin", "chrome-docked"] as const;
+export const PreviewBrowserMode = Schema.Literals(PREVIEW_BROWSER_MODES);
+export type PreviewBrowserMode = typeof PreviewBrowserMode.Type;
+export const DEFAULT_PREVIEW_BROWSER_MODE: PreviewBrowserMode = "builtin";
+
 export const PreviewReportProfilesInput = Schema.Struct({
   profiles: Schema.Array(BrowserProfile).check(Schema.isMaxLength(BROWSER_PROFILE_MAX_COUNT)),
   defaultProfileId: BrowserProfileId,
   /** Optional so older clients keep reporting; omitting it keeps the last reported rate. */
   recordingFrameRate: Schema.optional(BrowserRecordingFrameRate),
+  /** Optional like `recordingFrameRate`; omitting it keeps the last reported mode. */
+  previewBrowserMode: Schema.optional(PreviewBrowserMode),
 });
 export type PreviewReportProfilesInput = typeof PreviewReportProfilesInput.Type;
 

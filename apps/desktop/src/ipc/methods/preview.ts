@@ -11,6 +11,8 @@ import {
   DesktopPreviewRegisterWebviewInputSchema,
   DesktopPreviewScreenshotArtifactSchema,
   DesktopPreviewSetAudioMutedInputSchema,
+  DesktopPreviewDockRectInputSchema,
+  DesktopPreviewDockStatusSchema,
   DesktopPreviewSetShownInputSchema,
   DesktopPreviewSetColorSchemeInputSchema,
   DesktopPreviewSetZoomFactorInputSchema,
@@ -38,6 +40,7 @@ import * as BrowserImport from "../../preview/BrowserImport/BrowserImport.ts";
 import * as PreviewManager from "../../preview/Manager.ts";
 import { normalizeCaptureFailure } from "../../preview/captureErrors.ts";
 import * as DesktopClientSettings from "../../settings/DesktopClientSettings.ts";
+import * as WindowDock from "../../windowDock/WindowDock.ts";
 import { PREVIEW_WEBVIEW_PREFERENCES } from "../../preview/WebviewPreferences.ts";
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
@@ -203,6 +206,33 @@ const setShown = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.preview.setShown")(function* ({ tabId, shown }) {
     const manager = yield* PreviewManager.PreviewManager;
     yield* manager.setShown(tabId, shown);
+  }),
+});
+const setDockRect = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_SET_DOCK_RECT_CHANNEL,
+  payload: DesktopPreviewDockRectInputSchema,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.preview.setDockRect")(function* (input) {
+    const dock = yield* WindowDock.WindowDock;
+    yield* dock.setPanelRect(input);
+  }),
+});
+const getDockStatus = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_DOCK_STATUS_CHANNEL,
+  payload: Schema.Void,
+  result: DesktopPreviewDockStatusSchema,
+  handler: Effect.fn("desktop.ipc.preview.getDockStatus")(function* () {
+    const dock = yield* WindowDock.WindowDock;
+    return yield* dock.status;
+  }),
+});
+const requestDockPermission = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_DOCK_PERMISSION_CHANNEL,
+  payload: Schema.Void,
+  result: Schema.Boolean,
+  handler: Effect.fn("desktop.ipc.preview.requestDockPermission")(function* () {
+    const dock = yield* WindowDock.WindowDock;
+    return yield* dock.requestPermission;
   }),
 });
 const openDevTools = tabMethod(
@@ -456,6 +486,9 @@ export const methods = [
   setZoomFactor,
   setAudioMuted,
   setShown,
+  setDockRect,
+  getDockStatus,
+  requestDockPermission,
   openDevTools,
   clearCookies,
   clearCache,
