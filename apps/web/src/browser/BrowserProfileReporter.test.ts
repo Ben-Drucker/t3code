@@ -50,6 +50,13 @@ describe("takeDueProfileReports", () => {
     takeDueProfileReports(reported, targets, input(10));
 
     expect(takeDueProfileReports(reported, targets, input(30))).toEqual([first, second]);
+
+    const settings = input(30);
+    for (const previewBrowserMode of ["chrome-docked", "firefox-docked", "builtin"] as const) {
+      const next = { ...settings, previewBrowserMode };
+      expect(takeDueProfileReports(reported, targets, next)).toEqual([first, second]);
+      expect(takeDueProfileReports(reported, targets, next)).toEqual([]);
+    }
   });
 
   it("reports an environment again once it becomes operable again", () => {

@@ -36,6 +36,8 @@ function setup(options: { trusted?: boolean; findsAfter?: number } = {}) {
   let listener: Parameters<DockWindow["subscribe"]>[0] | undefined;
   const state = {
     visible: true,
+    minimized: false,
+    fullScreen: false,
     maximized: false,
     bounds: { x: 100, y: 50, width: 800, height: 600 },
   };
@@ -46,9 +48,9 @@ function setup(options: { trusted?: boolean; findsAfter?: number } = {}) {
     },
     getZoomFactor: () => 1,
     isVisible: () => state.visible,
-    isMinimized: () => false,
+    isMinimized: () => state.minimized,
     isMaximized: () => state.maximized,
-    isFullScreen: () => false,
+    isFullScreen: () => state.fullScreen,
     isFocused: () => true,
     subscribe: (next) => {
       listener = next;
@@ -155,6 +157,26 @@ it("raises Chrome when the window takes focus", async () => {
   t.calls.length = 0;
   t.emitWindow("focus");
   assert.deepStrictEqual(t.calls, [["raise", 9]]);
+});
+
+it("hides the browser with T3 and restores its frame and focus on reveal", async () => {
+  const t = setup();
+  await t.controller.dock(key, 9);
+  t.controller.setPanelRect(key, panel);
+  for (const property of ["visible", "minimized", "fullScreen"] as const) {
+    t.state[property] = property !== "visible";
+    t.emitWindow("visibility");
+    assert.deepStrictEqual(t.calls.at(-1), ["minimize", 9, true]);
+    t.calls.length = 0;
+    t.state[property] = property === "visible";
+    t.emitWindow("visibility");
+    assert.deepStrictEqual(t.calls, [
+      ["minimize", 9, false],
+      ["setFrame", 9, { x: 600, y: 50, width: 300, height: 600 }],
+      ["raise", 9],
+    ]);
+    assert.strictEqual(t.state.bounds.width, 500);
+  }
 });
 
 it("reports a missing permission or window instead of docking", async () => {

@@ -4,10 +4,11 @@ Choose **Settings → Browser → Preview browser → Chrome (docked)** or **Fir
 to keep a browser beside the chat with extensions such as 1Password. T3 makes room by shrinking
 its window by the preview panel's width. The browser follows T3's moves and resizes; closing
 its window restores T3's width. This requires the desktop app and server on the same Mac.
+Other clients use the built-in preview. Install Chrome in `/Applications` to use Chrome (docked).
 
 Choose **Allow**, then enable T3 Code under **System Settings → Privacy & Security →
 Device Control and Data Access**. Without this permission, the browser opens separately.
-Full-screen T3 windows hide the docked browser.
+Full-screen T3 windows hide the docked browser. Moving the pair between Spaces is unsupported.
 
 ## Firefox and 1Password
 
@@ -46,5 +47,6 @@ T3 Code uses its own Chrome profile, so your regular Chrome profile stays untouc
 1Password's desktop-app connection files into the profile each time Chrome starts, so Touch ID
 unlock keeps working.
 
-Closing the preview closes its Chrome window. Only one Chrome can use T3 Code's profile;
+Closing the preview closes its Chrome window, and closing Chrome closes its preview tab.
+Only one Chrome can use T3 Code's profile;
 if it is already open, quit that window and try again. Chrome does not support `preview_autofill`.

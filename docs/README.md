@@ -15,7 +15,7 @@
 - [SnapShots](./user/snap-shot.md)
 - [Visual replies](./user/html-renders.md)
 - [Import browser sessions](./user/browser-import.md)
-- [Use Chrome or Firefox beside the chat](./user/docked-chrome.md)
+- [Use Chrome or Firefox beside the chat](./user/docked-browser.md)
 - [Use T3 Code as your default browser](./user/default-browser.md)
 - [Devices](./user/devices.md)
 - [Usage and limits](./user/usage.md)
