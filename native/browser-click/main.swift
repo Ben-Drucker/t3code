@@ -71,7 +71,7 @@ if command == "plan" {
     let text = String(data: output, encoding: .utf8) else { fail() }
   print(text)
 } else if command == "click" {
-  guard args.count == 4, let pid = Int32(args[1]), pid > 0,
+  guard args.count == 4 || (args.count == 5 && args[4] == "verify"), let pid = Int32(args[1]), pid > 0,
     let x = Double(args[2]), let y = Double(args[3]), x.isFinite, y.isFinite,
     AXIsProcessTrusted(), let browser = NSRunningApplication(processIdentifier: pid),
     browser.bundleIdentifier == "org.mozilla.firefox" || browser.bundleIdentifier == "org.mozilla.nightly",
@@ -106,10 +106,26 @@ if command == "plan" {
       mouse(.mouseMoved, CGPoint(x: cursor.x + (point.x - cursor.x) * eased, y: cursor.y + (point.y - cursor.y) * eased))
       usleep(12_000)
       }
-      mouse(.leftMouseDown, point)
-      usleep(70_000)
-      mouse(.leftMouseUp, point)
-      clicked = true
+      var go = true
+      if args.count == 5 {
+        // Let the page see the cursor, then wait for the caller to confirm the right element is under it.
+        usleep(150_000)
+        print("hover")
+        fflush(stdout)
+        let answered = DispatchSemaphore(value: 0)
+        go = false
+        DispatchQueue.global().async {
+          if let line = readLine(), line == "go" { go = true }
+          answered.signal()
+        }
+        if answered.wait(timeout: .now() + 4) != .success { go = false }
+      }
+      if go {
+        mouse(.leftMouseDown, point)
+        usleep(70_000)
+        mouse(.leftMouseUp, point)
+        clicked = true
+      }
     }
   }
   guard restored && clicked else { fail() }

@@ -10,7 +10,7 @@ import * as NodePath from "node:path";
 import * as NodeOS from "node:os";
 import * as NodeUtil from "node:util";
 import * as NodeCrypto from "node:crypto";
-import { notificationArguments, type Point } from "./FirefoxAutofillGeometry.ts";
+import { notificationArguments, type ClickTarget } from "./FirefoxAutofillGeometry.ts";
 
 export class GuardedClickError extends Schema.TaggedError<GuardedClickError>()(
   "GuardedClickError",
@@ -30,7 +30,7 @@ export class GuardedBrowserClick extends Context.Service<
     readonly supported: boolean;
     readonly click: (
       pid: number,
-      target: () => Promise<Point>,
+      target: () => Promise<ClickTarget>,
     ) => Effect.Effect<void, GuardedClickError>;
   }
 >()("t3/preview/GuardedBrowserClick") {}
@@ -39,8 +39,8 @@ const exec = NodeUtil.promisify(NodeChildProcess.execFile);
 export const guardedClick = Effect.fn("GuardedBrowserClick.guardedClick")(function* (input: {
   readonly post: () => Promise<void>;
   readonly remove: () => Promise<void>;
-  readonly target: () => Promise<Point>;
-  readonly execute: (point: Point) => Promise<void>;
+  readonly target: () => Promise<ClickTarget>;
+  readonly execute: (point: ClickTarget) => Promise<void>;
 }) {
   yield* Effect.acquireUseRelease(
     Effect.tryPromise({
@@ -149,15 +149,45 @@ const make = Effect.gen(function* () {
         post: () => notify(notificationArguments("post", id)),
         remove: () => notify(notificationArguments("remove", id)),
         target,
-        execute: async (point) => {
-          const { stdout } = await exec(
-            NodePath.join(app, "Contents/MacOS/notify"),
-            ["click", String(pid), String(point.x), String(point.y)],
-            { timeout: 15_000 },
-          );
-          if (!stdout.includes("restored"))
-            throw new Error("Could not restore desktop after click");
-        },
+        execute: (point) =>
+          new Promise<void>((resolve, reject) => {
+            const child = NodeChildProcess.spawn(
+              NodePath.join(app, "Contents/MacOS/notify"),
+              [
+                "click",
+                String(pid),
+                String(point.x),
+                String(point.y),
+                ...(point.verify ? ["verify"] : []),
+              ],
+              { stdio: ["pipe", "pipe", "ignore"] },
+            );
+            const timer = setTimeout(() => child.kill(), 20_000);
+            let out = "";
+            let aborted = false;
+            child.stdout.on("data", (chunk: Buffer) => {
+              out += chunk.toString();
+              if (!out.includes("hover") || child.stdin.writableEnded) return;
+              // The cursor is on the target and the helper is waiting: confirm before the click.
+              void (point.verify?.() ?? Promise.resolve(true))
+                .catch(() => false)
+                .then((ok) => {
+                  aborted = !ok;
+                  child.stdin.end(ok ? "go\n" : "abort\n");
+                });
+            });
+            child.on("error", reject);
+            child.on("exit", () => {
+              clearTimeout(timer);
+              if (aborted)
+                reject(
+                  new Error("The 1Password target was not under the cursor; no click was made."),
+                );
+              else if (!out.includes("restored"))
+                reject(new Error("Could not restore desktop after click"));
+              else resolve();
+            });
+          }),
       });
     }),
   });

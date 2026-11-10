@@ -8,6 +8,10 @@ export interface Point {
   readonly x: number;
   readonly y: number;
 }
+/** `verify` runs with the cursor on the point, before the click, and must confirm the intended element is under it. */
+export interface ClickTarget extends Point {
+  readonly verify?: () => Promise<boolean>;
+}
 
 export function bannerScreenPoint(input: {
   readonly screen: Point;

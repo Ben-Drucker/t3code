@@ -623,6 +623,7 @@ export class FirefoxBrowser implements ServerBrowserBackend {
     if (request.operation === "open") {
       const input = request.input as PreviewAutomationOpenInput;
       let created = false;
+      let opensWindow = false;
       if (input.profileId !== undefined && input.profileId !== "firefox")
         unsupported(
           "Firefox uses the connected Firefox profile. Choose profileId 'firefox' or omit it.",
@@ -654,9 +655,10 @@ export class FirefoxBrowser implements ServerBrowserBackend {
             handle: current,
             focus: false,
           });
+        opensWindow = this.options.docked?.() === true && this.tabs.size === 0;
         const opened = value<{ handle: string }>(
           await this.connection.command("WebDriver:NewWindow", {
-            type: this.options.docked?.() && this.tabs.size === 0 ? "window" : "tab",
+            type: opensWindow ? "window" : "tab",
             focus: false,
           }),
         );
@@ -683,10 +685,9 @@ export class FirefoxBrowser implements ServerBrowserBackend {
         await this.switchTo(tab);
         if (created && this.options.docked?.() && this.connection.processId)
           await this.options.opened?.(tab, this.connection.processId);
-        // The dock takes its rectangle from the T3 preview panel, so the panel has to be shown.
+        // The dock takes its rectangle from the T3 preview panel, so the window's first tab shows it; later tabs share the window.
         const reveal = input.open ?? input.show;
-        if (this.options.docked?.() && reveal !== false)
-          await this.options.reveal?.(tab, reveal === true);
+        if (opensWindow && reveal !== false) await this.options.reveal?.(tab, reveal === true);
         if (input.url) await this.navigate(tab, { url: input.url }, request.timeoutMs);
         return await this.status(tab, request);
       } catch (cause) {

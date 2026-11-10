@@ -8,6 +8,7 @@ import {
   bannerScreenPoint,
   selectAutofillEntry,
   type AutofillEntry,
+  type ClickTarget,
   type Point,
   type Rect,
 } from "./FirefoxAutofillGeometry.ts";
@@ -47,7 +48,7 @@ const ENTRIES = `(() => {
 })()`;
 
 export interface AutofillOptions {
-  readonly click: (pid: number, target: () => Promise<Point>) => Promise<void>;
+  readonly click: (pid: number, target: () => Promise<ClickTarget>) => Promise<void>;
   readonly supported: boolean;
   /** Isolated fixture origins only; production accepts extension contexts exclusively. */
   readonly bannerOrigin?: string;
@@ -183,12 +184,19 @@ export async function autofillFirefox(
           throw new Error(
             "Cannot uniquely measure the 1Password iframe. Open the banner in Firefox and retry.",
           );
-        return bannerScreenPoint({
+        const point = bannerScreenPoint({
           ...page,
           frame: matching[0]!,
           banner: { width: label.width, height: label.height },
           label: label.rect,
         });
+        // The OS click must land on this element; the cursor is already on it when this runs.
+        const verify = () =>
+          evaluate<boolean>(
+            bannerContext,
+            `(() => { const el = ${expression}; return !!el && el.matches(':hover'); })()`,
+          );
+        return { ...point, verify };
       });
     let entries = await evaluate<AutofillEntry[]>(bannerContext, ENTRIES);
     let selected = selectAutofillEntry(entries, input);
@@ -206,7 +214,13 @@ export async function autofillFirefox(
         selected = selectAutofillEntry(entries, input);
       }
     }
-    if (!selected) throw new Error("No 1Password entry matches that exact username and title.");
+    if (!selected) {
+      // Titles and usernames are not secrets; listing them lets the agent retry with an exact entry.
+      const available = entries.map((entry) => `${entry.title} (${entry.username})`).slice(0, 12);
+      throw new Error(
+        `No 1Password entry matches that exact username and title. Available entries: ${available.join("; ") || "none"}. Retry with one of them, or ask the user which to use.`,
+      );
+    }
     const chosen = selected;
     chosenLabels = { title: chosen.title, username: chosen.username };
     // Resolve again after the warning; a changed list must never select a different login.
