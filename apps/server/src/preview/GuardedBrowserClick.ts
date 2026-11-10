@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off -- Native helper compilation and invocation are the host boundary.
+// @effect-diagnostics nodeBuiltinImport:off globalTimers:off -- Native helper compilation and invocation are the host boundary, and its answer is polled from a file.
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -111,12 +111,25 @@ const make = Effect.gen(function* () {
     const dir = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-click-notice-"));
     try {
       const output = NodePath.join(dir, "result");
-      await exec("/usr/bin/open", ["-W", "-n", "--stdout", output, "-a", app, "--args", ...args], {
-        timeout: 20_000,
-      });
-      const result = await NodeFSP.readFile(output, "utf8");
-      if (!result.includes(args[0] === "post" ? "posted" : "removed"))
-        throw new Error("Notification helper did not confirm completion.");
+      await NodeFSP.writeFile(output, "");
+      await exec(
+        "/usr/bin/open",
+        ["-n", "--stdout", output, "--stderr", output, "-a", app, "--args", ...args],
+        {
+          timeout: 20_000,
+        },
+      );
+      // `open` returns before the helper has written its answer, so wait for the confirmation itself.
+      const expected = args[0] === "post" ? "posted" : "removed";
+      let result = "";
+      for (let attempt = 0; attempt < 100 && !result.trim(); attempt++) {
+        if (attempt > 0) await new Promise<void>((resolve) => setTimeout(resolve, 100));
+        result = await NodeFSP.readFile(output, "utf8");
+      }
+      if (!result.includes(expected))
+        throw new Error(
+          `Notification helper did not confirm completion: ${result.trim() || "no output"}`,
+        );
     } finally {
       await NodeFSP.rm(dir, { force: true, recursive: true });
     }
