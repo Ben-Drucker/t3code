@@ -43,6 +43,24 @@ func raise(_ target: Window) -> Bool {
 func mouse(_ type: CGEventType, _ point: CGPoint) {
   CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?.post(tap: .cghidEventTap)
 }
+func isFront(_ app: NSRunningApplication) -> Bool {
+  for _ in 0..<25 {
+    if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier { return true }
+    usleep(20_000)
+  }
+  return false
+}
+/// NSRunningApplication.activate returns true without taking focus on current macOS, so fall back to LaunchServices.
+func bringToFront(_ app: NSRunningApplication) -> Bool {
+  if app.activate(options: [.activateIgnoringOtherApps]), isFront(app) { return true }
+  guard let url = app.bundleURL else { return false }
+  let open = Process()
+  open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+  open.arguments = [url.path]
+  guard (try? open.run()) != nil else { return false }
+  open.waitUntilExit()
+  return isFront(app)
+}
 func fail() -> Never { print("failed"); exit(1) }
 let args = Array(CommandLine.arguments.dropFirst())
 guard let command = args.first else { fail() }
@@ -66,7 +84,7 @@ if command == "plan" {
   do {
     defer {
       mouse(.mouseMoved, cursor)
-      if !previous.activate(options: [.activateIgnoringOtherApps]) { restored = false }
+      if !bringToFront(previous) { restored = false }
       usleep(100_000)
       let after = windows()
       let wanted = before.filter { after.contains($0) }
@@ -80,9 +98,8 @@ if command == "plan" {
       let final = windows().filter { wanted.contains($0) }
       if final != wanted { restored = false }
     }
-    let activated = browser.activate(options: [.activateIgnoringOtherApps])
-    usleep(150_000)
-    if activated && NSWorkspace.shared.frontmostApplication?.processIdentifier == pid {
+    if bringToFront(browser) {
+      usleep(150_000)
       for index in 1...12 {
       let t = Double(index) / 12
       let eased = t * t * (3 - 2 * t)
