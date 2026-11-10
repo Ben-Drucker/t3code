@@ -192,6 +192,23 @@ cmd_build() {
 
 # ---------------------------------------------------------------- install
 
+# The build leaves only the linker's automatic signature, so macOS cannot tie a permission grant (Accessibility
+# for window docking) to the app and it is lost on every deploy. Sealing the bundle with a stable identity keeps it.
+# T3_FORK_SIGN_IDENTITY overrides the identity; set it to "-" to skip signing.
+sign_app() {
+  local identity="${T3_FORK_SIGN_IDENTITY:-}"
+  [ "$identity" != "-" ] || return 0
+  [ -n "$identity" ] || identity="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)"
+  if [ -z "$identity" ]; then
+    echo "warning: no Developer ID Application identity found; the app keeps its unsealed signature, so macOS permissions will not persist." >&2
+    return 0
+  fi
+  codesign --force --deep --timestamp=none -s "$identity" "$APP" \
+    && codesign --verify --deep --strict "$APP" \
+    || die "Signing $APP with '$identity' failed."
+  echo "Signed with $identity"
+}
+
 cmd_install() {
   local version dmg mount built built_version
   version="$(current_version)"
@@ -220,6 +237,7 @@ cmd_install() {
   [ ! -e "$APP" ] || mv "$APP" "$OUT/T3-old-nightly.app"
   ditto "$built" "$APP"
   xattr -dr com.apple.quarantine "$APP"
+  sign_app
   hdiutil detach "$mount" -quiet >/dev/null 2>&1 || true
   trap - EXIT
   open "$APP"
