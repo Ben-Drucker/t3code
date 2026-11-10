@@ -34,6 +34,10 @@ it("chooses only exact entry labels and refuses ambiguous matches", () => {
   );
   expect(selectAutofillEntry(entries, { username: "BEN@example.test" })).toBeUndefined();
   expect(selectAutofillEntry(entries, { username: "ben" })).toBeUndefined();
+  const repeated = [{ title: "Acme", username: "ben@example.test", index: 3 }, ...entries];
+  expect(selectAutofillEntry(repeated, { title: "Acme", username: "ben@example.test" })).toEqual(
+    repeated[0],
+  );
   expect(() => selectAutofillEntry(entries, {})).toThrow("More than one");
   expect(() => selectAutofillEntry(entries, { username: "ben@example.test" })).toThrow(
     "More than one",

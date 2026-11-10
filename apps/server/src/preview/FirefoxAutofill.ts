@@ -42,7 +42,7 @@ const ENTRIES = `(() => {
   const safe = el => !el.closest('input,textarea,[type=password],[autocomplete=one-time-code],[data-testid*=password],[data-testid*=otp],[data-testid*=code],[aria-label*=password i],[aria-label*=code i]');
   const entries = [...document.querySelectorAll('#root div[role=button],#root [role=option]')].filter(el=>el.getBoundingClientRect().width>0);
   return entries.map((el,index)=>{
-    const lines = [...el.querySelectorAll('span')].filter(span=>!span.querySelector('span') && safe(span)).slice(0,2).map(span=>span.textContent.trim());
+    const lines = [...el.querySelectorAll('*')].filter(node=>node.children.length===0 && node.tagName!=='STYLE' && node.tagName!=='SCRIPT' && safe(node) && node.textContent.trim()).slice(0,2).map(node=>node.textContent.trim());
     return {index,title:(lines[0]||'').slice(0,256),username:(lines[1]||'').slice(0,320)};
   }).filter(entry=>entry.title && entry.username);
 })()`;
@@ -216,7 +216,14 @@ export async function autofillFirefox(
     }
     if (!selected) {
       // Titles and usernames are not secrets; listing them lets the agent retry with an exact entry.
-      const available = entries.map((entry) => `${entry.title} (${entry.username})`).slice(0, 12);
+      const rows = await evaluate<number>(
+        bannerContext,
+        "document.querySelectorAll('#root div[role=button],#root [role=option]').length",
+      ).catch(() => -1);
+      const available = [
+        ...entries.map((entry) => `${entry.title} (${entry.username})`).slice(0, 12),
+        ...(entries.length === 0 ? [`no readable rows; ${rows} banner rows found`] : []),
+      ];
       throw new Error(
         `No 1Password entry matches that exact username and title. Available entries: ${available.join("; ") || "none"}. Retry with one of them, or ask the user which to use.`,
       );
@@ -224,7 +231,7 @@ export async function autofillFirefox(
     const chosen = selected;
     chosenLabels = { title: chosen.title, username: chosen.username };
     // Resolve again after the warning; a changed list must never select a different login.
-    const target = `(() => { const entries=${ENTRIES};const matching=entries.filter(entry=>entry.title===${JSON.stringify(chosen.title)} && entry.username===${JSON.stringify(chosen.username)});if(matching.length!==1)return null;const entry=matching[0];const cards=[...document.querySelectorAll('#root div[role=button],#root [role=option]')].filter(el=>el.getBoundingClientRect().width>0);const card=cards[entry.index];const label=[...card.querySelectorAll('span')].filter(el=>!el.querySelector('span')).at(-1);return (label && label.textContent.trim()==='Sign in'?label:null) || (card.getAttribute('role')==='option'?card:null);})()`;
+    const target = `(() => { const entries=${ENTRIES};const matching=entries.filter(entry=>entry.title===${JSON.stringify(chosen.title)} && entry.username===${JSON.stringify(chosen.username)});if(matching.length<1)return null;const entry=matching[0];const cards=[...document.querySelectorAll('#root div[role=button],#root [role=option]')].filter(el=>el.getBoundingClientRect().width>0);const card=cards[entry.index];const label=[...card.querySelectorAll('span')].filter(el=>!el.querySelector('span')).at(-1);return (label && label.textContent.trim()==='Sign in'?label:null) || (card.getAttribute('role')==='option'?card:null);})()`;
     const choosesEntry = await evaluate<boolean>(
       bannerContext,
       `(${target})?.getAttribute('role')==='option'`,

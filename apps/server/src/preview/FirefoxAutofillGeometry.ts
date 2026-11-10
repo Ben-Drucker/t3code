@@ -62,7 +62,9 @@ export function selectAutofillEntry(
       (!hint.username || entry.username === hint.username) &&
       (!hint.title || entry.title === hint.title),
   );
-  if (matching.length > 1)
+  // The suggested login is repeated in the list below it, so identical rows are one login.
+  const distinct = new Set(matching.map((entry) => `${entry.title}\u0000${entry.username}`));
+  if (distinct.size > 1)
     throw new Error("More than one 1Password entry matches. Specify an exact username and title.");
   return matching[0];
 }
