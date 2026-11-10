@@ -192,6 +192,40 @@ startup and keeps its own SQLite data, signing key, and revocation state. Deskto
 servers ignore the value. See [environment authentication](../internals/environment-auth.md#reusable-dev-credential)
 for the security model.
 
+### Firefox server preview
+
+Set `T3CODE_SERVER_BROWSER=firefox` in the server's environment to route the existing
+`preview_*` agent tools through Firefox. The default mode attaches to Firefox's Marionette
+listener at `127.0.0.1:2828`; `T3CODE_FIREFOX_PORT` changes the port. Start Firefox with
+`--marionette` using the profile whose logins you want. T3 opens new work tabs and closes only
+tabs it created. Native input selects the work tab, and resizing changes its Firefox window.
+T3 never launches, reads, clears, or deletes that profile in attach mode.
+
+For an isolated headless browser, also set `T3CODE_FIREFOX_MODE=launch`. This creates and removes
+a temporary profile and stops only the process T3 launched. `T3CODE_FIREFOX_BINARY` selects the
+executable; the default is `/Applications/Firefox.app/Contents/MacOS/firefox` on macOS and
+`firefox` on PATH elsewhere.
+
+Marionette handles native input, navigation, snapshots, and PNG screenshots. Starting an attached
+Firefox with `--remote-debugging-port=0` additionally enables WebDriver BiDi for per-tab color
+scheme, navigation readiness other than `load`, prompt type/default value,
+and console/network diagnostics. Launch mode enables this automatically. With Marionette alone,
+dialogs remain resolvable but report the generic type `dialog` and an empty default value.
+
+Firefox has no Marionette/BiDi screencast stream, so recording and the streamed Browser panel
+are unavailable. Use `preview_snapshot` or Firefox's own window. Locators support snapshot refs,
+CSS, `text=`, and `role=...[name=...]`; other Playwright selector engines, remote evaluation
+handles, and native file-picker interception return unsupported errors. Upload through the
+file input's locator instead. Firefox snapshots use a DOM-based accessibility-style tree.
+Cache-bypassing reload is attempted through BiDi and returns unsupported on Firefox versions
+that do not implement it. Marionette script timeouts can abandon pending promises; they cannot
+terminate JavaScript that blocks the content process.
+
+Run the isolated fixture tests with `vp test run apps/server/src/preview/FirefoxBrowser.integration.test.ts`.
+They skip when Firefox is absent. `T3CODE_FIREFOX_TEST_BINARY` and `T3CODE_CHROME_TEST_BINARY`
+select test binaries; Chrome comparison runs only when its binary exists. Tests always create
+temporary profiles and never use the owner's Firefox profile.
+
 ## Checks
 
 `vp run check:changed` runs CI's fast checks for your branch's changes: format and lint of the

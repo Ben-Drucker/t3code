@@ -87,6 +87,9 @@ import * as PreviewBrowserHost from "./PreviewBrowserHost.ts";
 import { presentAsChrome, ServerBrowserContexts } from "./ServerBrowserContexts.ts";
 import { BrowserControlInterrupted, SessionControl } from "./SessionControl.ts";
 import { installPdfDocumentNavigation, isPdfAssetUrl } from "./PdfDocumentNavigation.ts";
+import * as FirefoxServerBrowser from "./FirefoxServerBrowser.ts";
+import * as MarionetteClient from "./MarionetteClient.ts";
+import type { ServerBrowserBackend } from "./ServerBrowserBackend.ts";
 
 const SERVER_HOST_CLIENT_ID = SERVER_BROWSER_AUTOMATION_CLIENT_ID;
 const RENDER_SCALE = 2;
@@ -468,6 +471,9 @@ const CLIPBOARD_SCRIPT = `(() => {
 })();`;
 
 const make = Effect.gen(function* () {
+  if ((yield* HostProcess.Environment).T3CODE_SERVER_BROWSER === "firefox") {
+    return yield* FirefoxServerBrowser.make.pipe(Effect.provide(MarionetteClient.layer));
+  }
   const config = yield* ServerConfig.ServerConfig;
   const host = { platform: yield* HostProcess.Platform, arch: yield* HostProcess.Architecture };
   const manager = yield* PreviewManager.PreviewManager;
@@ -2296,12 +2302,24 @@ const make = Effect.gen(function* () {
     }
   };
 
+  const backend: ServerBrowserBackend = {
+    execute: (request) =>
+      runOperation(request, performance.now() + request.timeoutMs).finally(() => markUsed(request)),
+    close: () => contexts.close(),
+    history: async (input) => {
+      const tab = tabs.get(tabKey(input.threadId, input.tabId));
+      if (!tab)
+        throw new ServerBrowserTabNotFoundError({ threadId: input.threadId, tabId: input.tabId });
+      if (input.direction === "back") return tab.page.goBack(VIEWER_NAVIGATION_OPTIONS);
+      if (input.direction === "forward") return tab.page.goForward(VIEWER_NAVIGATION_OPTIONS);
+      if (input.ignoreCache) return tab.cdp.send("Page.reload", { ignoreCache: true });
+      return tab.page.reload(VIEWER_NAVIGATION_OPTIONS);
+    },
+  };
+
   const handleRequest = (connectionId: string, request: PreviewAutomationRequest) =>
     Effect.tryPromise({
-      try: () =>
-        runOperation(request, performance.now() + request.timeoutMs).finally(() =>
-          markUsed(request),
-        ),
+      try: () => backend.execute(request),
       catch: ServerBrowserPage.toOperationError,
     }).pipe(
       Effect.match({
@@ -2495,9 +2513,11 @@ const make = Effect.gen(function* () {
         return;
       case "history":
         tab.control.trackUntilHandoff(
-          num(message.delta) < 0
-            ? tab.page.goBack(VIEWER_NAVIGATION_OPTIONS)
-            : tab.page.goForward(VIEWER_NAVIGATION_OPTIONS),
+          backend.history({
+            threadId: tab.threadId,
+            tabId: tab.tabId,
+            direction: num(message.delta) < 0 ? "back" : "forward",
+          }),
         );
         return;
       case "reload":
@@ -2505,7 +2525,9 @@ const make = Effect.gen(function* () {
           await session.send("Page.reload", { ignoreCache: true });
           return;
         }
-        tab.control.trackUntilHandoff(tab.page.reload(VIEWER_NAVIGATION_OPTIONS));
+        tab.control.trackUntilHandoff(
+          backend.history({ threadId: tab.threadId, tabId: tab.tabId, direction: "reload" }),
+        );
         return;
       case "probe": {
         const x = num(message.x);
@@ -2830,7 +2852,7 @@ const make = Effect.gen(function* () {
   );
   yield* Effect.addFinalizer(() =>
     Effect.promise(async () => {
-      await contexts.close();
+      await backend.close();
     }),
   );
 
