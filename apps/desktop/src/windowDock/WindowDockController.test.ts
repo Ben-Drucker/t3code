@@ -2,7 +2,7 @@ import { assert, it } from "@effect/vitest";
 
 import type { WindowDockClient } from "./WindowDockClient.ts";
 import { WindowDockController, type DockEvent, type DockWindow } from "./WindowDockController.ts";
-import { panelWidthToDips, sideFrame } from "./WindowDockGeometry.ts";
+import { clipToWorkArea, panelWidthToDips, sideFrame } from "./WindowDockGeometry.ts";
 
 function setup(options: { trusted?: boolean; findsAfter?: number } = {}) {
   const calls: unknown[][] = [];
@@ -40,9 +40,11 @@ function setup(options: { trusted?: boolean; findsAfter?: number } = {}) {
     fullScreen: false,
     maximized: false,
     bounds: { x: 100, y: 50, width: 800, height: 600 },
+    workArea: { x: 0, y: 0, width: 5000, height: 5000 },
   };
   const window: DockWindow = {
     getBounds: () => state.bounds,
+    getWorkArea: () => state.workArea,
     setBounds: (bounds) => {
       state.bounds = bounds;
     },
@@ -83,6 +85,16 @@ it("scales the panel width by zoom and puts Chrome beside the window", () => {
     width: 300,
     height: 600,
   });
+});
+
+it("stops the browser at the edge the Dock leaves free", () => {
+  assert.deepStrictEqual(
+    clipToWorkArea(
+      { x: 600, y: 50, width: 500, height: 600 },
+      { x: 0, y: 0, width: 1000, height: 900 },
+    ),
+    { x: 600, y: 50, width: 400, height: 600 },
+  );
 });
 
 it("shrinks the window by the panel width, places Chrome beside it, and follows moves", async () => {

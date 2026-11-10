@@ -203,6 +203,11 @@ sign_app() {
     echo "warning: no Developer ID Application identity found; the app keeps its unsealed signature, so macOS permissions will not persist." >&2
     return 0
   fi
+  # Helpers in Resources are not nested code to --deep, and each keeps its own permission grants (Notifications).
+  local helper
+  while IFS= read -r helper; do
+    codesign --force --timestamp=none -s "$identity" "$helper" || die "Signing $helper failed."
+  done < <(find "$APP/Contents/Resources" -maxdepth 3 \( -name "*.app" -o -name "t3-window-dock" -o -name "t3-browser-click" \) -not -path "*/node_modules/*")
   codesign --force --deep --timestamp=none -s "$identity" "$APP" \
     && codesign --verify --deep --strict "$APP" \
     || die "Signing $APP with '$identity' failed."

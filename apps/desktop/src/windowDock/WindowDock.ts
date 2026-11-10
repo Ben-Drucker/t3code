@@ -7,6 +7,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as Electron from "electron";
 import * as NodeChildProcess from "node:child_process";
 import * as NodeUtil from "node:util";
 
@@ -41,6 +42,7 @@ export class WindowDock extends Context.Service<
 
 const toDockWindow = (window: Electron.BrowserWindow): DockWindow => ({
   getBounds: () => window.getBounds(),
+  getWorkArea: () => Electron.screen.getDisplayMatching(window.getBounds()).workArea,
   setBounds: (bounds) => window.setBounds(bounds),
   getZoomFactor: () => window.webContents.getZoomFactor(),
   isVisible: () => window.isVisible(),

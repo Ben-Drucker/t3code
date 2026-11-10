@@ -18,6 +18,12 @@ export const sideFrame = (window: ScreenRect, width: number): ScreenRect => ({
   height: window.height,
 });
 
+/** The Dock can sit over the strip beside the window, so the browser stops at the usable edge. */
+export const clipToWorkArea = (frame: ScreenRect, area: ScreenRect): ScreenRect => ({
+  ...frame,
+  width: Math.max(1, Math.min(frame.width, area.x + area.width - frame.x)),
+});
+
 export const sameFrame = (a: ScreenRect | null, b: ScreenRect | null) =>
   a === b ||
   (a !== null &&

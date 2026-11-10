@@ -1,7 +1,7 @@
 // @effect-diagnostics globalTimers:off -- Retries run at helper callback boundaries outside Effect fibers.
 import type { WindowDockClient } from "./WindowDockClient.ts";
 
-import { panelWidthToDips, sameFrame, sideFrame } from "./WindowDockGeometry.ts";
+import { clipToWorkArea, panelWidthToDips, sameFrame, sideFrame } from "./WindowDockGeometry.ts";
 import type { ScreenRect } from "./WindowDockProtocol.ts";
 
 export interface DockKey {
@@ -19,6 +19,8 @@ export type DockEvent =
 
 export interface DockWindow {
   readonly getBounds: () => ScreenRect;
+  /** The part of the display the window is on that the menu bar and Dock leave free. */
+  readonly getWorkArea: () => ScreenRect;
   readonly setBounds: (bounds: ScreenRect) => void;
   readonly getZoomFactor: () => number;
   readonly isVisible: () => boolean;
@@ -257,7 +259,7 @@ export class WindowDockController {
     const side = [...this.docks.values()].find((dock) => dock.pid === pid && dock.side)?.side;
     const frame =
       side && window && window.isVisible() && !window.isMinimized() && !window.isFullScreen()
-        ? sideFrame(window.getBounds(), side)
+        ? clipToWorkArea(sideFrame(window.getBounds(), side), window.getWorkArea())
         : null;
     if (!frame) {
       if (!state.minimized) helper.setMinimized(pid, true);
