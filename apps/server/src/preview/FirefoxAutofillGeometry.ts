@@ -40,7 +40,9 @@ export function bannerScreenPoint(input: {
     label.x + label.width > banner.width ||
     label.y + label.height > banner.height
   )
-    throw new Error("The 1Password banner has no measurable click target.");
+    throw new Error(
+      `The 1Password banner has no measurable click target. ${JSON.stringify({ frame, banner, label })}`,
+    );
   const x = frame.x + ((label.x + label.width / 2) * frame.width) / banner.width;
   const y = frame.y + ((label.y + label.height / 2) * frame.height) / banner.height;
   if (x < 0 || y < 0 || x >= viewport.width || y >= viewport.height)
