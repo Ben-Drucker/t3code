@@ -213,7 +213,13 @@ and console/network diagnostics. Launch mode enables this automatically. With Ma
 dialogs remain resolvable but report the generic type `dialog` and an empty default value.
 
 Firefox has no Marionette/BiDi screencast stream, so recording and the streamed Browser panel
-are unavailable. Use `preview_snapshot` or Firefox's own window. Locators support snapshot refs,
+are unavailable. On macOS desktop, choose **Firefox (docked)** in Settings → Browser to position
+Firefox beside T3. This setting selects the backend without `T3CODE_SERVER_BROWSER`; the env var
+still selects Firefox for headless and non-desktop hosts. See the [browser setup guide](../user/docked-chrome.md)
+for attach-mode launch arguments, 1Password autofill, and permissions. Set
+`T3CODE_FIREFOX_BIDI_PORT` to the Firefox remote-debugging port to diagnose a conflicting Chrome
+listener. For a visible temporary-profile launch use `T3CODE_FIREFOX_MODE=launch` and
+`T3CODE_FIREFOX_HEADLESS=0`. Locators support snapshot refs,
 CSS, `text=`, and `role=...[name=...]`; other Playwright selector engines, remote evaluation
 handles, and native file-picker interception return unsupported errors. Upload through the
 file input's locator instead. Firefox snapshots use a DOM-based accessibility-style tree.

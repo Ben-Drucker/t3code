@@ -992,6 +992,10 @@ export const DESKTOP_FILE_EXCLUSIONS = [
   "!**/node_modules/@anthropic-ai/claude-agent-sdk-*/**/*",
   "!**/*.map",
   "!**/*.d.cts",
+  "!apps/desktop/prod-resources/window-dock",
+  "!apps/desktop/prod-resources/window-dock/**/*",
+  "!apps/desktop/prod-resources/browser-click",
+  "!apps/desktop/prod-resources/browser-click/**/*",
   "!apps/desktop/resources/browser-secret",
   "!apps/desktop/resources/browser-secret/**/*",
   "!apps/desktop/prod-resources/browser-secret",
@@ -1114,6 +1118,10 @@ export const LINUX_CAPTURE_EXTRA_RESOURCES = [
     to: "gnome-extension",
     filter: gnomeCaptureBundle.files,
   },
+] as const;
+export const MAC_WINDOW_DOCK_EXTRA_RESOURCES = [
+  { from: "apps/desktop/prod-resources/window-dock", to: "window-dock" },
+  { from: "apps/desktop/prod-resources/browser-click", to: "browser-click" },
 ] as const;
 export const LINUX_BROWSER_SECRET_EXTRA_RESOURCES = [
   { from: "apps/desktop/prod-resources/browser-secret", to: "browser-secret" },
@@ -2430,6 +2438,89 @@ export const stageResourceMonitor = Effect.fn("stageResourceMonitor")(function* 
   }
 });
 
+export const stageWindowDock = Effect.fn("stageWindowDock")(function* (input: {
+  readonly repoRoot: string;
+  readonly stageResourcesDir: string;
+  readonly platform: typeof BuildPlatform.Type;
+  readonly arch: typeof BuildArch.Type;
+  readonly verbose: boolean;
+}) {
+  if (input.platform !== "mac") return;
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const source = path.join(input.repoRoot, "native/window-dock/main.swift");
+  const swiftTargets =
+    input.arch === "universal"
+      ? ["arm64-apple-macos12.0", "x86_64-apple-macos12.0"]
+      : [`${input.arch === "arm64" ? "arm64" : "x86_64"}-apple-macos12.0`];
+  const destinationDirectory = path.join(input.stageResourcesDir, "window-dock");
+  const destinationPath = path.join(destinationDirectory, "t3-window-dock");
+  yield* fs.remove(destinationDirectory, { recursive: true, force: true }).pipe(Effect.ignore);
+  yield* fs.makeDirectory(destinationDirectory, { recursive: true });
+
+  const builtBinaries: string[] = [];
+  for (const swiftTarget of swiftTargets) {
+    const output = path.join(destinationDirectory, `t3-window-dock-${swiftTarget.split("-")[0]}`);
+    yield* runCommand(
+      ChildProcess.make("swiftc", ["-O", "-target", swiftTarget, source, "-o", output], {
+        cwd: input.repoRoot,
+      }),
+      { label: `swiftc window dock (${swiftTarget})`, verbose: input.verbose },
+    );
+    builtBinaries.push(output);
+  }
+  if (builtBinaries.length === 1) {
+    yield* fs.rename(builtBinaries[0]!, destinationPath);
+  } else {
+    yield* runCommand(
+      ChildProcess.make("lipo", ["-create", ...builtBinaries, "-output", destinationPath]),
+      { label: "lipo window dock universal binary", verbose: input.verbose },
+    );
+    for (const binary of builtBinaries) yield* fs.remove(binary, { force: true });
+  }
+  yield* fs.chmod(destinationPath, 0o755);
+});
+
+const stageBrowserClick = Effect.fn("stageBrowserClick")(function* (input: {
+  readonly repoRoot: string;
+  readonly stageResourcesDir: string;
+  readonly platform: typeof BuildPlatform.Type;
+  readonly arch: typeof BuildArch.Type;
+  readonly verbose: boolean;
+}) {
+  if (input.platform !== "mac") return;
+  const path = yield* Path.Path;
+  const destination = path.join(input.stageResourcesDir, "browser-click/T3Notify.app");
+  const targets =
+    input.arch === "universal"
+      ? ["arm64", "x86_64"]
+      : [input.arch === "arm64" ? "arm64" : "x86_64"];
+  const binaries: string[] = [];
+  const fs = yield* FileSystem.FileSystem;
+  for (const arch of targets) {
+    yield* runCommand(
+      ChildProcess.make("/bin/sh", [
+        path.join(input.repoRoot, "native/browser-click/build.sh"),
+        destination,
+        `${arch}-apple-macos12.0`,
+      ]),
+      { label: `swiftc browser click (${arch})`, verbose: input.verbose },
+    );
+    const binary = path.join(destination, `Contents/MacOS/notify-${arch}`);
+    yield* fs.rename(path.join(destination, "Contents/MacOS/notify"), binary);
+    binaries.push(binary);
+  }
+  const output = path.join(destination, "Contents/MacOS/notify");
+  if (binaries.length === 1) yield* fs.rename(binaries[0]!, output);
+  else {
+    yield* runCommand(ChildProcess.make("lipo", ["-create", ...binaries, "-output", output]), {
+      label: "lipo browser click",
+      verbose: input.verbose,
+    });
+    for (const binary of binaries) yield* fs.remove(binary);
+  }
+});
+
 export const stageBrowserSecret = Effect.fn("stageBrowserSecret")(function* (input: {
   readonly repoRoot: string;
   readonly stageResourcesDir: string;
@@ -2804,6 +2895,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       ...DESKTOP_EXTRA_RESOURCES,
       ...(platform === "linux" ? LINUX_CAPTURE_EXTRA_RESOURCES : []),
       ...(platform === "linux" ? LINUX_BROWSER_SECRET_EXTRA_RESOURCES : []),
+      ...(platform === "mac" ? MAC_WINDOW_DOCK_EXTRA_RESOURCES : []),
       ...(platform === "win" ? WINDOWS_SERVER_EXTRA_RESOURCES : []),
       ...(platform === "win" && wslRuntimeBundled ? WSL_RUNTIME_EXTRA_RESOURCES : []),
     ],
@@ -3788,6 +3880,20 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
         verbose: options.verbose,
       });
   }
+  yield* stageWindowDock({
+    repoRoot,
+    stageResourcesDir,
+    platform: options.platform,
+    arch: options.arch,
+    verbose: options.verbose,
+  });
+  yield* stageBrowserClick({
+    repoRoot,
+    stageResourcesDir,
+    platform: options.platform,
+    arch: options.arch,
+    verbose: options.verbose,
+  });
   yield* stageBrowserSecret({
     repoRoot,
     stageResourcesDir,

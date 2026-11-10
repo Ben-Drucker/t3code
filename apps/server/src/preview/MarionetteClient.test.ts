@@ -14,7 +14,7 @@ const fixture = async (
     reply: (result: unknown, error?: unknown) => void,
     socket: NodeNet.Socket,
   ) => void,
-  options: { greeting?: unknown; sessionError?: boolean } = {},
+  options: { greeting?: unknown; sessionError?: boolean | "active" } = {},
 ) => {
   const sockets = new Set<NodeNet.Socket>();
   const commands: string[] = [];
@@ -46,7 +46,10 @@ const fixture = async (
           if (options.sessionError)
             reply(null, {
               error: "session not created",
-              message: "private session details",
+              message:
+                options.sessionError === "active"
+                  ? "Maximum number of active sessions"
+                  : "private session details",
               stacktrace: "",
             });
           else reply({ sessionId: "test", capabilities: {} });
@@ -163,16 +166,19 @@ it.each([
   expect(server.commands).toEqual([]);
 });
 
-it("retains typed session failures and closes a failed acquisition", async () => {
-  await using server = await fixture(() => {}, { sessionError: true });
-  await expect(server.connection.connect()).rejects.toMatchObject({
-    code: "session not created",
-    command: "WebDriver:NewSession",
-  });
-  expect(server.connection.connected).toBe(false);
-  await server.connection.close();
-  expect(server.commands).toEqual(["WebDriver:NewSession"]);
-});
+it.each([true, "active"] as const)(
+  "retains typed session failures and closes a failed acquisition (%s)",
+  async (sessionError) => {
+    await using server = await fixture(() => {}, { sessionError });
+    await expect(server.connection.connect()).rejects.toMatchObject({
+      code: sessionError === "active" ? "session already active" : "session not created",
+      command: "WebDriver:NewSession",
+    });
+    expect(server.connection.connected).toBe(false);
+    await server.connection.close();
+    expect(server.commands).toEqual(["WebDriver:NewSession"]);
+  },
+);
 
 it("rejects a truncated frame when the peer closes the connection", async () => {
   await using server = await fixture((_command, _parameters, _reply, socket) =>

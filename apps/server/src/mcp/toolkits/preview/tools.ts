@@ -4,6 +4,8 @@ import {
   ToolActivityIcon,
   PreviewAutomationActInput,
   PreviewAutomationDialogInput,
+  PreviewAutomationAutofillInput,
+  PreviewAutomationAutofillResult,
   PreviewAutomationError,
   PreviewAutomationEvaluateInput,
   PreviewAutomationNavigateInput,
@@ -91,6 +93,17 @@ const PreviewDialogTool = browserTool(
     failure: PreviewToolFailure,
     dependencies,
   }).annotate(Tool.Title, "Resolve browser dialog"),
+);
+
+const PreviewAutofillTool = browserTool(
+  Tool.make("preview_autofill", {
+    description:
+      "Use 1Password's inline banner in Firefox to sign in on your tab. Optionally choose an exact username and title. Warns the user five seconds before a brief OS click, then restores their app and cursor. Never reveal, read, copy, or return passwords, TOTP codes, or field values; use only entry titles and usernames. If the page already redirected after signing in, report that result. Requires macOS and Firefox with BiDi enabled; other backends are unsupported.",
+    parameters: PreviewAutomationAutofillInput,
+    success: PreviewAutomationAutofillResult,
+    failure: PreviewToolFailure,
+    dependencies,
+  }).annotate(Tool.Title, "Autofill with 1Password"),
 );
 
 const PreviewNavigateTool = safeBrowserTool(
@@ -223,6 +236,7 @@ const PreviewRecordingStopTool = safeBrowserTool(
 );
 
 export const PreviewToolkit = Toolkit.make(
+  PreviewAutofillTool,
   PreviewDialogTool,
   PreviewStatusTool,
   PreviewOpenTool,
@@ -238,6 +252,7 @@ export const PreviewToolkit = Toolkit.make(
 );
 
 export const PreviewStandardToolkit = Toolkit.make(
+  PreviewAutofillTool,
   PreviewDialogTool,
   PreviewStatusTool,
   PreviewOpenTool,

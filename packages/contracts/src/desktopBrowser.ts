@@ -14,6 +14,14 @@ export const DesktopBrowserEvent = Schema.Union([
   Schema.Struct({ type: Schema.Literal("cdp"), ...TabKey, message: Schema.String }),
   /** Its `<webview>` started or stopped being on screen in a desktop window. */
   Schema.Struct({ type: Schema.Literal("shown"), ...TabKey, shown: Schema.Boolean }),
+  /** The user closed the docked browser window, so the preview tab goes with it. */
+  Schema.Struct({ type: Schema.Literal("dockClosed"), ...TabKey }),
+  /** The docked browser window cannot be positioned. */
+  Schema.Struct({
+    type: Schema.Literal("dockFailed"),
+    ...TabKey,
+    reason: Schema.Literals(["no-permission", "no-window", "unsupported"]),
+  }),
 ]);
 export type DesktopBrowserEvent = typeof DesktopBrowserEvent.Type;
 
@@ -27,6 +35,9 @@ export const DesktopBrowserCommand = Schema.Union([
     x: Schema.Finite,
     y: Schema.Finite,
   }),
+  /** Browser process `pid` owns the window that should follow this tab's preview panel. */
+  Schema.Struct({ type: Schema.Literal("dock"), ...TabKey, pid: Schema.Int }),
+  Schema.Struct({ type: Schema.Literal("undock"), ...TabKey }),
   /** Whether an agent turn runs on the thread, so the tabs it uses stay focused between steps. */
   Schema.Struct({
     type: Schema.Literal("turn"),

@@ -25,12 +25,16 @@ import type {
   PreviewViewportSetting,
 } from "@t3tools/contracts";
 import { normalizePreviewUrl } from "@t3tools/shared/preview";
+import { ThreadId } from "@t3tools/contracts";
 import { resolvePreviewViewport } from "@t3tools/shared/previewViewport";
 import * as NodeCrypto from "node:crypto";
 import * as NodePath from "node:path";
 import * as Schema from "effect/Schema";
 
 import { FirefoxBidi } from "./FirefoxBidi.ts";
+import { autofillFirefox, type AutofillOptions } from "./FirefoxAutofill.ts";
+import { bidiPortStatus } from "./FirefoxBidiEndpoint.ts";
+import type { Rect } from "./FirefoxAutofillGeometry.ts";
 import * as PageScript from "./FirefoxPageScript.ts";
 import { MarionetteConnection, MarionetteError } from "./MarionetteClient.ts";
 import { ServerBrowserOperationError, toOperationError } from "./ServerBrowserPage.ts";
@@ -39,7 +43,7 @@ import type { ServerBrowserBackend, ServerBrowserHistoryInput } from "./ServerBr
 
 type Element = Record<string, string>;
 interface Tab {
-  readonly threadId: string;
+  readonly threadId: PreviewAutomationRequest["threadId"];
   readonly tabId: string;
   readonly handle: string;
   readonly owner: string;
@@ -106,10 +110,24 @@ export class FirefoxBrowser implements ServerBrowserBackend {
   private bidi: FirefoxBidi | undefined;
   private originalHandle: string | undefined;
   private disposed = false;
+  private bidiDiagnostic: string | undefined;
 
   readonly connection: MarionetteConnection;
-  constructor(connection: MarionetteConnection) {
+  readonly options: {
+    readonly bidiPort?: number;
+    readonly autofill?: AutofillOptions;
+    readonly docked?: () => boolean;
+    readonly allocateTab?: (request: PreviewAutomationRequest) => Promise<string>;
+    readonly opened?: (key: { threadId: string; tabId: string }, pid: number) => Promise<void>;
+    readonly closed?: (key: { threadId: string; tabId: string }) => Promise<void>;
+    readonly status?: (
+      status: PreviewAutomationStatus,
+      request: PreviewAutomationRequest,
+    ) => Promise<void>;
+  };
+  constructor(connection: MarionetteConnection, options: FirefoxBrowser["options"] = {}) {
     this.connection = connection;
+    this.options = options;
   }
 
   get liveTabs() {
@@ -129,11 +147,14 @@ export class FirefoxBrowser implements ServerBrowserBackend {
   private async connected() {
     if (this.disposed) throw new Error("The Firefox preview is closed.");
     if (this.connection.connected) return;
+    await this.bidi?.command("session.end", {}).catch(() => undefined);
     this.bidi?.close();
     this.bidi = undefined;
     const staleTabs = [...this.tabs.values()];
     this.tabs.clear();
     await this.connection.connect();
+    if (this.options.bidiPort)
+      this.bidiDiagnostic = await bidiPortStatus(this.options.bidiPort, this.connection.processId);
     this.originalHandle ??= value<string>(
       await this.connection.command("WebDriver:GetWindowHandle"),
     );
@@ -396,6 +417,12 @@ export class FirefoxBrowser implements ServerBrowserBackend {
     request: PreviewAutomationRequest,
   ): Promise<PreviewAutomationStatus> {
     const common = () => ({
+      backend: "firefox" as const,
+      capabilityMessage:
+        this.bidiDiagnostic ??
+        (this.bidi
+          ? "Firefox Marionette and BiDi connected."
+          : "Firefox is connected with limited capabilities: BiDi is off. Start Firefox with --marionette --remote-debugging-port=<free-port> for 1Password autofill and appearance control."),
       profiles: [{ id: "firefox", name: "Firefox" }],
       defaultProfileId: "firefox",
       tabs: [...this.tabs.values()]
@@ -541,7 +568,10 @@ export class FirefoxBrowser implements ServerBrowserBackend {
             tag: "PreviewAutomationTimeoutError",
             message: "The Firefox request expired before it could run.",
           });
-        return await this.run({ ...request, timeoutMs });
+        const result = await this.run({ ...request, timeoutMs });
+        if (result && typeof result === "object" && "available" in result)
+          await this.options.status?.(result as PreviewAutomationStatus, request);
+        return result;
       } catch (cause) {
         if (isMarionetteError(cause)) {
           const remote = cause.cause as { message?: string } | undefined;
@@ -560,7 +590,7 @@ export class FirefoxBrowser implements ServerBrowserBackend {
     });
   }
 
-  private async run(request: PreviewAutomationRequest) {
+  private async run(request: PreviewAutomationRequest, managedTabId?: string) {
     await this.connected();
     await this.connection.command("WebDriver:SetTimeouts", {
       script: request.timeoutMs,
@@ -610,12 +640,29 @@ export class FirefoxBrowser implements ServerBrowserBackend {
       if (!tab) {
         if (owned.length >= 8 || this.tabs.size >= 32)
           throw new Error("The Firefox preview tab limit has been reached.");
+        const handles = value<string[]>(
+          await this.connection.command("WebDriver:GetWindowHandles"),
+        );
+        const current =
+          [...this.tabs.values()].find((tab) => handles.includes(tab.handle))?.handle ??
+          (this.originalHandle && handles.includes(this.originalHandle)
+            ? this.originalHandle
+            : handles[0]);
+        if (current)
+          await this.connection.command("WebDriver:SwitchToWindow", {
+            handle: current,
+            focus: false,
+          });
         const opened = value<{ handle: string }>(
-          await this.connection.command("WebDriver:NewWindow", { type: "tab", focus: false }),
+          await this.connection.command("WebDriver:NewWindow", {
+            type: this.options.docked?.() && this.tabs.size === 0 ? "window" : "tab",
+            focus: false,
+          }),
         );
         tab = {
           threadId: request.threadId,
-          tabId: NodeCrypto.randomUUID(),
+          tabId:
+            managedTabId ?? (await this.options.allocateTab?.(request)) ?? NodeCrypto.randomUUID(),
           handle: opened.handle,
           owner: request.agentSessionId,
           refs: new Map(),
@@ -633,6 +680,8 @@ export class FirefoxBrowser implements ServerBrowserBackend {
       }
       try {
         await this.switchTo(tab);
+        if (created && this.options.docked?.() && this.connection.processId)
+          await this.options.opened?.(tab, this.connection.processId);
         if (input.url) await this.navigate(tab, { url: input.url }, request.timeoutMs);
         return await this.status(tab, request);
       } catch (cause) {
@@ -700,7 +749,26 @@ export class FirefoxBrowser implements ServerBrowserBackend {
       case "close":
         await this.connection.command("WebDriver:CloseWindow");
         this.tabs.delete(tab.tabId);
+        await this.options.closed?.(tab);
         return {};
+      case "autofill":
+        if (this.bidiDiagnostic) unsupported(this.bidiDiagnostic);
+        if (!this.options.autofill?.supported)
+          unsupported("1Password OS autofill is supported only by Firefox on macOS.");
+        if (!this.bidi)
+          unsupported(
+            "Firefox BiDi is off. Restart Firefox with --marionette --remote-debugging-port=<free-port> to use preview_autofill.",
+          );
+        if (!this.connection.processId)
+          unsupported("Firefox did not report its process ID; OS autofill is unavailable.");
+        return autofillFirefox(
+          this.bidi!,
+          tab.handle,
+          this.connection.processId!,
+          request.input as import("@t3tools/contracts").PreviewAutomationAutofillInput,
+          this.options.autofill!,
+          () => this.autofillFrames(),
+        );
       case "dialog": {
         const input = request.input as PreviewAutomationDialogInput;
         if (input.accept && input.promptText !== undefined)
@@ -945,6 +1013,69 @@ export class FirefoxBrowser implements ServerBrowserBackend {
     }
   }
 
+  private async autofillFrames() {
+    const hosts = value<Element[]>(
+      await this.connection.command("WebDriver:FindElements", {
+        using: "css selector",
+        value: "com-1password-uso",
+      }),
+    );
+    const frames: Array<{ url: string; rect: Rect }> = [];
+    for (const host of hosts) {
+      // WebDriver exposes closed shadow roots, unlike page JavaScript's host.shadowRoot.
+      const root = value<Record<string, string>>(
+        await this.connection.command("WebDriver:GetShadowRoot", { id: Object.values(host)[0] }),
+      );
+      const elements = value<Element[]>(
+        await this.connection.command("WebDriver:FindElementsFromShadowRoot", {
+          shadowRoot: Object.values(root)[0],
+          using: "css selector",
+          value: "iframe",
+        }),
+      );
+      for (const element of elements)
+        frames.push(
+          await this.script<{ url: string; rect: Rect }>(
+            "const el=arguments[0],r=el.getBoundingClientRect(),sx=r.width/el.offsetWidth,sy=r.height/el.offsetHeight;return {url:el.src,rect:{x:r.x+el.clientLeft*sx,y:r.y+el.clientTop*sy,width:el.clientWidth*sx,height:el.clientHeight*sy}};",
+            [element],
+          ),
+        );
+    }
+    return frames;
+  }
+
+  openManaged(snapshot: import("@t3tools/contracts").PreviewSessionSnapshot) {
+    return this.serial(async () => {
+      const request: PreviewAutomationRequest = {
+        requestId: "desktop-open",
+        threadId: ThreadId.make(snapshot.threadId),
+        agentSessionId: snapshot.automationOwner ?? "desktop-human",
+        operation: "open",
+        input: {
+          reuseExistingTab: false,
+          ...(snapshot.navStatus._tag === "Idle" ? {} : { url: snapshot.navStatus.url }),
+        },
+        timeoutMs: 15_000,
+      };
+      const result = (await this.run(request, snapshot.tabId)) as PreviewAutomationStatus;
+      await this.options.status?.(result, request);
+      return result;
+    });
+  }
+
+  closeTab(tabId: string) {
+    return this.serial(async () => {
+      const tab = this.tabs.get(tabId);
+      if (!tab) return;
+      this.tabs.delete(tabId);
+      await this.connection
+        .command("WebDriver:SwitchToWindow", { handle: tab.handle, focus: false })
+        .then(() => this.connection.command("WebDriver:CloseWindow"))
+        .catch(() => undefined);
+      await this.options.closed?.(tab);
+    });
+  }
+
   close() {
     return this.serial(async () => {
       this.disposed = true;
@@ -954,6 +1085,7 @@ export class FirefoxBrowser implements ServerBrowserBackend {
             .command("WebDriver:SwitchToWindow", { handle: tab.handle, focus: false })
             .then(() => this.connection.command("WebDriver:CloseWindow"))
             .catch(() => undefined);
+          await this.options.closed?.(tab);
         }
         if (this.originalHandle)
           await this.connection
@@ -961,6 +1093,7 @@ export class FirefoxBrowser implements ServerBrowserBackend {
             .catch(() => undefined);
       }
       this.tabs.clear();
+      await this.bidi?.command("session.end", {}).catch(() => undefined);
       this.bidi?.close();
     });
   }

@@ -998,6 +998,29 @@ export const DesktopPreviewSetShownInputSchema = Schema.Struct({
   shown: Schema.Boolean,
 });
 
+export const DesktopPreviewDockRectInputSchema = Schema.Struct({
+  threadId: Schema.String,
+  tabId: Schema.String,
+  /** The preview panel in window-content CSS pixels, or null while it is not on screen. */
+  rect: Schema.NullOr(
+    Schema.Struct({
+      x: Schema.Finite,
+      y: Schema.Finite,
+      width: Schema.Finite,
+      height: Schema.Finite,
+    }),
+  ),
+});
+export type DesktopPreviewDockRectInput = typeof DesktopPreviewDockRectInputSchema.Type;
+
+export const DesktopPreviewDockStatusSchema = Schema.Struct({
+  /** macOS with the window helper available. */
+  supported: Schema.Boolean,
+  /** T3 Code holds the Accessibility permission the helper needs. */
+  trusted: Schema.Boolean,
+});
+export type DesktopPreviewDockStatus = typeof DesktopPreviewDockStatusSchema.Type;
+
 export const DesktopPreviewAnnotationThemeInputSchema = Schema.Struct({
   theme: DesktopPreviewAnnotationThemeSchema,
 });
@@ -1250,6 +1273,10 @@ export interface DesktopPreviewBridge {
   /** Tells the tab's server whether its webview is on screen. */
   setShown: (tabId: string, shown: boolean) => Promise<void>;
   openDevTools: (tabId: string) => Promise<void>;
+  setDockRect: (input: DesktopPreviewDockRectInput) => Promise<boolean>;
+  getDockStatus: () => Promise<DesktopPreviewDockStatus>;
+  /** Shows the system Accessibility prompt when T3 Code is not yet trusted. */
+  requestDockPermission: () => Promise<boolean>;
   clearCookies: (environmentId: EnvironmentId, profileId?: string) => Promise<void>;
   clearCache: (environmentId: EnvironmentId, profileId?: string) => Promise<void>;
   getPreviewConfig: (

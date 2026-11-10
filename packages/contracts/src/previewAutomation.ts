@@ -51,6 +51,7 @@ export const PREVIEW_AUTOMATION_SERVER_OPERATIONS = [
   "hover",
   "select",
   "drag",
+  "autofill",
 ] as const;
 export const PreviewAutomationOperation = Schema.Literals(PREVIEW_AUTOMATION_SERVER_OPERATIONS);
 export type PreviewAutomationOperation = typeof PreviewAutomationOperation.Type;
@@ -62,6 +63,20 @@ const PreviewAutomationTabTargetFields = {
 export const PreviewAutomationTabTargetInput = Schema.Struct(PreviewAutomationTabTargetFields);
 export type PreviewAutomationTabTargetInput = typeof PreviewAutomationTabTargetInput.Type;
 
+export const PreviewAutomationAutofillInput = Schema.Struct({
+  ...PreviewAutomationTabTargetFields,
+  username: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(320))),
+  title: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(256))),
+});
+export const PreviewAutomationAutofillResult = Schema.Struct({
+  bannerFound: Schema.Boolean,
+  selected: Schema.NullOr(Schema.Struct({ title: Schema.String, username: Schema.String })),
+  url: Schema.String,
+  outcome: Schema.Literals(["clicked", "redirected", "banner-unavailable"]),
+});
+export type PreviewAutomationAutofillInput = typeof PreviewAutomationAutofillInput.Type;
+export type PreviewAutomationAutofillResult = typeof PreviewAutomationAutofillResult.Type;
+
 export const PreviewAutomationTabOwner = Schema.Literals(["agent", "human", "unclaimed"]);
 
 export const PreviewAutomationProfile = Schema.Struct({
@@ -72,6 +87,8 @@ export const PreviewAutomationProfile = Schema.Struct({
 export type PreviewAutomationProfile = typeof PreviewAutomationProfile.Type;
 
 export const PreviewAutomationStatus = Schema.Struct({
+  backend: Schema.optional(Schema.Literals(["firefox", "chromium"])),
+  capabilityMessage: Schema.optional(Schema.String),
   available: Schema.Boolean,
   visible: Schema.Boolean,
   tabId: Schema.NullOr(PreviewTabId),

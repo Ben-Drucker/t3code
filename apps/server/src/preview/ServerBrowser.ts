@@ -5,6 +5,8 @@ import {
   BUILT_IN_BROWSER_PROFILES,
   DEFAULT_BROWSER_PROFILE_ID,
   DEFAULT_BROWSER_RECORDING_FRAME_RATE,
+  DEFAULT_PREVIEW_BROWSER_MODE,
+  type PreviewBrowserMode,
   FILL_PREVIEW_VIEWPORT,
   findBrowserProfile,
   INCOGNITO_BROWSER_PROFILE_ID,
@@ -49,7 +51,9 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import { normalizePreviewUrl } from "@t3tools/shared/preview";
 import { resolvePreviewViewport } from "@t3tools/shared/previewViewport";
 import * as NodeCrypto from "node:crypto";
+import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
+import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -85,9 +89,11 @@ import * as ServerBrowserPage from "./ServerBrowserPage.ts";
 import * as PreviewBrowser from "./PreviewBrowser.ts";
 import * as PreviewBrowserHost from "./PreviewBrowserHost.ts";
 import { presentAsChrome, ServerBrowserContexts } from "./ServerBrowserContexts.ts";
+import { MAC_CHROME_EXECUTABLE } from "./ServerBrowserDockedChrome.ts";
 import { BrowserControlInterrupted, SessionControl } from "./SessionControl.ts";
 import { installPdfDocumentNavigation, isPdfAssetUrl } from "./PdfDocumentNavigation.ts";
 import * as FirefoxServerBrowser from "./FirefoxServerBrowser.ts";
+import * as GuardedBrowserClick from "./GuardedBrowserClick.ts";
 import * as MarionetteClient from "./MarionetteClient.ts";
 import type { ServerBrowserBackend } from "./ServerBrowserBackend.ts";
 
@@ -312,6 +318,8 @@ interface ServerTab {
   readonly isolatedContext: boolean;
 
   readonly desktop: { readonly close: () => Promise<void> } | null;
+  /** Shown in the user's own Chrome window, which the desktop glues to the preview panel. */
+  readonly docked: boolean;
   readonly profileId: string | undefined;
   readonly openerTabId: string | undefined;
 
@@ -471,9 +479,7 @@ const CLIPBOARD_SCRIPT = `(() => {
 })();`;
 
 const make = Effect.gen(function* () {
-  if ((yield* HostProcess.Environment).T3CODE_SERVER_BROWSER === "firefox") {
-    return yield* FirefoxServerBrowser.make.pipe(Effect.provide(MarionetteClient.layer));
-  }
+  const forceFirefox = (yield* HostProcess.Environment).T3CODE_SERVER_BROWSER === "firefox";
   const config = yield* ServerConfig.ServerConfig;
   const host = { platform: yield* HostProcess.Platform, arch: yield* HostProcess.Architecture };
   const manager = yield* PreviewManager.PreviewManager;
@@ -504,6 +510,61 @@ const make = Effect.gen(function* () {
   const adoptedPages = new Map<string, { readonly page: Page; readonly openerTabId: string }>();
   const closedSessions = new Set<string>();
   let hostConnectionId: string | null = null;
+  let previewBrowserMode: PreviewBrowserMode = DEFAULT_PREVIEW_BROWSER_MODE;
+  // A dock the desktop refused (no permission, no window) stays off until the mode is reported again.
+  let dockedRefused = false;
+  const firefoxDockedUsable = () =>
+    previewBrowserMode === "firefox-docked" &&
+    desktopChannel.available &&
+    host.platform === "darwin";
+  const firefoxKeys = new Set<string>();
+  const firefox = yield* FirefoxServerBrowser.makeBrowser({
+    docked: firefoxDockedUsable,
+    allocateTab: async (request) => {
+      const snapshot = await runPromise(
+        manager.open({
+          threadId: request.threadId,
+          runtime: "server",
+          profileId: "firefox",
+          ...(request.agentSessionId === undefined
+            ? {}
+            : { automationOwner: request.agentSessionId }),
+          reveal: true,
+          beforePublish: (snapshot) => firefoxKeys.add(tabKey(snapshot.threadId, snapshot.tabId)),
+        }),
+      );
+      return snapshot.tabId;
+    },
+    opened: (key, pid) => runPromise(desktopChannel.dock(key, pid)),
+    closed: async (key) => {
+      await runPromise(desktopChannel.undock(key));
+      await runPromise(
+        manager
+          .close({ threadId: ThreadId.make(key.threadId), tabId: key.tabId })
+          .pipe(Effect.ignore),
+      );
+      firefoxKeys.delete(tabKey(key.threadId, key.tabId));
+    },
+    status: async (status, request) => {
+      if (!status.tabId) return;
+      await runPromise(
+        manager
+          .reportStatus({
+            threadId: request.threadId,
+            tabId: status.tabId,
+            serverControlled: true,
+            navStatus: {
+              _tag: "Success",
+              url: status.url ?? "about:blank",
+              title: status.title ?? "",
+            },
+            canGoBack: false,
+            canGoForward: false,
+          })
+          .pipe(Effect.ignore),
+      );
+    },
+  }).pipe(Effect.provide(Layer.mergeAll(MarionetteClient.layer, GuardedBrowserClick.layer)));
   let viewerResizeOrder = 0;
 
   const contexts = new ServerBrowserContexts({
@@ -634,11 +695,14 @@ const make = Effect.gen(function* () {
             environmentId,
             connectionId,
             focused: true,
-            liveTabs: [...tabs.values()].map((tab) => ({
-              threadId: tab.threadId,
-              tabId: tab.tabId,
-              visible: tab.viewers.size > 0,
-            })),
+            liveTabs: [
+              ...firefox.liveTabs,
+              ...[...tabs.values()].map((tab) => ({
+                threadId: tab.threadId,
+                tabId: tab.tabId,
+                visible: tab.viewers.size > 0,
+              })),
+            ],
           }),
         ),
       ),
@@ -760,6 +824,11 @@ const make = Effect.gen(function* () {
     void tab.control.close().catch(constVoid);
     if (tab.desktop) void tab.desktop.close().catch(constVoid);
     else void tab.page.close().catch(constVoid);
+    if (tab.docked) {
+      runFork(desktopChannel.undock({ threadId: tab.threadId, tabId: tab.tabId }));
+      // Closing the last docked preview closes Chrome.
+      if (![...tabs.values()].some((other) => other.docked)) void contexts.closeDocked();
+    }
     if (tab.isolatedContext) void tab.page.context().close().catch(constVoid);
     void tab.recording?.encoder.close().catch(constVoid);
     void NodeFSP.rm(downloadDir(tab), { recursive: true, force: true }).catch(constVoid);
@@ -801,6 +870,40 @@ const make = Effect.gen(function* () {
     }
   };
 
+  const dockedChromeUsable = () =>
+    previewBrowserMode === "chrome-docked" &&
+    !dockedRefused &&
+    desktopChannel.available &&
+    host.platform === "darwin";
+
+  /** Opens a page in the user's Chrome, or returns null to use the built-in browser. */
+  const openDockedPage = async (
+    snapshot: PreviewSessionSnapshot,
+    opened: Array<() => Promise<void>>,
+  ) => {
+    if (!dockedChromeUsable() || !NodeFS.existsSync(MAC_CHROME_EXECUTABLE)) return null;
+    try {
+      const { context, pid } = await contexts.dockedContext(
+        MAC_CHROME_EXECUTABLE,
+        NodeOS.homedir(),
+      );
+      const unused = context
+        .pages()
+        .find((candidate) => ![...tabs.values()].some((tab) => tab.page === candidate));
+      const page = unused ?? (await context.newPage());
+      opened.push(() => page.close());
+      await runPromise(
+        desktopChannel.dock({ threadId: snapshot.threadId, tabId: snapshot.tabId }, pid),
+      );
+      return { context, page };
+    } catch (cause) {
+      await runPromise(
+        Effect.logWarning("Docked Chrome unavailable; using the built-in browser", { cause }),
+      );
+      return null;
+    }
+  };
+
   const createTab = async (snapshot: PreviewSessionSnapshot): Promise<ServerTab> => {
     const opened: Array<() => Promise<void>> = [];
     try {
@@ -818,13 +921,14 @@ const make = Effect.gen(function* () {
   ): Promise<ServerTab> => {
     const adopted = adoptedPages.get(tabKey(snapshot.threadId, snapshot.tabId));
     adoptedPages.delete(tabKey(snapshot.threadId, snapshot.tabId));
+    const dockedChrome = adopted === undefined ? await openDockedPage(snapshot, opened) : null;
     const desktop =
-      adopted === undefined && (await desktopRenders(snapshot))
+      adopted === undefined && dockedChrome === null && (await desktopRenders(snapshot))
         ? await connectDesktop(snapshot)
         : null;
     if (desktop) opened.push(desktop.close);
     // Otherwise a desktop that attaches late shows its own page, and the agent drives another.
-    if (!desktop && desktopChannel.available) {
+    if (!desktop && dockedChrome === null && desktopChannel.available) {
       await runPromise(
         manager
           .markHeadless({ threadId: ThreadId.make(snapshot.threadId), tabId: snapshot.tabId })
@@ -834,26 +938,28 @@ const make = Effect.gen(function* () {
     const isolatedContext =
       adopted === undefined &&
       desktop === null &&
+      dockedChrome === null &&
       ((snapshot.automationOwner !== undefined && snapshot.profileId === undefined) ||
         snapshot.profileId === INCOGNITO_BROWSER_PROFILE_ID);
     const context =
       adopted?.page.context() ??
       desktop?.page.context() ??
+      dockedChrome?.context ??
       (await contexts.contextFor(
         snapshot.profileId ?? "default",
         isolatedContext ? tabKey(snapshot.threadId, snapshot.tabId) : undefined,
       ));
     if (isolatedContext) opened.push(() => context.close());
     if (adopted?.page.isClosed()) throw new Error("The popup closed before it opened.");
-    if (!desktop) await prepareContext(context);
-    const page = adopted?.page ?? desktop?.page ?? (await context.newPage());
-    if (!desktop) opened.push(() => page.close());
+    if (!desktop && !dockedChrome) await prepareContext(context);
+    const page = adopted?.page ?? desktop?.page ?? dockedChrome?.page ?? (await context.newPage());
+    if (!desktop && !dockedChrome) opened.push(() => page.close());
     const cdp = await context.newCDPSession(page);
     await installPdfDocumentNavigation(cdp);
     // The desktop's page is already a normal browser. A popup's first request
     // went out before it became a tab; everything after presents as Chrome.
-    if (!desktop) await presentAsChrome(cdp, host);
-    if (!desktop) await recordCopies(cdp);
+    if (!desktop && !dockedChrome) await presentAsChrome(cdp, host);
+    if (!desktop && !dockedChrome) await recordCopies(cdp);
     page.setDefaultTimeout(NAVIGATION_TIMEOUT_MS);
     page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
     const control = new SessionControl(snapshot.automationOwner ?? null, () =>
@@ -882,6 +988,7 @@ const make = Effect.gen(function* () {
       },
       isolatedContext,
       desktop: desktop === null ? null : { close: desktop.close },
+      docked: dockedChrome !== null,
       profileId: snapshot.profileId,
       openerTabId: adopted?.openerTabId,
       downloads: [],
@@ -903,7 +1010,7 @@ const make = Effect.gen(function* () {
       captureLock: Promise.resolve(),
       capturing: 0,
     };
-    if (!desktop) {
+    if (!desktop && !dockedChrome) {
       await page.setViewportSize(fixedViewportSize(tab.setting) ?? UNATTACHED_FILL_VIEWPORT);
     }
     await applyRendering(tab, snapshot);
@@ -949,7 +1056,7 @@ const make = Effect.gen(function* () {
       }
       // Same-document navigations (SPA routes) fire no load event.
       if (frame === page.mainFrame() && !tab.loading) void reportLoaded(tab);
-      if (!desktop) void recordFrameCopies(tab, frame);
+      if (!desktop && !dockedChrome) void recordFrameCopies(tab, frame);
     });
     // An adopted popup's frames may have loaded before the tab listened.
     if (adopted) for (const frame of page.frames()) void recordFrameCopies(tab, frame);
@@ -1573,6 +1680,10 @@ const make = Effect.gen(function* () {
           Effect.sync(() => {
             if (input.recordingFrameRate !== undefined)
               recordingFrameRate = input.recordingFrameRate;
+            if (input.previewBrowserMode !== undefined) {
+              if (input.previewBrowserMode !== previewBrowserMode) dockedRefused = false;
+              previewBrowserMode = input.previewBrowserMode;
+            }
             reportsByClient.delete(client);
             reportsByClient.set(client, input);
             rebuildReportedProfiles();
@@ -1980,6 +2091,12 @@ const make = Effect.gen(function* () {
   ): Promise<unknown> => {
     const input = request.input;
     switch (request.operation) {
+      case "autofill":
+        throw new ServerBrowserPage.ServerBrowserOperationError({
+          tag: "PreviewAutomationUnsupportedClientError",
+          message:
+            "preview_autofill requires Firefox on macOS. Select Firefox (docked) or set T3CODE_SERVER_BROWSER=firefox.",
+        });
       case "status":
         return statusWithTitle(
           request.tabId === undefined
@@ -2303,9 +2420,23 @@ const make = Effect.gen(function* () {
   };
 
   const backend: ServerBrowserBackend = {
-    execute: (request) =>
-      runOperation(request, performance.now() + request.timeoutMs).finally(() => markUsed(request)),
-    close: () => contexts.close(),
+    execute: async (request) => {
+      const useFirefox = request.tabId
+        ? firefoxKeys.has(tabKey(request.threadId, request.tabId))
+        : forceFirefox || firefoxDockedUsable();
+      try {
+        return await (useFirefox
+          ? firefox.execute(request)
+          : runOperation(request, performance.now() + request.timeoutMs));
+      } finally {
+        markUsed(request);
+        reportLiveTabs();
+      }
+    },
+    close: async () => {
+      await firefox.close();
+      await contexts.close();
+    },
     history: async (input) => {
       const tab = tabs.get(tabKey(input.threadId, input.tabId));
       if (!tab)
@@ -2346,7 +2477,22 @@ const make = Effect.gen(function* () {
 
   const mirrorManagerEvent = (event: PreviewEvent) =>
     Effect.promise(async () => {
+      if (firefoxKeys.has(tabKey(event.threadId, event.tabId))) {
+        if (event.type === "closed") await firefox.closeTab(event.tabId);
+        return;
+      }
       if (event.type === "opened" && event.snapshot.runtime === "server") {
+        if (forceFirefox || firefoxDockedUsable()) {
+          firefoxKeys.add(tabKey(event.threadId, event.tabId));
+          await firefox.openManaged(event.snapshot).catch(async () => {
+            await runPromise(
+              manager
+                .close({ threadId: ThreadId.make(event.threadId), tabId: event.tabId })
+                .pipe(Effect.ignore),
+            );
+          });
+          return;
+        }
         const key = tabKey(event.snapshot.threadId, event.snapshot.tabId);
         if (event.snapshot.automationOwner === undefined || pendingTabs.has(key) || tabs.has(key))
           await ensureTab(event.snapshot).catch(constVoid);
@@ -2545,6 +2691,12 @@ const make = Effect.gen(function* () {
   const attachViewer: ServerBrowser["Service"]["attachViewer"] = Effect.fn(
     "ServerBrowser.attachViewer",
   )(function* (input) {
+    if (firefoxKeys.has(tabKey(input.threadId, input.tabId)))
+      return yield* new ServerBrowserLaunchError({
+        cause: new Error(
+          "Firefox is displayed in its own window. Use Firefox (docked) or preview_snapshot; streamed Firefox viewing is unsupported.",
+        ),
+      });
     const tab = yield* findTab(input.threadId, input.tabId);
     const output = yield* Queue.make<ServerBrowserViewerOutput>({
       capacity: VIEWER_OUTPUT_LIMIT,
@@ -2785,6 +2937,26 @@ const make = Effect.gen(function* () {
     );
   }
 
+  yield* desktopChannel.dockChanges.pipe(
+    Stream.runForEach((change) =>
+      Effect.sync(() => {
+        if (firefoxKeys.has(tabKey(change.key.threadId, change.key.tabId))) {
+          if (change.type === "closed") void firefox.closeTab(change.key.tabId);
+          return;
+        }
+        const tab = tabs.get(tabKey(change.key.threadId, change.key.tabId));
+        if (!tab?.docked) return;
+        if (change.type === "closed") {
+          dropTab(tab, true);
+          return;
+        }
+        // The next tab opens in the built-in browser until the setting is reported again.
+        dockedRefused = true;
+        dropTab(tab, false);
+      }),
+    ),
+    Effect.forkScoped,
+  );
   yield* desktopChannel.detached.pipe(
     Stream.runForEach((key) =>
       Effect.sync(() => {

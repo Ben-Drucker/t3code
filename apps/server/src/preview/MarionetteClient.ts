@@ -11,6 +11,8 @@ export class MarionetteError extends Schema.TaggedError<MarionetteError>()("Mari
   cause: Schema.optional(Schema.Defect()),
 }) {
   override get message() {
+    if (this.code === "session already active")
+      return "Firefox already has an active automation session. End it with session.end (or stop the other automation client) before retrying. If that client exited without ending its session, restart Firefox.";
     return `Firefox Marionette ${this.command} failed (${this.code}).`;
   }
 }
@@ -36,6 +38,7 @@ export class MarionetteConnection {
   private closed = false;
   webSocketUrl: string | undefined;
   platformName = "";
+  processId: number | undefined;
   readonly options: Options;
 
   constructor(options: Options = {}) {
@@ -123,9 +126,15 @@ export class MarionetteConnection {
       throw error;
     }
     if (response[2] !== null) {
-      const remote = response[2] as { error?: unknown };
+      const remote = response[2] as { error?: unknown; message?: unknown };
       throw new MarionetteError({
-        code: typeof remote?.error === "string" ? remote.error : "unknown error",
+        code:
+          typeof remote?.message === "string" &&
+          /Maximum number of active sessions|already.*session/i.test(remote.message)
+            ? "session already active"
+            : typeof remote?.error === "string"
+              ? remote.error
+              : "unknown error",
         command,
         cause: response[2],
       });
@@ -185,7 +194,7 @@ export class MarionetteConnection {
         throw cause;
       })) as {
         sessionId?: string;
-        capabilities?: { webSocketUrl?: string; platformName?: string };
+        capabilities?: { webSocketUrl?: string; platformName?: string; "moz:processID"?: number };
       };
       if (typeof result?.sessionId !== "string" || !result.capabilities) {
         const error = new MarionetteError({
@@ -197,6 +206,7 @@ export class MarionetteConnection {
       }
       this.webSocketUrl = result.capabilities?.webSocketUrl;
       this.platformName = result.capabilities?.platformName ?? "";
+      this.processId = result.capabilities?.["moz:processID"];
       this.session = true;
     });
   }

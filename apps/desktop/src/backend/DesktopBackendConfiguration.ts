@@ -536,6 +536,14 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
         ELECTRON_RUN_AS_NODE: "1",
         T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING: "1",
         T3CODE_CLI_PATH: Option.getOrUndefined(input.cliPath),
+        ...(environment.isPackaged && environment.platform === "darwin"
+          ? {
+              T3CODE_BROWSER_CLICK_APP: environment.path.join(
+                environment.resourcesPath,
+                "browser-click/T3Notify.app",
+              ),
+            }
+          : {}),
       },
       extendEnv: true,
       bootstrap,

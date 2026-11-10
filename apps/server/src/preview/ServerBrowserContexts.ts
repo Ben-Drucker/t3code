@@ -8,6 +8,13 @@ import * as NodePath from "node:path";
 import type { Browser, BrowserContext, CDPSession } from "playwright-core";
 
 import { sandboxDisabled } from "./PreviewBrowserHost.ts";
+import {
+  copyNativeMessagingManifests,
+  DOCKED_PROFILE_NAME,
+  DockedChromeUnavailableError,
+  processAlive,
+  readProfileOwnerPid,
+} from "./ServerBrowserDockedChrome.ts";
 
 // Playwright needs its files on disk. createRequire also resolves it from a Node SEA executable.
 const requirePlaywright = NodeModule.createRequire(import.meta.url);
@@ -216,6 +223,63 @@ export class ServerBrowserContexts {
     );
   }
 
+  private docked: Promise<{ readonly context: BrowserContext; readonly pid: number }> | undefined;
+
+  /**
+   * The user's own Chrome on a dedicated profile, one window shared by every docked tab.
+   * Playwright drives it over its default pipe; there is no debugging port.
+   */
+  dockedContext(chromePath: string, homeDir: string) {
+    if (this.closing) return Promise.reject(new Error("The preview browser is closed."));
+    this.docked ??= this.launchDocked(chromePath, homeDir);
+    const launched = this.docked;
+    void launched.catch(() => {
+      if (this.docked === launched) this.docked = undefined;
+    });
+    return launched;
+  }
+
+  private async launchDocked(chromePath: string, homeDir: string) {
+    const directory = NodePath.join(this.options.profilesDir, DOCKED_PROFILE_NAME);
+    await NodeFSP.mkdir(directory, { recursive: true });
+    const owner = await readProfileOwnerPid(directory);
+    if (owner !== null && processAlive(owner)) {
+      throw new DockedChromeUnavailableError({
+        detail:
+          "Chrome is already open with T3's browser profile. Quit that Chrome window and try again.",
+      });
+    }
+    await copyNativeMessagingManifests({ homeDir, profileDir: directory });
+    const { chromium } = loadPlaywright();
+    const context = await chromium.launchPersistentContext(directory, {
+      headless: false,
+      executablePath: chromePath,
+      ignoreDefaultArgs: ["--enable-automation", "--disable-extensions"],
+      // Playwright adds --no-sandbox by default, which makes Chrome show an unsupported-flag warning.
+      chromiumSandbox: true,
+      // Playwright's kill leaves the profile marked as crashed; this suppresses the "Restore pages?" bubble.
+      args: ["--hide-crash-restore-bubble"],
+      viewport: null,
+    });
+    const pid = await readProfileOwnerPid(directory);
+    if (pid === null) {
+      await context.close().catch(constVoid);
+      throw new DockedChromeUnavailableError({ detail: "Could not find Chrome's process." });
+    }
+    context.on("close", () => {
+      if (this.docked !== undefined) this.docked = undefined;
+      this.options.onContextClose?.(context);
+    });
+    return { context, pid };
+  }
+
+  async closeDocked() {
+    const launched = this.docked;
+    this.docked = undefined;
+    const docked = await launched?.catch(() => undefined);
+    await docked?.context.close().catch(constVoid);
+  }
+
   private profileDirectory(profileId: string) {
     const encoded = encodeURIComponent(profileId);
     return NodePath.join(
@@ -275,6 +339,7 @@ export class ServerBrowserContexts {
     await Promise.allSettled(
       [...this.contexts.values()].map(async (pending) => (await pending).close()),
     );
+    await this.closeDocked();
     const browser = await this.browser?.catch(() => undefined);
     await browser?.close().catch(constVoid);
     this.contexts.clear();

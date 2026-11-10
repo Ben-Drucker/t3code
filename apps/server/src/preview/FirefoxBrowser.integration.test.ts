@@ -2,10 +2,13 @@
 import { expect } from "vite-plus/test";
 import { it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
 import * as Layer from "effect/Layer";
+import * as Queue from "effect/Queue";
+import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
 import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
@@ -30,6 +33,13 @@ import * as FirefoxServerBrowser from "./FirefoxServerBrowser.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as Broker from "../mcp/PreviewAutomationBroker.ts";
 import * as ServerBrowserPage from "./ServerBrowserPage.ts";
+import type { AutofillOptions } from "./FirefoxAutofill.ts";
+import * as ServerBrowser from "./ServerBrowser.ts";
+import * as Manager from "./Manager.ts";
+import * as DesktopChannel from "./DesktopBrowserChannel.ts";
+import * as PreviewBrowser from "./PreviewBrowser.ts";
+import * as PreviewAgentActivity from "./PreviewAgentActivity.ts";
+import * as ServerConfig from "../config.ts";
 
 const decodeStatus = Schema.decodeUnknownSync(PreviewAutomationStatus);
 const decodeSnapshot = Schema.decodeUnknownSync(PreviewAutomationSnapshot);
@@ -71,6 +81,24 @@ const harness = async () => {
   let origin = "";
   const server = NodeHttp.createServer((request, response) => {
     response.setHeader("Content-Type", "text/html");
+    if (request.url === "/autofill") {
+      response.end(`<!doctype html><title>Autofill fixture</title><input autocomplete="username"><com-1password-uso></com-1password-uso><script>
+        const input=document.querySelector('input');input.addEventListener('focus',()=>{const host=document.querySelector('com-1password-uso');if(host.dataset.banner)return;host.dataset.banner='true';host.style.cssText='display:inline;width:0';host.attachShadow({mode:'closed'}).innerHTML='<iframe style="position:fixed;left:180px;top:60px;width:420px;height:240px;border:0" src="http://localhost:${new URL(origin).port}/banner"></iframe>';});
+        addEventListener('message',event=>{if(event.data==='signed-in')location.href='/signed-in';});
+        </script>`);
+      return;
+    }
+    if (request.url === "/banner") {
+      response.end(`<!doctype html><input type="password" value="fixture-only"><div id="root"><div role="button"><span>Acme</span><span>default@example.test</span><span data-testid="otp">654321</span><span>Sign in</span></div><span id="other">Other logins</span></div><script>
+        Object.defineProperty(HTMLInputElement.prototype,'value',{get(){throw Error('Field values must not be read');}});
+        const text=Object.getOwnPropertyDescriptor(Node.prototype,'textContent').get;Object.defineProperty(HTMLSpanElement.prototype,'textContent',{get(){if(this.dataset.testid==='otp')throw Error('Codes must not be read');return text.call(this);}});
+        const root=document.querySelector('#root');root.style.cssText='display:grid;gap:20px';
+        document.querySelector('#other').onclick=()=>{root.innerHTML='<div role="option"><span>Work</span><span>chosen@example.test</span></div>';};
+        document.addEventListener('click',event=>{if(event.target.closest('[role=option]'))root.innerHTML='<div role="button"><span>Work</span><span>chosen@example.test</span><span data-testid="otp">654321</span><span>Sign in</span></div>';else if(event.target.textContent==='Sign in')parent.postMessage('signed-in','*');});
+        addEventListener('message',event=>{if(event.data.type==='fixture-click'){document.elementFromPoint(event.data.x,event.data.y)?.click();event.source.postMessage('fixture-clicked',event.origin);}});
+        </script>`);
+      return;
+    }
     response.end(
       request.url?.startsWith("/frame")
         ? '<!doctype html><label>Frame name <input id="frame-name"></label><button>Frame send</button>'
@@ -107,14 +135,23 @@ const withBrowser = (
     fixture: Harness;
     tabId: string;
   }) => Promise<void>,
-  options: { bidi?: boolean } = {},
+  options: {
+    bidi?: boolean;
+    autofill?: (
+      connection: MarionetteClient.MarionetteConnection,
+      origin: string,
+    ) => AutofillOptions;
+  } = {},
 ) =>
   Effect.gen(function* () {
     const fixture = yield* Effect.acquireDisposable(Effect.promise(harness));
     const running = yield* FirefoxProcess.launch({ executable: executable!, ...options });
     yield* Effect.promise(async () => {
       const connection = new MarionetteClient.MarionetteConnection({ port: running.port });
-      const browser = new FirefoxBrowser(connection);
+      const browser = new FirefoxBrowser(
+        connection,
+        options.autofill ? { autofill: options.autofill(connection, fixture.origin) } : {},
+      );
       let tabId: string | undefined;
       const invoke = (
         operation: PreviewAutomationOperation,
@@ -149,6 +186,67 @@ const withBrowser = (
       }
     });
   });
+
+firefoxTest(
+  "autofills through a cross-origin shadow iframe using only entry labels and a fake OS click",
+  () => {
+    const clicks: Array<{ x: number; y: number }> = [];
+    return withBrowser(
+      async ({ invoke, fixture }) => {
+        await invoke("navigate", { url: `${fixture.origin}/autofill` });
+        const result = (await invoke("autofill", {
+          username: "chosen@example.test",
+          title: "Work",
+        })) as { bannerFound: boolean; selected: unknown; outcome: string; url: string };
+        expect(result.bannerFound).toBe(true);
+        expect(result.selected).toEqual({ title: "Work", username: "chosen@example.test" });
+        expect(clicks).toHaveLength(3);
+        expect(clicks.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))).toBe(
+          true,
+        );
+        await invoke("waitFor", { urlIncludes: "/signed-in" });
+        const status = decodeStatus(await invoke("status"));
+        expect(status.url).toBe(`${fixture.origin}/signed-in`);
+        expect(JSON.stringify(result)).not.toContain("password");
+      },
+      {
+        autofill: (connection, origin) => ({
+          supported: true,
+          bannerOrigin: origin.replace("127.0.0.1", "localhost"),
+          click: async (_pid, target) => {
+            const point = await target();
+            clicks.push(point);
+            const unwrap = (packet: unknown) =>
+              (packet && typeof packet === "object" && "value" in packet
+                ? packet.value
+                : packet) as Record<string, string>;
+            const host = unwrap(
+              await connection.command("WebDriver:FindElement", {
+                using: "css selector",
+                value: "com-1password-uso",
+              }),
+            );
+            const root = unwrap(
+              await connection.command("WebDriver:GetShadowRoot", { id: Object.values(host)[0] }),
+            );
+            const frame = unwrap(
+              await connection.command("WebDriver:FindElementFromShadowRoot", {
+                shadowRoot: Object.values(root)[0],
+                using: "css selector",
+                value: "iframe",
+              }),
+            );
+            await connection.command("WebDriver:ExecuteAsyncScript", {
+              script: `const done=arguments[arguments.length-1];const frame=arguments[2];const rect=frame.getBoundingClientRect();const listener=event=>{if(event.data==='fixture-clicked'){removeEventListener('message',listener);done(true);}};addEventListener('message',listener);frame.contentWindow.postMessage({type:'fixture-click',x:arguments[0]-mozInnerScreenX-rect.x,y:arguments[1]-mozInnerScreenY-rect.y},'*');`,
+              args: [point.x, point.y, frame],
+              newSandbox: false,
+            });
+          },
+        }),
+      },
+    );
+  },
+);
 
 firefoxTest("uses native form input, keys, hover, select, wheel, drag, and uploads", () =>
   withBrowser(async ({ invoke, evaluate, fixture }) => {
@@ -206,6 +304,134 @@ firefoxTest("uses native form input, keys, hover, select, wheel, drag, and uploa
       ),
     ).toBe(true);
   }),
+);
+
+firefoxTest(
+  "selects docked Firefox from the reported setting and shares preview state with the desktop",
+  () =>
+    Effect.gen(function* () {
+      const fixture = yield* Effect.acquireDisposable(Effect.promise(harness));
+      const running = yield* FirefoxProcess.launch({ executable: executable! });
+      const broker = yield* Broker.PreviewAutomationBroker;
+      const connected = yield* Deferred.make<void>();
+      const docks = yield* Queue.unbounded<{ threadId: string; tabId: string; pid: number }>();
+      const undocks = yield* Queue.unbounded<string>();
+      const dependencies = Layer.mergeAll(
+        Manager.layer,
+        PreviewAgentActivity.layer,
+        Layer.succeed(PreviewBrowser.PreviewBrowser, {
+          executable: Effect.die("Firefox must not launch Chromium"),
+          installed: Effect.die("unused"),
+        }),
+        Layer.succeed(DesktopChannel.DesktopBrowserChannel, {
+          available: true,
+          awaitAttached: () => Effect.succeed(false),
+          detached: Stream.empty,
+          attached: Stream.empty,
+          isAttached: () => Effect.succeed(false),
+          isShown: () => false,
+          endpoint: () => Effect.die("unused"),
+          pointer: () => Effect.void,
+          dock: (key, pid) => Queue.offer(docks, { ...key, pid }).pipe(Effect.asVoid),
+          undock: (key) => Queue.offer(undocks, key.tabId).pipe(Effect.asVoid),
+          dockChanges: Stream.empty,
+          turn: () => Effect.void,
+        }),
+      ).pipe(
+        Layer.provideMerge(ServerConfig.layerTest(fixture.directory, { prefix: "firefox-dock-" })),
+        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+      );
+      yield* Effect.gen(function* () {
+        const server = yield* ServerBrowser.ServerBrowser;
+        const manager = yield* Manager.PreviewManager;
+        yield* Deferred.await(connected);
+        const report = yield* server.profileReporter;
+        yield* report({
+          profiles: [{ id: "firefox", name: "Firefox", kind: "persistent" }],
+          defaultProfileId: "firefox",
+          previewBrowserMode: "firefox-docked",
+        });
+        const scope = {
+          environmentId: EnvironmentId.make("firefox-dock"),
+          thread: {
+            threadId: ThreadId.make("dock-thread"),
+            providerSessionId: "agent",
+            providerInstanceId: ProviderInstanceId.make("codex"),
+          },
+          client: undefined,
+          requestNamespace: "fixture",
+          capabilities: new Set(["preview"] as const),
+          issuedAt: 1,
+        };
+        const status = yield* broker.invoke<import("@t3tools/contracts").PreviewAutomationStatus>({
+          scope,
+          operation: "open",
+          input: { url: fixture.origin },
+        });
+        expect(status.backend).toBe("firefox");
+        const dock = yield* Queue.take(docks);
+        expect(dock.tabId).toBe(status.tabId);
+        expect(dock.pid).toBeGreaterThan(0);
+        const listed = yield* manager.list({ threadId: scope.thread.threadId });
+        expect(listed.sessions).toHaveLength(1);
+        expect(listed.sessions[0]).toMatchObject({
+          tabId: status.tabId,
+          runtime: "server",
+          navStatus: { _tag: "Success", title: "Firefox fixture" },
+        });
+        const viewer = yield* server
+          .attachViewer({
+            threadId: scope.thread.threadId,
+            tabId: status.tabId!,
+            canOperate: false,
+            maxWidth: 500,
+            maxHeight: 400,
+            quality: 60,
+          })
+          .pipe(Effect.result);
+        expect(viewer._tag).toBe("Failure");
+        yield* broker.invoke({ scope, operation: "close", tabId: status.tabId!, input: {} });
+        expect(yield* Queue.take(undocks)).toBe(status.tabId);
+        expect((yield* manager.list({ threadId: scope.thread.threadId })).sessions).toEqual([]);
+        const events = yield* manager.subscribeEvents;
+        const manual = yield* manager.open({
+          threadId: scope.thread.threadId,
+          runtime: "server",
+          url: fixture.origin,
+          reveal: true,
+        });
+        const manualDock = yield* Queue.take(docks);
+        expect(manualDock.tabId).toBe(manual.tabId);
+        expect(manualDock.pid).toBe(dock.pid);
+        yield* Stream.fromSubscription(events).pipe(
+          Stream.filter((event) => event.tabId === manual.tabId && event.type === "navigated"),
+          Stream.runHead,
+        );
+        yield* manager.close({ threadId: scope.thread.threadId, tabId: manual.tabId });
+        expect(yield* Queue.take(undocks)).toBe(manual.tabId);
+      }).pipe(
+        Effect.provide(ServerBrowser.layer.pipe(Layer.provideMerge(dependencies))),
+        Effect.provideService(HostProcess.Environment, {
+          T3CODE_FIREFOX_PORT: String(running.port),
+        }),
+        Effect.provideService(HostProcess.Platform, "darwin"),
+        Effect.provideService(Broker.PreviewAutomationBroker, {
+          ...broker,
+          focusHost: (host) =>
+            broker.focusHost(host).pipe(Effect.tap(() => Deferred.succeed(connected, undefined))),
+        }),
+      );
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          Broker.layer,
+          Layer.succeed(ServerEnvironment.ServerEnvironment, {
+            getEnvironmentId: Effect.succeed(EnvironmentId.make("firefox-dock")),
+            getDescriptor: Effect.die("unused"),
+          }),
+        ).pipe(Layer.provide(NodeCrypto.layer)),
+      ),
+    ),
 );
 
 firefoxTest(
@@ -402,6 +628,13 @@ firefoxTest(
     withBrowser(
       async ({ invoke, evaluate, connection }) => {
         expect(connection.webSocketUrl).toBeUndefined();
+        expect(decodeStatus(await invoke("status")).capabilityMessage).toContain(
+          "limited capabilities",
+        );
+        await expect(invoke("autofill", {})).rejects.toMatchObject({
+          tag: "PreviewAutomationUnsupportedClientError",
+          message: expect.stringContaining("BiDi is off"),
+        });
         await invoke("click", { selector: "#alert" });
         const status = decodeStatus(await invoke("status"));
         expect(status.dialog).toMatchObject({ type: "dialog", message: "Alert message" });
@@ -414,7 +647,15 @@ firefoxTest(
           invoke("navigate", { url: "http://localhost", readiness: "none" }),
         ).rejects.toMatchObject({ tag: "PreviewAutomationUnsupportedClientError" });
       },
-      { bidi: false },
+      {
+        bidi: false,
+        autofill: () => ({
+          supported: true,
+          click: async () => {
+            throw new Error("OS clicks must never run in this test");
+          },
+        }),
+      },
     ),
 );
 

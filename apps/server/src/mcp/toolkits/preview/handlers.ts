@@ -189,6 +189,13 @@ export const claimPreviewRecording = Effect.fn("PreviewToolkit.claimRecording")(
 });
 
 const handlers = {
+  preview_autofill: McpToolAccess.actsAsCaller((input) =>
+    invokeTargeted<import("@t3tools/contracts").PreviewAutomationAutofillResult>(
+      "autofill",
+      input,
+      60_000,
+    ),
+  ),
   preview_dialog: McpToolAccess.actsAsCaller((input) =>
     invokeTargeted<PreviewAutomationStatus>("dialog", input),
   ),

@@ -10,6 +10,7 @@ import {
   type BrowserLinkTarget,
   type BrowserProfile,
   BrowserSearchEngine,
+  PreviewBrowserMode,
   BROWSER_CUSTOM_SEARCH_URL_MAX_LENGTH,
   type EnvironmentId,
   BROWSER_PROFILE_NAME_MAX_LENGTH,
@@ -21,6 +22,7 @@ import {
   DEFAULT_BROWSER_SEARCH_ENGINE,
   DEFAULT_BROWSER_VIEWPORT,
   DEFAULT_PREVIEW_APPEARANCE,
+  DEFAULT_PREVIEW_BROWSER_MODE,
   DEFAULT_PREVIEW_ZOOM_FACTOR,
   DEFAULT_SERVER_SETTINGS,
   FILL_PREVIEW_VIEWPORT,
@@ -41,12 +43,12 @@ import { isValidSearchUrlTemplate } from "@t3tools/shared/preview";
 import { PREVIEW_VIEWPORT_PRESETS } from "@t3tools/shared/previewViewport";
 import { MoreVertical, Plus as PlusIcon } from "lucide-react";
 import * as Schema from "effect/Schema";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ScreenRotationIcon } from "~/browser/ScreenRotationIcon";
 import { resolveEnvironmentOptionLabel } from "~/components/BranchToolbar.logic";
 import { previewBridge } from "~/components/preview/previewBridge";
-import { cn, randomUUID } from "~/lib/utils";
+import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
 import { useEnvironments, usePrimaryEnvironment } from "~/state/environments";
 import { deviceEnvironment, useDeviceState } from "~/state/device";
 import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
@@ -702,6 +704,91 @@ const SEARCH_ENGINE_LABELS: Readonly<Record<BrowserSearchEngine, string>> = {
   ecosia: "Ecosia",
   custom: "Custom",
 };
+
+function PreviewBrowserModeSetting() {
+  const mode = useClientSettings((settings) => settings.browserPreviewMode);
+  const updateSettings = useUpdatePrimarySettings();
+  const [trusted, setTrusted] = useState<boolean | null>(null);
+  const docked = mode !== "builtin";
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Reads the macOS Accessibility permission from the desktop app when docking is on.
+  useEffect(() => {
+    const bridge = window.desktopBridge?.preview;
+    if (!docked || !bridge) return;
+    let cancelled = false;
+    void bridge.getDockStatus().then((status) => {
+      if (!cancelled) setTrusted(status.trusted);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [docked]);
+
+  return (
+    <SettingsRow
+      {...searchableSetting("browser-preview-mode")}
+      description="Open Chrome or Firefox beside the chat with your browser extensions. Docking needs Device Control and Data Access permission. Firefox also needs its automation connection enabled."
+      status={
+        docked && trusted === false
+          ? "Device Control and Data Access permission is off. The browser will open separately until you allow it."
+          : undefined
+      }
+      resetAction={
+        docked ? (
+          <SettingResetButton
+            label="preview browser"
+            onClick={() => updateSettings({ browserPreviewMode: DEFAULT_PREVIEW_BROWSER_MODE })}
+          />
+        ) : null
+      }
+      control={
+        <div className="flex items-center gap-2">
+          {docked && trusted === false ? (
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() =>
+                void window.desktopBridge?.preview
+                  .requestDockPermission()
+                  .then((granted) => setTrusted(granted))
+              }
+            >
+              Allow
+            </Button>
+          ) : null}
+          <Select
+            value={mode}
+            onValueChange={(value) => {
+              const next = PreviewBrowserMode.literals.find((literal) => literal === value);
+              if (next !== undefined) updateSettings({ browserPreviewMode: next });
+            }}
+          >
+            <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Preview browser">
+              <SelectValue>
+                {mode === "firefox-docked"
+                  ? "Firefox (docked)"
+                  : docked
+                    ? "Chrome (docked)"
+                    : "Built-in"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup align="end" alignItemWithTrigger={false}>
+              <SelectItem hideIndicator value="builtin">
+                Built-in
+              </SelectItem>
+              <SelectItem hideIndicator value="chrome-docked">
+                Chrome (docked)
+              </SelectItem>
+              <SelectItem hideIndicator value="firefox-docked">
+                Firefox (docked)
+              </SelectItem>
+            </SelectPopup>
+          </Select>
+        </div>
+      }
+    />
+  );
+}
 
 function BrowserSearchEngineSetting() {
   const engine = useClientSettings((settings) => settings.browserSearchEngine);
@@ -1593,6 +1680,7 @@ export function BrowserSettingsPanel() {
         </SettingsUnavailableGroup>
         {/* Not desktop-only: web clients search from server-run browser tabs too. */}
         <BrowserSearchEngineSetting />
+        {isElectron && isMacPlatform(navigator.platform) ? <PreviewBrowserModeSetting /> : null}
         <AdvancedSettings
           targetIds={[
             searchableSetting("browser-default-viewport").id,

@@ -35,7 +35,7 @@ import {
 import { type ComposerImageAttachment, useComposerDraftStore } from "~/composerDraftStore";
 import { capturePreviewAnnotationScreenshot } from "~/lib/previewAnnotation";
 import { ensureLocalApi } from "~/localApi";
-import { getClientSettings } from "~/hooks/useSettings";
+import { getClientSettings, useClientSettings } from "~/hooks/useSettings";
 import {
   rememberPreviewUrl,
   updatePreviewServerSnapshot,
@@ -225,6 +225,47 @@ export function PreviewView({
   const refreshDisabled = navStatus._tag === "Idle";
   const isUnreachable = navStatus._tag === "LoadFailed";
   const showEmptyState = shouldShowPreviewEmptyState(snapshot);
+  const dockedBrowser = useClientSettings((settings) => settings.browserPreviewMode) !== "builtin";
+  const dockTabId = snapshot?.tabId;
+  const dockShown = visible;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Reports the panel's screen rect to the desktop window dock, one message per frame.
+  useEffect(() => {
+    const bridge = window.desktopBridge?.preview;
+    const element = serverBodyRef.current;
+    if (!bridge || !element || !dockedBrowser || snapshot?.runtime !== "server" || !dockTabId)
+      return;
+    const target = { threadId: threadRef.threadId, tabId: dockTabId };
+    let frame = 0;
+    const measure = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const rect = element.getBoundingClientRect();
+        const measured =
+          dockShown && rect.width > 0 && rect.height > 0
+            ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+            : null;
+        // The browser takes the panel's width, so close the panel once the desktop has made room.
+        void bridge.setDockRect({ ...target, rect: measured }).then((roomMade) => {
+          if (roomMade && measured) useRightPanelStore.getState().close(threadRef);
+        });
+      });
+    };
+    measure();
+    // Sidebar width changes move the body without resizing it.
+    const stopObserving = observeResize(
+      [element, ...document.querySelectorAll('[data-slot="sidebar-gap"]')],
+      measure,
+    );
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      stopObserving();
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+      window.cancelAnimationFrame(frame);
+      void bridge.setDockRect({ ...target, rect: null });
+    };
+  }, [dockedBrowser, dockShown, dockTabId, snapshot?.runtime, threadRef]);
   const serverStreamPending =
     isServerTab && !showEmptyState && !isUnreachable && serverFrameTabId !== runtimeTabId;
   const controller = desktopOverlay?.controller ?? "none";

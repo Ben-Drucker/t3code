@@ -12,6 +12,7 @@ export const launch = Effect.fn("FirefoxProcess.launch")(function* (options: {
   readonly port?: number;
   readonly headless?: boolean;
   readonly bidi?: boolean;
+  readonly bidiPort?: number;
 }) {
   const directory = yield* Effect.acquireRelease(
     Effect.tryPromise({
@@ -47,7 +48,9 @@ export const launch = Effect.fn("FirefoxProcess.launch")(function* (options: {
             "--profile",
             directory,
             "--marionette",
-            ...(options.bidi === false ? [] : ["--remote-debugging-port", "0"]),
+            ...(options.bidi === false
+              ? []
+              : ["--remote-debugging-port", String(options.bidiPort ?? 0)]),
             ...(options.headless === false ? [] : ["--headless"]),
             "about:blank",
           ],

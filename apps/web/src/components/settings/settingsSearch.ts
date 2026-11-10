@@ -1038,6 +1038,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["links default browser in-app browser external open"],
   },
   {
+    id: "browser-preview-mode",
+    title: "Preview browser",
+    to: "/settings/browser",
+    searchTerms: [
+      "chrome firefox docked 1password extensions accessibility device control built-in",
+    ],
+  },
+  {
     id: "browser-search-engine",
     title: "Search engine",
     to: "/settings/browser",

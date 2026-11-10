@@ -13,6 +13,7 @@ interface Packet {
 /** Used only for capabilities Classic does not expose: prompt metadata, diagnostics, and media emulation. */
 export class FirefoxBidi {
   private sequence = 0;
+  private readonly observers = new Set<() => void>();
   private readonly pending = new Map<
     number,
     { resolve: (value: unknown) => void; reject: (cause: unknown) => void }
@@ -40,7 +41,10 @@ export class FirefoxBidi {
               }),
             );
           else pending?.resolve(packet.result);
-        } else if (packet.method && packet.params) event(packet.method, packet.params);
+        } else if (packet.method && packet.params) {
+          event(packet.method, packet.params);
+          for (const observer of this.observers) observer();
+        }
       } catch (cause) {
         this.close(cause);
       }
@@ -102,6 +106,40 @@ export class FirefoxBidi {
       });
       this.socket.send(JSON.stringify({ id, method, params }));
     });
+  }
+
+  changes() {
+    let pending = false;
+    let wake: ((changed: boolean) => void) | undefined;
+    const observer = () => {
+      pending = true;
+      wake?.(true);
+    };
+    this.observers.add(observer);
+    return {
+      next: (timeoutMs: number) => {
+        if (pending) {
+          pending = false;
+          return Promise.resolve(true);
+        }
+        return new Promise<boolean>((resolve) => {
+          const timer = setTimeout(() => {
+            wake = undefined;
+            resolve(false);
+          }, timeoutMs);
+          wake = (changed) => {
+            clearTimeout(timer);
+            wake = undefined;
+            pending = false;
+            resolve(changed);
+          };
+        });
+      },
+      close: () => {
+        this.observers.delete(observer);
+        wake?.(false);
+      },
+    };
   }
 
   close(cause: unknown = new MarionetteError({ code: "disconnected", command: "BiDi" })) {
