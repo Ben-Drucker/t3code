@@ -183,7 +183,8 @@ export class WindowDockController {
     // The window may refuse to shrink all the way, so Chrome takes what was actually freed.
     const freed = before.width - window.getBounds().width;
     const previousSide = dock.side ?? 0;
-    dock.side = previousSide + (freed >= 1 ? freed : width);
+    // A window already at its minimum frees nothing; only the first measurement may still claim room for the browser.
+    dock.side = previousSide + (freed >= 1 ? freed : previousSide === 0 ? width : 0);
     dock.ratio = dock.side / (before.width + previousSide || 1);
     for (const other of this.docks.values())
       if (other.pid === dock.pid) {

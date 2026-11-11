@@ -4,7 +4,14 @@ import type { WindowDockClient } from "./WindowDockClient.ts";
 import { WindowDockController, type DockEvent, type DockWindow } from "./WindowDockController.ts";
 import { clipToWorkArea, panelWidthToDips, sideFrame } from "./WindowDockGeometry.ts";
 
-function setup(options: { trusted?: boolean; findsAfter?: number; browserWidth?: number } = {}) {
+function setup(
+  options: {
+    trusted?: boolean;
+    findsAfter?: number;
+    browserWidth?: number;
+    minWidth?: number;
+  } = {},
+) {
   const calls: unknown[][] = [];
   let finds = 0;
   let closed: ((pid: number) => void) | undefined;
@@ -46,7 +53,7 @@ function setup(options: { trusted?: boolean; findsAfter?: number; browserWidth?:
     getBounds: () => state.bounds,
     getWorkArea: () => state.workArea,
     setBounds: (bounds) => {
-      state.bounds = bounds;
+      state.bounds = { ...bounds, width: Math.max(bounds.width, options.minWidth ?? 0) };
     },
     getZoomFactor: () => 1,
     isVisible: () => state.visible,
@@ -138,6 +145,18 @@ it("shrinks the window to sit edge to edge with a browser that is wider than its
     9,
     { x: 500, y: 50, width: 400, height: 600 },
   ]);
+});
+
+it("does not grow the browser each time the panel reopens while the window cannot shrink", async () => {
+  const t = setup({ minWidth: 800 });
+  await t.controller.dock(key, 9);
+  for (let reopen = 0; reopen < 3; reopen++) {
+    t.controller.setPanelRect(key, panel);
+    t.controller.setPanelRect(key, null);
+  }
+  t.controller.setPanelRect(key, panel);
+  const frame = t.calls.filter((c) => c[0] === "setFrame").at(-1)?.[2] as { width: number };
+  assert.strictEqual(frame.width, 300);
 });
 
 it("restores the window width when Chrome closes", async () => {
