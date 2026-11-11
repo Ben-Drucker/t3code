@@ -77,7 +77,7 @@ export function withKimiContextControls(capabilities: ModelCapabilities): ModelC
         type: "select",
         lockedOnceStarted: true,
         options: [
-          { id: "default", label: "Default", isDefault: true },
+          { id: "default", label: "Default", isDefault: true, description: "Kimi's own reserve" },
           ...COMPACT_BUFFER_PERCENTS.map((percent) => ({
             id: String(percent),
             label: `${percent}% free`,

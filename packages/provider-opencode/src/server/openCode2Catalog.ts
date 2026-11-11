@@ -37,6 +37,7 @@ export const loadOpenCode2Catalog = (
           id: model.id,
           name: model.name,
           ...(providerName ? { providerName } : {}),
+          contextWindow: model.limit.input ?? model.limit.context,
           variants: model.variants.map((variant) => ({ id: variant.id })),
           family: model.family,
           released: model.time.released,

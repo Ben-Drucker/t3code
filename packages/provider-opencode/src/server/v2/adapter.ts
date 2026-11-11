@@ -1,5 +1,6 @@
 import * as NodeURL from "node:url";
 
+import { resolveOpenCodeCompaction } from "../openCodeCompaction.ts";
 import {
   AbsolutePath,
   Agent,
@@ -282,6 +283,8 @@ interface ThreadState {
   readonly providerTurns: Map<string, OrchestrationV2ProviderTurn>;
   active: ActiveTurn | undefined;
   model: ModelRef | undefined;
+  /** Context size after the last settled turn, to decide whether T3 compacts before the next. */
+  lastContextTokens?: number | undefined;
   /** Locally ended but possibly live; consume its next execution end without settling a new turn. */
   unsettled: boolean;
   /** A late first start belongs to the failed prompt; only a subsequent start proves a lost end. */
@@ -1610,8 +1613,15 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         terminal.status,
         terminal.status === "failed" ? terminal.failure : undefined,
       );
-      const window = windowOf(turn.input.runtimePolicy.cwd, turn.input.modelSelection.model);
+      const { maxTokens, threshold } = resolveOpenCodeCompaction(
+        turn.input.modelSelection,
+        windowOf(turn.input.runtimePolicy.cwd, turn.input.modelSelection.model),
+      );
       const lastStep = turn.lastStep;
+      state.lastContextTokens =
+        lastStep === undefined
+          ? undefined
+          : lastStep.input + lastStep.cache.read + lastStep.cache.write + lastStep.output;
       yield* emitProviderTurn(state, turn, {
         ...turn.providerTurn,
         status: terminal.status,
@@ -1623,7 +1633,8 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
               tokenUsage: {
                 usedTokens:
                   lastStep.input + lastStep.cache.read + lastStep.cache.write + lastStep.output,
-                maxTokens: window ?? null,
+                maxTokens,
+                ...(threshold === null ? {} : { autoCompactThreshold: threshold }),
                 inputTokens: lastStep.input + lastStep.cache.read + lastStep.cache.write,
                 cachedInputTokens: lastStep.cache.read,
                 outputTokens: lastStep.output,
@@ -3393,6 +3404,21 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         if (!sending()) return;
         return yield* client.session.compact({ sessionID, id }).pipe(Effect.asVoid);
       }
+      // OpenCode's thresholds are server-wide, so a session at its chosen limit compacts here.
+      const { threshold } = resolveOpenCodeCompaction(
+        turnInput.modelSelection,
+        windowOf(turnInput.runtimePolicy.cwd, turnInput.modelSelection.model),
+      );
+      if (
+        threshold !== null &&
+        state.lastContextTokens !== undefined &&
+        state.lastContextTokens >= threshold &&
+        state.active === turn &&
+        !turn.interrupted
+      ) {
+        state.lastContextTokens = undefined;
+        yield* client.session.compact({ sessionID });
+      }
       const location = { directory: turnInput.runtimePolicy.cwd ?? host.paths.cwd };
       const command = bare ? commandOf(text) : undefined;
       if (command !== undefined) {
@@ -3445,7 +3471,10 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         }),
       getModelContextWindow: (selection, cwd) =>
         selection.instanceId === instanceId
-          ? windowOf(cwd === undefined ? session.cwd : cwd, selection.model)
+          ? (resolveOpenCodeCompaction(
+              selection,
+              windowOf(cwd === undefined ? session.cwd : cwd, selection.model),
+            ).maxTokens ?? undefined)
           : undefined,
       ensureThread: Effect.fn("OpenCode2Adapter.ensureThread")(
         function* (threadInput) {

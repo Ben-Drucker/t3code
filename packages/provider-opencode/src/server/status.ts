@@ -25,6 +25,7 @@ import * as OpenCodeRuntime from "./OpenCodeRuntime.ts";
 import type { ProbedOpenCode } from "./versionProbe.ts";
 import type { Agent, ProviderListResponse } from "@opencode-ai/sdk/v2";
 import * as OpenCodeServerOwner from "./OpenCodeServerOwner.ts";
+import { withOpenCodeContextControls } from "./openCodeCompaction.ts";
 
 const OPENCODE_PRESENTATION = {
   displayName: "OpenCode",
@@ -455,6 +456,8 @@ export interface OpenCode2Model extends OpenCodeRelease {
   readonly id: string;
   readonly name: string;
   readonly providerName?: string;
+  /** Tokens the model accepts: its input limit, else its context limit. */
+  readonly contextWindow?: number;
   readonly variants: ReadonlyArray<{ readonly id: string }>;
 }
 
@@ -477,6 +480,7 @@ const catalogFingerprint = (models: ReadonlyArray<OpenCode2Model>) =>
         model.id,
         model.name,
         model.providerName,
+        model.contextWindow,
         model.variants.map((variant) => variant.id).toSorted(),
       ]),
     )
@@ -585,24 +589,27 @@ const OPENCODE_2_PRESENTATION = {
 function openCode2ModelCapabilities(model: OpenCode2Model): ModelCapabilities {
   const variants = model.variants.map((variant) => variant.id);
   const defaultVariant = inferDefaultVariant(model.providerID, variants);
-  return createModelCapabilities({
-    optionDescriptors:
-      variants.length === 0
-        ? []
-        : [
-            {
-              id: "variant",
-              label: "Reasoning",
-              type: "select",
-              options: variants.map((id) => ({
-                id,
-                label: titleCaseSlug(id),
-                ...(id === defaultVariant ? { isDefault: true } : {}),
-              })),
-              ...(defaultVariant === undefined ? {} : { currentValue: defaultVariant }),
-            },
-          ],
-  });
+  return withOpenCodeContextControls(
+    createModelCapabilities({
+      optionDescriptors:
+        variants.length === 0
+          ? []
+          : [
+              {
+                id: "variant",
+                label: "Reasoning",
+                type: "select",
+                options: variants.map((id) => ({
+                  id,
+                  label: titleCaseSlug(id),
+                  ...(id === defaultVariant ? { isDefault: true } : {}),
+                })),
+                ...(defaultVariant === undefined ? {} : { currentValue: defaultVariant }),
+              },
+            ],
+    }),
+    model.contextWindow,
+  );
 }
 
 const checkOpenCode2 = Effect.fn("checkOpenCode2")(function* (
