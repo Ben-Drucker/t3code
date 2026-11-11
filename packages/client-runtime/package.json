@@ -483,6 +483,10 @@
       "types": "./src/mcpApps/host.ts",
       "default": "./src/mcpApps/host.ts"
     },
+    "./state/composer-tools": {
+      "types": "./src/state/composerTools.ts",
+      "default": "./src/state/composerTools.ts"
+    },
     "./state/mcp-apps": {
       "types": "./src/state/mcpApps.ts",
       "default": "./src/state/mcpApps.ts"

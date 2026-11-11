@@ -77,6 +77,7 @@ import * as SecretResolver from "./secrets/SecretResolver.ts";
 import * as ProviderInstanceRegistryHydration from "./provider/ProviderInstanceRegistryHydration.ts";
 import * as ProjectSettingsOverrideSweep from "./provider/ProjectSettingsOverrideSweep.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
+import * as ComposerTools from "./composerTools/ComposerTools.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as PeerForwarding from "./peer/PeerForwarding.ts";
 import * as RemoteDelegation from "./peer/RemoteDelegation.ts";
@@ -787,7 +788,15 @@ const layerMakeRoutes = Layer.mergeAll(
     DeviceHubProxy.layer,
     ServerBrowserStream.routeLayer,
     ServerHttp.layerStaticAndDevRoute,
-    Ws.layer,
+    // The composer's % menu lists tools through ComposerTools, which reads the MCP tool registry as /mcp does.
+    Ws.layer.pipe(
+      Layer.provide(
+        ComposerTools.layer.pipe(
+          Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
+          Layer.provide(McpOAuth.layerMcpClientAuthenticator),
+        ),
+      ),
+    ),
     speechStreamRouteLayer,
   ),
   McpHttpServer.layer.pipe(

@@ -13,22 +13,27 @@ import {
   type ScopedThreadRef,
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
+  type ComposerToolGroup,
 } from "@t3tools/contracts";
 import {
   BlocksIcon,
   FolderIcon,
   MessagesSquareIcon,
+  KeyRoundIcon,
   PackageIcon,
   SettingsIcon,
+  SlidersHorizontalIcon,
+  TriangleAlertIcon,
   UserRoundIcon,
+  WrenchIcon,
   type LucideIcon,
 } from "lucide-react";
-import { memo, useLayoutEffect, useRef } from "react";
+import { Fragment, memo, useLayoutEffect, useRef } from "react";
 
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
-import { Command, CommandGroup, CommandItem, CommandList } from "../ui/command";
+import { Command, CommandGroup, CommandGroupLabel, CommandItem, CommandList } from "../ui/command";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { ComposerBanner } from "./ComposerBanner";
@@ -90,6 +95,22 @@ export type ComposerCommandItem =
       machine: EnvironmentMachineKind;
       label: string;
       description: string;
+    }
+  | {
+      id: string;
+      type: "agent-model";
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "agent-tool";
+      source: string;
+      /** Null for a server row with no tool to insert: checking, unreachable, or needs auth. */
+      tool: string | null;
+      status: ComposerToolGroup["status"];
+      label: string;
+      description: string;
     };
 
 export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
@@ -104,6 +125,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
   onSelect: (item: ComposerCommandItem) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
+  const firstToolItemId = props.items.find((item) => item.type === "agent-tool")?.id;
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the highlighted menu item's DOM node into view
   useLayoutEffect(() => {
@@ -137,16 +159,23 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
           >
             <CommandGroup>
               {props.items.map((item) => (
-                <ComposerCommandMenuItem
-                  key={item.id}
-                  optionId={composerSuggestionOptionId(props.listId, item.id)}
-                  item={item}
-                  triggerKind={props.triggerKind}
-                  resolvedTheme={props.resolvedTheme}
-                  isActive={props.activeItemId === item.id}
-                  onHighlight={props.onHighlightedItemChange}
-                  onSelect={props.onSelect}
-                />
+                <Fragment key={item.id}>
+                  {item.id === firstToolItemId ? (
+                    <CommandGroupLabel>Tools</CommandGroupLabel>
+                  ) : null}
+                  {item.type === "agent-model" ? (
+                    <CommandGroupLabel>Agent configuration</CommandGroupLabel>
+                  ) : null}
+                  <ComposerCommandMenuItem
+                    optionId={composerSuggestionOptionId(props.listId, item.id)}
+                    item={item}
+                    triggerKind={props.triggerKind}
+                    resolvedTheme={props.resolvedTheme}
+                    isActive={props.activeItemId === item.id}
+                    onHighlight={props.onHighlightedItemChange}
+                    onSelect={props.onSelect}
+                  />
+                </Fragment>
               ))}
             </CommandGroup>
           </CommandList>
@@ -222,6 +251,21 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
           aria-hidden="true"
           className="size-4 shrink-0 text-secondary-label"
         />
+      ) : null}
+      {props.item.type === "agent-model" ? (
+        <SlidersHorizontalIcon
+          aria-hidden="true"
+          className="size-4 shrink-0 text-secondary-label"
+        />
+      ) : null}
+      {props.item.type === "agent-tool" && props.item.status === "down" ? (
+        <TriangleAlertIcon aria-hidden="true" className="size-4 shrink-0 text-warning" />
+      ) : null}
+      {props.item.type === "agent-tool" && props.item.status === "needs-auth" ? (
+        <KeyRoundIcon aria-hidden="true" className="size-4 shrink-0 text-secondary-label" />
+      ) : null}
+      {props.item.type === "agent-tool" && props.item.tool !== null ? (
+        <WrenchIcon aria-hidden="true" className="size-4 shrink-0 text-secondary-label" />
       ) : null}
       {pullRequestPresentation ? (
         <pullRequestPresentation.Icon

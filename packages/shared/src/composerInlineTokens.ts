@@ -29,10 +29,26 @@ export interface AgentConfigChip {
   readonly options: ReadonlyArray<{ readonly id: string; readonly value: string | boolean }>;
 }
 
-const AGENT_CONFIG_TOKEN_REGEX = /(^|\s)%\[(model: [^\]\n]*)\](?=\s|$)/gu;
+const AGENT_CONFIG_TOKEN_REGEX = /(^|\s)%\[((?:model|tool): [^\]\n]*)\](?=\s|$)/gu;
 
 function cleanAgentConfigField(value: string): string {
   return value.replace(/[[\],\r\n]+/g, " ").trim();
+}
+
+/** `%[tool: <source> > <tool>]`, the tool the agent should use, shown as `source > tool`. */
+export function formatAgentToolChip(tool: {
+  readonly source: string;
+  readonly tool: string;
+}): string {
+  return `%[tool: ${cleanAgentConfigField(tool.source)} > ${cleanAgentConfigField(tool.tool)}]`;
+}
+
+/** Reads the text between `%[` and `]` for a tool chip. Null when the head is not `tool: <source> > <tool>`. */
+export function parseAgentToolChip(
+  inner: string,
+): { readonly source: string; readonly tool: string } | null {
+  const match = /^tool: (.+?) > (.+)$/.exec(inner);
+  return match ? { source: match[1]!, tool: match[2]! } : null;
 }
 
 /** `%[model: <instanceId>/<model>, <option>=<value>, ...]`, the form the agent reads. */

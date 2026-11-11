@@ -50,7 +50,7 @@ import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime
 import * as Schema from "effect/Schema";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
-import { formatAgentConfigChip } from "@t3tools/shared/composerInlineTokens";
+import { formatAgentConfigChip, formatAgentToolChip } from "@t3tools/shared/composerInlineTokens";
 import { folderDropTarget, resolveDroppedFolderPath } from "./folderDrop";
 import { splitTransferredFiles } from "./workspaceFileDrop";
 import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
@@ -1209,18 +1209,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     questionAttachmentTarget,
   });
 
-  // `%` opens the model picker to build an agent-config chip; its picks never reach the thread.
+  // The `%` menu's model row opens the picker that builds an agent-config chip; its picks never reach the thread.
   const agentConfigTrigger = composerTrigger?.kind === "agent-config" ? composerTrigger : null;
-  const agentConfigDraft: AgentConfigPick | null = agentConfigTrigger
-    ? agentConfigPickState?.rangeStart === agentConfigTrigger.rangeStart
+  const agentConfigDraft: AgentConfigPick | null =
+    agentConfigTrigger && agentConfigPickState?.rangeStart === agentConfigTrigger.rangeStart
       ? agentConfigPickState
-      : {
-          rangeStart: agentConfigTrigger.rangeStart,
-          instanceId: selectedInstanceId,
-          model: selectedModel,
-          options: composerModelOptions?.[selectedInstanceId] ?? [],
-        }
-    : null;
+      : null;
   const agentConfigEntry =
     providerInstanceEntries.find((entry) => entry.instanceId === agentConfigDraft?.instanceId) ??
     null;
@@ -1239,7 +1233,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }
       : null;
 
-  const composerMenuOpen = composerTrigger !== null && agentConfigTrigger === null;
+  const composerMenuOpen = composerTrigger !== null && agentConfigDraft === null;
   const composerMenuSearchKey = composerTrigger
     ? `${composerSuggestionListId}:${composerTrigger.kind}:${composerTrigger.query.trim().toLowerCase()}`
     : null;
@@ -2016,6 +2010,28 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     });
     const { snapshot, trigger } = resolveActiveComposerTrigger();
     if (!trigger) return;
+    if (item.type === "agent-model") {
+      setAgentConfigPickState({
+        rangeStart: trigger.rangeStart,
+        instanceId: selectedInstanceId,
+        model: selectedModel,
+        options: composerModelOptions?.[selectedInstanceId] ?? [],
+      });
+      return;
+    }
+    if (item.type === "agent-tool") {
+      if (item.tool === null) return;
+      const replacement = `${formatAgentToolChip({ source: item.source, tool: item.tool })} `;
+      const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+        snapshot.value,
+        trigger.rangeEnd,
+        replacement,
+      );
+      applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+        expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
+      });
+      return;
+    }
     if (item.type === "path") {
       if (!isPathSuggestionCurrent(item.searchTarget, trigger, environmentId, gitCwd)) return;
       if (item.directoryCompletion !== undefined) {

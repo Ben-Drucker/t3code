@@ -5,6 +5,7 @@ import {
 import { useAtomValue } from "@effect/atom-react";
 import { useState } from "react";
 import type {
+  ComposerToolGroup,
   EnvironmentId,
   ProjectId,
   ProviderDriverKind,
@@ -36,6 +37,7 @@ import {
   usePullRequestList,
   type EnvironmentQueryTarget,
 } from "~/state/pullRequests";
+import { composerToolsEnvironment } from "~/state/composerTools";
 import { useEnvironmentQuery } from "~/state/query";
 import { filesystemEnvironment, useFilesystemReadAccess } from "~/state/filesystem";
 import { useComposerPathSearch, useDebouncedValue, useThreadSearch } from "~/state/queries";
@@ -54,6 +56,59 @@ const COMPOSER_PULL_REQUEST_LIST_LIMIT = 99;
 const COMPOSER_PULL_REQUEST_RESULT_LIMIT = 12;
 const EMPTY_PULL_REQUEST_LIST_TARGETS: ReadonlyArray<EnvironmentQueryTarget<PullRequestListInput>> =
   [];
+
+const AGENT_TOOL_STATUS_LABEL = {
+  checking: "(checking…)",
+  down: "(unreachable)",
+  "needs-auth": "(needs auth)",
+} as const;
+
+/** The `%` menu's model row, then each tool that matches the typed text, `source > tool`. */
+function agentConfigMenuItems(
+  groups: ReadonlyArray<ComposerToolGroup>,
+  query: string,
+): ComposerCommandItem[] {
+  const needle = query.toLowerCase();
+  const items: ComposerCommandItem[] = [
+    {
+      id: "agent-model",
+      type: "agent-model",
+      label: "Model",
+      description: "Choose a model and its options",
+    },
+  ];
+  for (const group of groups) {
+    if (group.status !== "ready") {
+      const label = `${group.source} > ${AGENT_TOOL_STATUS_LABEL[group.status]}`;
+      if (label.toLowerCase().includes(needle)) {
+        items.push({
+          id: `agent-tool:${JSON.stringify([group.source, null])}`,
+          type: "agent-tool",
+          source: group.source,
+          tool: null,
+          status: group.status,
+          label,
+          description: "",
+        });
+      }
+      continue;
+    }
+    for (const tool of group.tools) {
+      const label = `${group.source} > ${tool.name}`;
+      if (!label.toLowerCase().includes(needle)) continue;
+      items.push({
+        id: `agent-tool:${JSON.stringify([group.source, tool.name])}`,
+        type: "agent-tool",
+        source: group.source,
+        tool: tool.name,
+        status: group.status,
+        label,
+        description: tool.description ?? "",
+      });
+    }
+  }
+  return items;
+}
 
 /** Builds the @, /, $ and # suggestion lists, running the searches each trigger needs. */
 export function useComposerMenuItems({
@@ -100,6 +155,15 @@ export function useComposerMenuItems({
   // Thread mentions rank by recency as of when the composer mounted.
   const [now] = useState(() => Date.now());
   const composerTriggerKind = composerTrigger?.kind ?? null;
+  // Opened with the `%` menu only, so tools are probed once per open rather than per keystroke.
+  const composerToolsQuery = useEnvironmentQuery(
+    composerTriggerKind === "agent-config"
+      ? composerToolsEnvironment.list({
+          environmentId,
+          input: { threadId: activeThreadId, driver: selectedProvider, cwd: gitCwd },
+        })
+      : null,
+  );
   const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
   const pullRequestTriggerQuery =
     composerTrigger?.kind === "pull-request" ? composerTrigger.query : "";
@@ -226,6 +290,9 @@ export function useComposerMenuItems({
 
   const items = ((): ComposerCommandItem[] => {
     if (!composerTrigger) return [];
+    if (composerTrigger.kind === "agent-config") {
+      return agentConfigMenuItems(composerToolsQuery.data?.groups ?? [], composerTrigger.query);
+    }
     if (composerTrigger.kind === "path" && diskPathQuery) return diskPathItems;
     if (composerTrigger.kind === "path") {
       return [

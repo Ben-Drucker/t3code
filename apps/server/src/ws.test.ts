@@ -66,6 +66,7 @@ import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
+import * as ComposerTools from "./composerTools/ComposerTools.ts";
 import * as McpAppRequests from "./mcpApps/McpAppRequests.ts";
 import * as ModelManifest from "./provider/ModelManifest.ts";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
@@ -786,6 +787,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(EnvironmentTheme.EnvironmentThemeService)({}),
   Layer.mock(GitWorkflowService.GitWorkflowService)({}),
   Layer.mock(HostResources.HostResources)({}),
+  Layer.mock(ComposerTools.ComposerTools)({}),
   Layer.mock(McpAppRequests.McpAppRequests)({}),
   Layer.mock(ModelManifest.ModelManifest)({}),
   Layer.mock(OrchestrationEventStore.OrchestrationEventStore)({}),
@@ -995,6 +997,7 @@ it.effect.each([
             },
             {},
             yield* ServerBrowser.ServerBrowser,
+            { list: () => Stream.empty },
             () => Effect.void,
             { secretReferences: true },
           ).pipe(Layer.provide(configRpcServices)),
@@ -1237,6 +1240,7 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
           },
           {},
           yield* ServerBrowser.ServerBrowser,
+          { list: () => Stream.empty },
           () => Effect.void,
           { secretReferences: true },
         ).pipe(Layer.provide(configRpcServices)),
@@ -1399,6 +1403,7 @@ it.effect("a publish whose push fails still refreshes the new remote", () =>
           },
           {},
           yield* ServerBrowser.ServerBrowser,
+          { list: () => Stream.empty },
           () => Effect.void,
           { secretReferences: true },
         ).pipe(

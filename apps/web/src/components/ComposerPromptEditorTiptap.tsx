@@ -1,6 +1,6 @@
 import { documentChipKindForFileName } from "~/pierre-icons";
 import { isProviderSkillUserInvocable } from "@t3tools/client-runtime/providerSkills";
-import { parseAgentConfigChip } from "@t3tools/shared/composerInlineTokens";
+import { parseAgentConfigChip, parseAgentToolChip } from "@t3tools/shared/composerInlineTokens";
 import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
 import {
   Extension,
@@ -390,10 +390,14 @@ const ComposerAgentConfigExtension = Node.create({
 
 function ComposerAgentConfigNodeView({ node }: NodeViewProps) {
   const source = (node.attrs.source as string) ?? "";
-  const parsed = parseAgentConfigChip(source.slice(2, -1));
-  const label = parsed
-    ? [parsed.model, ...parsed.options.map((option) => option.value)].join(" · ")
-    : source;
+  const inner = source.slice(2, -1);
+  const tool = parseAgentToolChip(inner);
+  const parsed = tool ? null : parseAgentConfigChip(inner);
+  const label = tool
+    ? `${tool.source} > ${tool.tool}`
+    : parsed
+      ? [parsed.model, ...parsed.options.map((option) => option.value)].join(" · ")
+      : source;
   return (
     <NodeViewWrapper as="span" className={CHIP_NODE_SELECTION_CLASS_NAME}>
       <span className="max-w-full truncate rounded-md border border-border bg-muted px-1.5 font-mono text-xs">

@@ -1,3 +1,4 @@
+import { ComposerToolsListInput, ComposerToolsSnapshot } from "./composerTools.ts";
 import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
@@ -433,6 +434,7 @@ export const WS_METHODS = {
 
   mcpAppsCallTool: "mcpApps.callTool",
   mcpAppsToolInfo: "mcpApps.toolInfo",
+  composerToolsList: "composerTools.list",
   mcpAppsReadResource: "mcpApps.readResource",
   mcpAppsUpdateModelContext: "mcpApps.updateModelContext",
 
@@ -1440,6 +1442,13 @@ const WsMcpAppsToolInfoRpc = Rpc.make(WS_METHODS.mcpAppsToolInfo, {
   error: Schema.Union([McpAppRequestError, EnvironmentAuthorizationError]),
 });
 
+const WsComposerToolsListRpc = Rpc.make(WS_METHODS.composerToolsList, {
+  payload: ComposerToolsListInput,
+  success: ComposerToolsSnapshot,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
 const WsMcpAppsUpdateModelContextRpc = Rpc.make(WS_METHODS.mcpAppsUpdateModelContext, {
   payload: McpAppUpdateModelContextInput,
   error: Schema.Union([McpAppRequestError, EnvironmentAuthorizationError]),
@@ -2170,6 +2179,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsAttachmentsDeleteRpc,
   WsMcpAppsCallToolRpc,
   WsMcpAppsToolInfoRpc,
+  WsComposerToolsListRpc,
   WsMcpAppsReadResourceRpc,
   WsMcpAppsUpdateModelContextRpc,
   WsProviderUploadFeedbackRpc,

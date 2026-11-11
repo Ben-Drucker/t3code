@@ -4,7 +4,9 @@ import {
   collectComposerInlineTokens,
   composerMathRanges,
   formatAgentConfigChip,
+  formatAgentToolChip,
   parseAgentConfigChip,
+  parseAgentToolChip,
 } from "./composerInlineTokens.ts";
 import { serializeComposerFileLink } from "./composerTrigger.ts";
 
@@ -40,6 +42,25 @@ describe("collectComposerInlineTokens", () => {
         { id: "fastMode", value: "false" },
       ],
     });
+  });
+
+  it("round-trips a tool chip and keeps the source and tool names apart", () => {
+    const chip = formatAgentToolChip({ source: "playwright", tool: "browser_click" });
+    expect(chip).toBe("%[tool: playwright > browser_click]");
+    expect(collectComposerInlineTokens(`Use ${chip} now`, { agentConfigs: true })).toEqual([
+      {
+        type: "agent-config",
+        value: chip.slice(2, -1),
+        source: chip,
+        start: 4,
+        end: 4 + chip.length,
+      },
+    ]);
+    expect(parseAgentToolChip(chip.slice(2, -1))).toEqual({
+      source: "playwright",
+      tool: "browser_click",
+    });
+    expect(parseAgentToolChip("model: claudeAgent/x")).toBeNull();
   });
 
   it("keeps percent signs in prose and unfinished chips as text", () => {

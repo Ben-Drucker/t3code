@@ -1256,4 +1256,10 @@ export const layerTools = Layer.mergeAll(
   layerHtmlToolkit,
 );
 
+/** The tools `layerTools` registers, read from the same registry the /mcp endpoint serves. */
+export const t3ToolSummaries = Effect.gen(function* () {
+  const mcp = yield* McpServer.McpServer;
+  return mcp.tools.map(({ tool }) => ({ name: tool.name, description: tool.description ?? null }));
+}).pipe(Effect.provide(layerTools.pipe(Layer.provideMerge(layerInProcessMcpServer))));
+
 export const layer = layerMcpTransport(layerTools);
