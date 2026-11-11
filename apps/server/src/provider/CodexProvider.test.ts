@@ -2,6 +2,11 @@ import { assert, it } from "@effect/vitest";
 
 import { applyPreferredCodexDefaultModel, mapCodexModelCapabilities } from "./CodexProvider.ts";
 
+// The context limit and compaction buffer are appended to every model; codexCompaction tests cover them.
+const withoutContextControls = <T extends { readonly id: string }>(
+  descriptors: ReadonlyArray<T> | undefined,
+) => (descriptors ?? []).filter(({ id }) => id !== "contextLimit" && id !== "compactBuffer");
+
 it("maps current Codex model capability fields", () => {
   const capabilities = mapCodexModelCapabilities({
     additionalSpeedTiers: [],
@@ -33,7 +38,7 @@ it("maps current Codex model capability fields", () => {
     ],
   });
 
-  assert.deepStrictEqual(capabilities.optionDescriptors, [
+  assert.deepStrictEqual(withoutContextControls(capabilities.optionDescriptors), [
     {
       id: "reasoningEffort",
       label: "Reasoning",
@@ -90,7 +95,7 @@ it("uses standard routing when the catalog has no default service tier", () => {
     supportedReasoningEfforts: [],
   });
 
-  assert.deepStrictEqual(capabilities.optionDescriptors, [
+  assert.deepStrictEqual(withoutContextControls(capabilities.optionDescriptors), [
     {
       id: "serviceTier",
       label: "Service Tier",

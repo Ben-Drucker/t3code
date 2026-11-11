@@ -105,6 +105,7 @@ import { resolveAttachmentPath, resolveAttachmentPathById } from "../../attachme
 import * as PortScanner from "../../preview/PortScanner.ts";
 import { getCodexServiceTierOptionValue } from "../../codexModelOptions.ts";
 import { ServerConfig } from "../../config.ts";
+import { resolveCodexContextConfig } from "../../provider/codexCompaction.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { buildCodexAdditionalContext } from "../../provider/CodexDeveloperInstructions.ts";
 import {
@@ -1406,8 +1407,10 @@ const CODEX_DIRECT_ONLY_T3_TOOL = "t3_thread_wait";
 function codexThreadRuntimeParams(input: {
   readonly threadId: ThreadId | null;
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
-  readonly modelSelection?: { readonly model: string };
+  readonly modelSelection?: ModelSelection;
   readonly runtimePolicy?: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
+  /** The usable window Codex last reported for the thread, for a buffer with no chosen limit. */
+  readonly knownWindow?: number | null;
 }): {
   readonly cwd?: string;
   readonly model?: string;
@@ -1427,6 +1430,7 @@ function codexThreadRuntimeParams(input: {
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
     config: {
       ...CODEX_THREAD_CONFIG,
+      ...resolveCodexContextConfig(input.modelSelection, input.knownWindow ?? null),
       // One app-server serves many threads, so the id goes in per-thread shell config, not its env.
       ...(input.threadId === null
         ? {}
@@ -1881,6 +1885,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         );
         const activeTurns = yield* Ref.make(new Map<string, ActiveCodexTurnContext>());
         const turnTokenUsageByThread = new Map<string, CodexTurnTokenUsageState>();
+        // Codex reads thread config only when it loads a thread, so a changed context limit or
+        // buffer reloads the idle thread before its next turn.
+        const reportedWindowByThread = new Map<string, number>();
+        const appliedContextConfigByThread = new Map<string, string>();
         const usageStateForThread = (nativeThreadId: string) => {
           let state = turnTokenUsageByThread.get(nativeThreadId);
           if (!state) {
@@ -4532,6 +4540,8 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
 
         yield* client.handleServerNotification("thread/tokenUsage/updated", (payload) =>
           Effect.gen(function* () {
+            if (payload.tokenUsage.modelContextWindow != null)
+              reportedWindowByThread.set(payload.threadId, payload.tokenUsage.modelContextWindow);
             accumulateCodexTurnTokenUsage(
               usageStateForThread(payload.threadId),
               payload.turnId,
@@ -6800,6 +6810,25 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           ) {
             const threadId = yield* getNativeThreadId(turnInput.providerThread);
             const mcpSession = yield* mcpSessions.read(turnInput.threadId);
+            const knownWindow = reportedWindowByThread.get(threadId) ?? null;
+            const contextConfigKey = Object.entries(
+              resolveCodexContextConfig(turnInput.modelSelection, knownWindow),
+            ).join(";");
+            const appliedContextConfig = appliedContextConfigByThread.get(threadId);
+            if (appliedContextConfig !== undefined && appliedContextConfig !== contextConfigKey) {
+              yield* client.request("thread/unsubscribe", { threadId });
+              yield* resumeNativeThread(threadId, {
+                excludeTurns: true,
+                ...codexThreadRuntimeParams({
+                  threadId: turnInput.threadId,
+                  mcpSession,
+                  modelSelection: turnInput.modelSelection,
+                  runtimePolicy: turnInput.runtimePolicy,
+                  knownWindow,
+                }),
+              });
+            }
+            appliedContextConfigByThread.set(threadId, contextConfigKey);
             const turnStartParams = yield* buildCodexTurnStartParams({
               nativeThreadId: threadId,
               codexInput,
@@ -7122,6 +7151,16 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   }),
                 ),
               ),
+              Effect.tap((response) =>
+                Effect.sync(() =>
+                  appliedContextConfigByThread.set(
+                    response.thread.id,
+                    Object.entries(
+                      resolveCodexContextConfig(threadInput.modelSelection, null),
+                    ).join(";"),
+                  ),
+                ),
+              ),
               Effect.map((response): OrchestrationV2ProviderThread =>
                 providerThreadFromCodexThread({
                   appThreadId: threadInput.threadId,
@@ -7161,6 +7200,15 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               const response = yield* ensureInitialized.pipe(
                 Effect.andThen(resume),
                 Effect.flatMap(decodeCodexResumeMetadata),
+              );
+              appliedContextConfigByThread.set(
+                response.thread.id,
+                Object.entries(
+                  resolveCodexContextConfig(
+                    threadInput.modelSelection,
+                    reportedWindowByThread.get(response.thread.id) ?? null,
+                  ),
+                ).join(";"),
               );
               return {
                 ...threadInput.providerThread,

@@ -1,4 +1,5 @@
 import { pipe } from "effect/Function";
+import { CODEX_COMPACT_BUFFER_OPTION, CODEX_CONTEXT_LIMIT_OPTION } from "./codexCompaction.ts";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -171,6 +172,9 @@ function codexAccountEmail(account: CodexSchema.V2GetAccountResponse["account"])
   return account.email;
 }
 
+const CODEX_CONTEXT_LIMITS = [100_000, 150_000, 200_000, 250_000, 300_000, 400_000];
+const CODEX_COMPACT_BUFFER_PERCENTS = [5, 10, 15, 20, 25, 30, 40];
+
 export function codexDefaultReasoningEffortOverride(model: string): "medium" | undefined {
   return codexModelFamily(model) === "gpt-6-astra" ? "medium" : undefined;
 }
@@ -241,6 +245,38 @@ export function mapCodexModelCapabilities(
       currentValue: defaultServiceTier,
     });
   }
+
+  optionDescriptors.push(
+    {
+      id: CODEX_CONTEXT_LIMIT_OPTION,
+      label: "Context limit",
+      type: "select",
+      options: [
+        { id: "default", label: "Default", isDefault: true },
+        ...CODEX_CONTEXT_LIMITS.map((tokens) => ({
+          id: String(tokens),
+          label: `${tokens / 1000}K`,
+        })),
+      ],
+    },
+    {
+      id: CODEX_COMPACT_BUFFER_OPTION,
+      label: "Compaction buffer",
+      type: "select",
+      options: [
+        {
+          id: "default",
+          label: "Default",
+          isDefault: true,
+          description: "Codex's own threshold",
+        },
+        ...CODEX_COMPACT_BUFFER_PERCENTS.map((percent) => ({
+          id: String(percent),
+          label: `${percent}% free`,
+        })),
+      ],
+    },
+  );
 
   return createModelCapabilities({
     optionDescriptors,
