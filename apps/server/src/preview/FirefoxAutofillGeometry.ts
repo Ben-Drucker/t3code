@@ -62,20 +62,8 @@ export function selectAutofillEntry(
   // The suggested login is repeated in the list below it, so identical rows are one login.
   const distinct = new Set(matching.map((entry) => `${entry.title}\u0000${entry.username}`));
   if (distinct.size > 1)
-    throw new Error("More than one 1Password entry matches. Specify an exact username and title.");
+    throw new Error(
+      `More than one 1Password entry matches. Specify an exact username and title. Matches: ${[...new Set(matching.map((entry) => entry.title))].join("; ")}.`,
+    );
   return matching[0];
-}
-
-export function notificationArguments(command: "post" | "remove", id: string) {
-  if (!/^[a-zA-Z0-9-]{1,128}$/.test(id)) throw new Error("Invalid notification identifier.");
-  return [
-    command,
-    id,
-    ...(command === "post"
-      ? [
-          "T3 Code browser automation",
-          "Automation clicking in 5 seconds. Typing and clicking may be briefly disturbed.",
-        ]
-      : []),
-  ];
 }

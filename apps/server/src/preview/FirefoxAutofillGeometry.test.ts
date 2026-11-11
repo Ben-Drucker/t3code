@@ -1,9 +1,5 @@
 import { expect, it } from "vite-plus/test";
-import {
-  bannerScreenPoint,
-  notificationArguments,
-  selectAutofillEntry,
-} from "./FirefoxAutofillGeometry.ts";
+import { bannerScreenPoint, selectAutofillEntry } from "./FirefoxAutofillGeometry.ts";
 
 it("measures the iframe independently of its zero-width shadow host and converts scaled coordinates", () => {
   const input = {
@@ -43,16 +39,4 @@ it("chooses only exact entry labels and refuses ambiguous matches", () => {
     "More than one",
   );
   expect(selectAutofillEntry([entries[0]!], {})).toEqual(entries[0]);
-});
-
-it("keeps notification arguments separate and validates identifiers for post and confirmed removal", () => {
-  expect(notificationArguments("post", "test-id")).toEqual([
-    "post",
-    "test-id",
-    "T3 Code browser automation",
-    "Automation clicking in 5 seconds. Typing and clicking may be briefly disturbed.",
-  ]);
-  expect(notificationArguments("remove", "test-id")).toEqual(["remove", "test-id"]);
-  for (const id of ["", "../../file", "id\nremove", "x".repeat(129)])
-    expect(() => notificationArguments("post", id)).toThrow();
 });
