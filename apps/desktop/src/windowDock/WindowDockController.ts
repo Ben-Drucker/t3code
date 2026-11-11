@@ -175,14 +175,17 @@ export class WindowDockController {
     this.pids.clear();
   }
 
-  private enterSide(dock: Dock, width: number) {
+  private enterSide(dock: Dock, requested: number) {
     const window = this.deps.mainWindow();
-    if (!window || width < 1) return;
+    if (!window || requested < 1) return;
     const before = window.getBounds();
+    const previousSide = dock.side ?? 0;
+    // The panel can be far wider than a browser needs, so it never takes more than half the pair.
+    const width = Math.min(requested, Math.floor((before.width + previousSide) / 2) - previousSide);
+    if (width < 1) return;
     window.setBounds({ ...before, width: before.width - width });
     // The window may refuse to shrink all the way, so Chrome takes what was actually freed.
     const freed = before.width - window.getBounds().width;
-    const previousSide = dock.side ?? 0;
     dock.side = previousSide + (freed >= 1 ? freed : width);
     dock.ratio = dock.side / (before.width + previousSide || 1);
     for (const other of this.docks.values())
