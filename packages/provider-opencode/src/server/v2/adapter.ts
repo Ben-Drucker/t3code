@@ -1613,10 +1613,8 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         terminal.status,
         terminal.status === "failed" ? terminal.failure : undefined,
       );
-      const { maxTokens, threshold } = resolveOpenCodeCompaction(
-        turn.input.modelSelection,
-        windowOf(turn.input.runtimePolicy.cwd, turn.input.modelSelection.model),
-      );
+      const window = windowOf(turn.input.runtimePolicy.cwd, turn.input.modelSelection.model);
+      const { maxTokens, threshold } = resolveOpenCodeCompaction(turn.input.modelSelection, window);
       const lastStep = turn.lastStep;
       state.lastContextTokens =
         lastStep === undefined
