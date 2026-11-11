@@ -107,7 +107,7 @@ export async function autofillFirefox(
       locator: {
         type: "css",
         value:
-          "input[autocomplete=username],input[type=email],input[name=login],input[name=username],input#login_field",
+          "input[autocomplete=username],input[type=email],input[name=login],input[name=username],input[name=identifier],input#login_field",
       },
     })) as { nodes: Array<{ sharedId: string }> };
     if (!located.nodes[0])
