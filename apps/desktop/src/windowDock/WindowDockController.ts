@@ -58,6 +58,8 @@ interface PidState {
 const idOf = ({ threadId, tabId }: DockKey) => `${threadId}\u0000${tabId}`;
 const FIND_ATTEMPTS = 15;
 const FIND_DELAY_MS = 200;
+const SETTLE_ATTEMPTS = 10;
+const SETTLE_DELAY_MS = 100;
 
 /**
  * Chrome sits beside the T3 window, in the width the preview panel used to take. The panel's
@@ -288,8 +290,15 @@ export class WindowDockController {
   /** A browser window has a minimum width. When it is wider than its slot, the T3 window gives up the difference so the two sit edge to edge instead of overlapping. */
   private async settle(pid: number, requested: ScreenRect) {
     const sleep = this.deps.sleep ?? ((ms) => new Promise<void>((done) => setTimeout(done, ms)));
-    await sleep(100);
-    const reply = await this.deps.helper.find(pid);
+    // The resize lands asynchronously, so only a width that stops changing is the browser's real one.
+    let reply = await this.deps.helper.find(pid);
+    for (let attempt = 0; attempt < SETTLE_ATTEMPTS; attempt++) {
+      await sleep(SETTLE_DELAY_MS);
+      const next = await this.deps.helper.find(pid);
+      const stable = reply.found && next.found && next.frame.width === reply.frame.width;
+      reply = next;
+      if (stable) break;
+    }
     const window = this.deps.mainWindow();
     if (!reply.found || !window || !this.pids.has(pid)) return;
     const excess = Math.round(reply.frame.width - requested.width);
