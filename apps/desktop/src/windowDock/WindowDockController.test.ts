@@ -4,7 +4,7 @@ import type { WindowDockClient } from "./WindowDockClient.ts";
 import { WindowDockController, type DockEvent, type DockWindow } from "./WindowDockController.ts";
 import { clipToWorkArea, panelWidthToDips, sideFrame } from "./WindowDockGeometry.ts";
 
-function setup(options: { trusted?: boolean; findsAfter?: number } = {}) {
+function setup(options: { trusted?: boolean; findsAfter?: number; browserWidth?: number } = {}) {
   const calls: unknown[][] = [];
   let finds = 0;
   let closed: ((pid: number) => void) | undefined;
@@ -16,7 +16,7 @@ function setup(options: { trusted?: boolean; findsAfter?: number } = {}) {
       return finds > (options.findsAfter ?? 0)
         ? {
             found: true as const,
-            frame: { x: 0, y: 0, width: 1, height: 1 },
+            frame: { x: 0, y: 0, width: options.browserWidth ?? 1, height: 1 },
             contentTop: undefined,
           }
         : { found: false as const, untrusted: false };
@@ -124,6 +124,19 @@ it("shrinks the window by the panel width, places Chrome beside it, and follows 
     "setFrame",
     9,
     { x: 410, y: 50, width: 500, height: 600 },
+  ]);
+});
+
+it("shrinks the window to sit edge to edge with a browser that is wider than its slot", async () => {
+  const t = setup({ browserWidth: 400 });
+  await t.controller.dock(key, 9);
+  t.controller.setPanelRect(key, panel);
+  await t.controller.idle();
+  assert.strictEqual(t.state.bounds.width, 400);
+  assert.deepStrictEqual(t.calls.filter((c) => c[0] === "setFrame").at(-1), [
+    "setFrame",
+    9,
+    { x: 500, y: 50, width: 400, height: 600 },
   ]);
 });
 

@@ -71,6 +71,7 @@ export class WindowDockController {
   private readonly pids = new Map<number, PidState>();
   private unsubscribeWindow: (() => void) | undefined;
   private readonly unsubscribeClosed: () => void;
+  private readonly settling = new Set<Promise<void>>();
 
   private readonly deps: DockDeps;
 
@@ -157,6 +158,11 @@ export class WindowDockController {
     this.enterSide(dock, width);
     this.apply(dock.pid);
     return dock.side !== null;
+  }
+
+  /** Resolves once every pending check of the browser's real size has finished. */
+  async idle(): Promise<void> {
+    while (this.settling.size > 0) await Promise.all(this.settling);
   }
 
   dispose(): void {
@@ -270,8 +276,33 @@ export class WindowDockController {
     const reveal = state.minimized || state.frame === null;
     if (state.minimized) helper.setMinimized(pid, false);
     state.minimized = false;
-    if (!sameFrame(state.frame, frame)) helper.setFrame(pid, frame);
+    if (!sameFrame(state.frame, frame)) {
+      helper.setFrame(pid, frame);
+      const check = this.settle(pid, frame).finally(() => this.settling.delete(check));
+      this.settling.add(check);
+    }
     state.frame = frame;
     if (reveal) helper.raise(pid);
+  }
+
+  /** A browser window has a minimum width. When it is wider than its slot, the T3 window gives up the difference so the two sit edge to edge instead of overlapping. */
+  private async settle(pid: number, requested: ScreenRect) {
+    const sleep = this.deps.sleep ?? ((ms) => new Promise<void>((done) => setTimeout(done, ms)));
+    await sleep(100);
+    const reply = await this.deps.helper.find(pid);
+    const window = this.deps.mainWindow();
+    if (!reply.found || !window || !this.pids.has(pid)) return;
+    const excess = Math.round(reply.frame.width - requested.width);
+    if (excess < 1) return;
+    const before = window.getBounds();
+    window.setBounds({ ...before, width: before.width - excess });
+    const freed = before.width - window.getBounds().width;
+    if (freed < 1) return;
+    for (const dock of this.docks.values())
+      if (dock.pid === pid && dock.side) {
+        dock.side += freed;
+        dock.ratio = dock.side / (window.getBounds().width + dock.side);
+      }
+    this.apply(pid);
   }
 }
