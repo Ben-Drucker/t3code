@@ -50,6 +50,7 @@ import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime
 import * as Schema from "effect/Schema";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
+import { formatAgentConfigChip } from "@t3tools/shared/composerInlineTokens";
 import { folderDropTarget, resolveDroppedFolderPath } from "./folderDrop";
 import { splitTransferredFiles } from "./workspaceFileDrop";
 import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
@@ -192,7 +193,11 @@ import { useThreadContextDrop, threadContextDropTargetProps } from "./threadCont
 import { readThreadShell } from "~/state/entities";
 import { useLinkedEnvironments } from "~/state/peerLinks";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
-import type { ComposerContextRecord, ThreadPullRequestLink } from "@t3tools/contracts";
+import type {
+  ComposerContextRecord,
+  ProviderOptionSelection,
+  ThreadPullRequestLink,
+} from "@t3tools/contracts";
 import { threadContextAttachment } from "~/lib/threadContextAttachment";
 import {
   type ComposerCommandItem,
@@ -213,8 +218,12 @@ import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
-import { getComposerPromptInjectionState, getComposerReasoningStep } from "./composerProviderState";
-import { readPromptUltrathink } from "./TraitsPicker";
+import {
+  getComposerPromptInjectionState,
+  getComposerProviderState,
+  getComposerReasoningStep,
+} from "./composerProviderState";
+import { readPromptUltrathink, type TraitsSelectionInput } from "./TraitsPicker";
 import {
   ComposerContextLimitProvider,
   ComposerThreadStartedProvider,
@@ -288,6 +297,8 @@ import {
   usePreparingComposerImages,
 } from "./preparingComposerImages";
 import { ComposerControlsBar } from "./ComposerControlsBar";
+import { AgentConfigPickerFooter, ComposerEffortColumn } from "./ComposerModelEffort";
+import { ProviderModelPicker } from "./ProviderModelPicker";
 import { composerCommandKeyHandler } from "./composerCommandKey";
 
 function consumePasteAsTextShortcut(deadline: { current: number }): boolean {
@@ -512,6 +523,14 @@ export interface ChatComposerProps {
   setThreadError: (threadId: ThreadId | null, error: string | null) => void;
   onExpandImage: (preview: ExpandedImagePreview) => void;
   onFileOpen: (attachment: ChatFileAttachment) => void;
+}
+
+/** A model and options picked in the `%` picker, before they are inserted as a chip. */
+interface AgentConfigPick {
+  readonly rangeStart: number;
+  readonly instanceId: ProviderInstanceId;
+  readonly model: string;
+  readonly options: ReadonlyArray<ProviderOptionSelection>;
 }
 
 const NO_PROVIDER_SKILLS: ServerProvider["skills"] = [];
@@ -1056,6 +1075,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const [isDragOverComposer, setIsDragOverComposer] = useState(false);
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
   const [isComposerModelPickerOpen, setIsComposerModelPickerOpen] = useState(false);
+  const [agentConfigPickState, setAgentConfigPickState] = useState<AgentConfigPick | null>(null);
   const isMobileViewport = useMediaQuery("max-sm");
   const isSoftwareKeyboardOpen = useSoftwareKeyboardOpen();
   const [isComposerFocused, setIsComposerFocused] = useState(false);
@@ -1189,7 +1209,37 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     questionAttachmentTarget,
   });
 
-  const composerMenuOpen = Boolean(composerTrigger);
+  // `%` opens the model picker to build an agent-config chip; its picks never reach the thread.
+  const agentConfigTrigger = composerTrigger?.kind === "agent-config" ? composerTrigger : null;
+  const agentConfigDraft: AgentConfigPick | null = agentConfigTrigger
+    ? agentConfigPickState?.rangeStart === agentConfigTrigger.rangeStart
+      ? agentConfigPickState
+      : {
+          rangeStart: agentConfigTrigger.rangeStart,
+          instanceId: selectedInstanceId,
+          model: selectedModel,
+          options: composerModelOptions?.[selectedInstanceId] ?? [],
+        }
+    : null;
+  const agentConfigEntry =
+    providerInstanceEntries.find((entry) => entry.instanceId === agentConfigDraft?.instanceId) ??
+    null;
+  const agentConfigTraits: TraitsSelectionInput | null =
+    agentConfigDraft && agentConfigEntry
+      ? {
+          provider: agentConfigEntry.driverKind,
+          instanceId: agentConfigDraft.instanceId,
+          models: agentConfigEntry.snapshot.models,
+          model: agentConfigDraft.model,
+          modelOptions: agentConfigDraft.options,
+          planModeEnabled: false,
+          allowPromptInjectedEffort: false,
+          onModelOptionsChange: (nextOptions) =>
+            setAgentConfigPickState({ ...agentConfigDraft, options: nextOptions ?? [] }),
+        }
+      : null;
+
+  const composerMenuOpen = composerTrigger !== null && agentConfigTrigger === null;
   const composerMenuSearchKey = composerTrigger
     ? `${composerSuggestionListId}:${composerTrigger.kind}:${composerTrigger.query.trim().toLowerCase()}`
     : null;
@@ -1921,6 +1971,43 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   };
 
   const { onUsageLimitsCommand } = props;
+  const insertAgentConfigChip = () => {
+    if (!agentConfigDraft || !agentConfigEntry) return;
+    const { snapshot, trigger } = resolveActiveComposerTrigger();
+    if (trigger?.kind !== "agent-config") return;
+    const options =
+      getComposerProviderState({
+        provider: agentConfigEntry.driverKind,
+        model: agentConfigDraft.model,
+        models: agentConfigEntry.snapshot.models,
+        modelOptions: agentConfigDraft.options,
+        planModeEnabled: false,
+      }).modelOptionsForDispatch ?? [];
+    const replacement = `${formatAgentConfigChip({
+      instanceId: agentConfigDraft.instanceId,
+      model: agentConfigDraft.model,
+      options,
+    })} `;
+    const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+      snapshot.value,
+      trigger.rangeEnd,
+      replacement,
+    );
+    const applied = applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+      expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
+    });
+    if (applied) setAgentConfigPickState(null);
+  };
+  // Closing the picker without inserting removes its `%`, so a stray trigger never lingers.
+  const dismissAgentConfigPicker = () => {
+    const { snapshot, trigger } = resolveActiveComposerTrigger();
+    if (trigger?.kind !== "agent-config") return;
+    applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+      expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+      focusEditorAfterReplace: false,
+    });
+  };
+
   const onSelectComposerItem = (item: ComposerCommandItem) => {
     if (composerSelectLockRef.current) return;
     composerSelectLockRef.current = true;
@@ -3457,6 +3544,38 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     isComposerCollapsedMobile && "hidden",
                   )}
                 >
+                  {agentConfigDraft && agentConfigTraits ? (
+                    <ProviderModelPicker
+                      environmentId={environmentId}
+                      activeInstanceId={agentConfigDraft.instanceId}
+                      model={agentConfigDraft.model}
+                      lockedProvider={null}
+                      instanceEntries={providerInstanceEntries}
+                      keybindings={keybindings}
+                      modelOptionsByInstance={modelOptionsByInstance}
+                      open
+                      triggerClassName="sr-only"
+                      triggerLabel="Agent configuration"
+                      onOpenChange={(open) => {
+                        if (!open) dismissAgentConfigPicker();
+                      }}
+                      onInstanceModelChange={(instanceId, model) =>
+                        setAgentConfigPickState({
+                          rangeStart: agentConfigDraft.rangeStart,
+                          instanceId,
+                          model,
+                          options: [],
+                        })
+                      }
+                      effortColumn={<ComposerEffortColumn traits={agentConfigTraits} />}
+                      footer={
+                        <AgentConfigPickerFooter
+                          traits={agentConfigTraits}
+                          onInsert={insertAgentConfigChip}
+                        />
+                      }
+                    />
+                  ) : null}
                   {isStashMenuOpen && !composerMenuOpen && (
                     <ComposerCommandMenuLayer anchor={composerMenuAnchor}>
                       <ComposerStashMenu

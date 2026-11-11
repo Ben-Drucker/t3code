@@ -22,6 +22,11 @@ export type ComposerPromptSegment =
       source: string;
     }
   | {
+      type: "agent-config";
+      config: string;
+      source: string;
+    }
+  | {
       type: "citation";
       citation: AssistantCitation;
       source: string;
@@ -76,7 +81,7 @@ function forEachMentionMatch(
 }
 
 export function collectComposerPromptInlineTokens(text: string) {
-  const tokens = collectComposerInlineTokens(text);
+  const tokens = collectComposerInlineTokens(text, { agentConfigs: true });
   const citations = collectAssistantCitations(text);
   const references = collectComposerContextReferences(text);
   if (citations.length === 0 && references.length === 0) return tokens;
@@ -127,6 +132,8 @@ function splitPromptTextIntoComposerSegments(text: string): ComposerPromptSegmen
         path: match.value,
         source: match.source,
       });
+    } else if (match.type === "agent-config") {
+      segments.push({ type: "agent-config", config: match.value, source: match.source });
     } else {
       segments.push({ type: "skill", name: match.value, source: match.source });
     }

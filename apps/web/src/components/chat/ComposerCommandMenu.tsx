@@ -261,6 +261,7 @@ export function composerSuggestionOptionId(listId: string, itemId: string): stri
 }
 
 const LISTBOX_LABEL_BY_TRIGGER: Record<ComposerTriggerKind, string> = {
+  "agent-config": "Agent configuration",
   path: "Files and folders",
   "pull-request": "Pull requests",
   "slash-command": "Commands",

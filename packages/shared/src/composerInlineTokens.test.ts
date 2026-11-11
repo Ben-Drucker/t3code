@@ -1,9 +1,51 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { collectComposerInlineTokens, composerMathRanges } from "./composerInlineTokens.ts";
+import {
+  collectComposerInlineTokens,
+  composerMathRanges,
+  formatAgentConfigChip,
+  parseAgentConfigChip,
+} from "./composerInlineTokens.ts";
 import { serializeComposerFileLink } from "./composerTrigger.ts";
 
 describe("collectComposerInlineTokens", () => {
+  it("round-trips an agent configuration chip through its readable form", () => {
+    const chip = formatAgentConfigChip({
+      instanceId: "claudeAgent",
+      model: "claude-opus-5-5",
+      options: [
+        { id: "effort", value: "high" },
+        { id: "contextWindow", value: "1m" },
+        { id: "fastMode", value: false },
+      ],
+    });
+    expect(chip).toBe(
+      "%[model: claudeAgent/claude-opus-5-5, effort=high, contextWindow=1m, fastMode=false]",
+    );
+    expect(collectComposerInlineTokens(`Ask ${chip} now`, { agentConfigs: true })).toEqual([
+      {
+        type: "agent-config",
+        value: chip.slice(2, -1),
+        source: chip,
+        start: 4,
+        end: 4 + chip.length,
+      },
+    ]);
+    expect(parseAgentConfigChip(chip.slice(2, -1))).toEqual({
+      instanceId: "claudeAgent",
+      model: "claude-opus-5-5",
+      options: [
+        { id: "effort", value: "high" },
+        { id: "contextWindow", value: "1m" },
+        { id: "fastMode", value: "false" },
+      ],
+    });
+  });
+
+  it("keeps percent signs in prose and unfinished chips as text", () => {
+    expect(collectComposerInlineTokens("Use 50% and %[model: claudeAgent/x")).toEqual([]);
+  });
+
   it("collects file links, mentions, and skills with source ranges", () => {
     const text = "Use $ui and inspect [Chat.tsx](src/Chat.tsx) with @AGENTS.md please";
 

@@ -14,10 +14,78 @@ export type ComposerInlineToken =
       readonly source: string;
       readonly start: number;
       readonly end: number;
+    }
+  | {
+      readonly type: "agent-config";
+      readonly value: string;
+      readonly source: string;
+      readonly start: number;
+      readonly end: number;
     };
+
+export interface AgentConfigChip {
+  readonly instanceId: string;
+  readonly model: string;
+  readonly options: ReadonlyArray<{ readonly id: string; readonly value: string | boolean }>;
+}
+
+const AGENT_CONFIG_TOKEN_REGEX = /(^|\s)%\[(model: [^\]\n]*)\](?=\s|$)/gu;
+
+function cleanAgentConfigField(value: string): string {
+  return value.replace(/[[\],\r\n]+/g, " ").trim();
+}
+
+/** `%[model: <instanceId>/<model>, <option>=<value>, ...]`, the form the agent reads. */
+export function formatAgentConfigChip(config: AgentConfigChip): string {
+  const fields = [
+    `model: ${cleanAgentConfigField(config.instanceId)}/${cleanAgentConfigField(config.model)}`,
+    ...config.options.map(
+      (option) =>
+        `${cleanAgentConfigField(option.id)}=${cleanAgentConfigField(String(option.value))}`,
+    ),
+  ];
+  return `%[${fields.join(", ")}]`;
+}
+
+/** Reads the text between `%[` and `]`. Null when the head is not `model: <instanceId>/<model>`. */
+export function parseAgentConfigChip(inner: string): {
+  readonly instanceId: string;
+  readonly model: string;
+  readonly options: ReadonlyArray<{ readonly id: string; readonly value: string }>;
+} | null {
+  const [head = "", ...fields] = inner.split(", ");
+  const match = /^model: ([^/]+)\/(.+)$/.exec(head);
+  if (!match) return null;
+  const options = fields.flatMap((field) => {
+    const separator = field.indexOf("=");
+    return separator > 0
+      ? [{ id: field.slice(0, separator), value: field.slice(separator + 1) }]
+      : [];
+  });
+  return { instanceId: match[1]!, model: match[2]!, options };
+}
+
+function collectAgentConfigTokens(text: string): ComposerInlineToken[] {
+  const matches: ComposerInlineToken[] = [];
+  for (const match of text.matchAll(AGENT_CONFIG_TOKEN_REGEX)) {
+    const prefix = match[1] ?? "";
+    const source = match[0].slice(prefix.length);
+    const start = (match.index ?? 0) + prefix.length;
+    matches.push({
+      type: "agent-config",
+      value: match[2] ?? "",
+      source,
+      start,
+      end: start + source.length,
+    });
+  }
+  return matches;
+}
 
 export interface CollectComposerInlineTokensOptions {
   readonly preserveTrailingFrom?: ReadonlyArray<ComposerInlineToken>;
+  /** Only the web composer renders `%[...]` chips; other clients keep it as text. */
+  readonly agentConfigs?: boolean;
 }
 
 const SKILL_MENTION_SOURCE =
@@ -140,6 +208,8 @@ export function collectComposerInlineTokens(
       end,
     });
   }
+
+  if (options.agentConfigs) matches.push(...collectAgentConfigTokens(text));
 
   for (const token of options.preserveTrailingFrom ?? []) {
     if (

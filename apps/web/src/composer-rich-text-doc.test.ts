@@ -67,6 +67,7 @@ const schema = getSchemaByResolvedExtensions(
       skillLabel: { default: "" },
       skillDescription: { default: null },
     }),
+    stubAtom("composer-agent-config", { source: { default: "" } }),
     stubAtom("composer-citation", {
       citation: { default: null },
       source: { default: "" },
@@ -106,6 +107,15 @@ describe("editable math source", () => {
       ).toHaveLength(1);
     },
   );
+
+  it("keeps an agent configuration chip as one token that round trips", () => {
+    const source = "ask %[model: claudeAgent/claude-opus-5-5, effort=high] now";
+    const map = roundTrip(source);
+    expect(map.value).toBe(source);
+    expect(
+      map.runs.filter((run) => run.kind === "token" && run.nodeName === "composer-agent-config"),
+    ).toHaveLength(1);
+  });
 
   it.each([
     "before $x + @README.md$ after",
@@ -188,6 +198,7 @@ const plainSchema = getSchemaByResolvedExtensions(
       skillLabel: { default: "" },
       skillDescription: { default: null },
     }),
+    stubAtom("composer-agent-config", { source: { default: "" } }),
     stubAtom("composer-citation", {
       citation: { default: null },
       source: { default: "" },

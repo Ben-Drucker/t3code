@@ -1,5 +1,6 @@
 import { documentChipKindForFileName } from "~/pierre-icons";
 import { isProviderSkillUserInvocable } from "@t3tools/client-runtime/providerSkills";
+import { parseAgentConfigChip } from "@t3tools/shared/composerInlineTokens";
 import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
 import {
   Extension,
@@ -361,6 +362,43 @@ function ComposerSkillNodeView({ node }: NodeViewProps) {
           skill?.path && actions.environmentId ? () => actions.openMention(skill.path) : undefined
         }
       />
+    </NodeViewWrapper>
+  );
+}
+
+const ComposerAgentConfigExtension = Node.create({
+  name: "composer-agent-config",
+  group: "inline",
+  inline: true,
+  atom: true,
+  selectable: true,
+  addAttributes() {
+    return {
+      source: { default: "" },
+    };
+  },
+  parseHTML() {
+    return [{ tag: "span[data-composer-agent-config]" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return ["span", { "data-composer-agent-config": "", ...HTMLAttributes }];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ComposerAgentConfigNodeView);
+  },
+});
+
+function ComposerAgentConfigNodeView({ node }: NodeViewProps) {
+  const source = (node.attrs.source as string) ?? "";
+  const parsed = parseAgentConfigChip(source.slice(2, -1));
+  const label = parsed
+    ? [parsed.model, ...parsed.options.map((option) => option.value)].join(" · ")
+    : source;
+  return (
+    <NodeViewWrapper as="span" className={CHIP_NODE_SELECTION_CLASS_NAME}>
+      <span className="max-w-full truncate rounded-md border border-border bg-muted px-1.5 font-mono text-xs">
+        {label}
+      </span>
     </NodeViewWrapper>
   );
 }
@@ -769,6 +807,7 @@ function createComposerExtensions(richText: boolean) {
     ComposerTextDirectionExtension,
     ComposerMentionExtension,
     ComposerSkillExtension,
+    ComposerAgentConfigExtension,
     ComposerCitationExtension,
     ComposerContextReferenceExtension,
     ComposerChipSelectionExtension,
@@ -1336,6 +1375,7 @@ function ComposerPromptEditorTiptapInner(
           const tokens = literalText ? [] : collectComposerPromptInlineTokens(`${text}\n`);
           const isChip = (token: (typeof tokens)[number] | undefined) =>
             token?.type === "mention" ||
+            token?.type === "agent-config" ||
             (token?.type === "skill" && skillLabelFor(token.value) !== null);
           const lastToken = tokens.at(-1);
           if (isChip(lastToken) && lastToken?.end === text.length) {

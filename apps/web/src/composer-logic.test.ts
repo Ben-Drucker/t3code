@@ -259,6 +259,24 @@ describe("detectComposerTrigger", () => {
     (text) => expect(detectComposerTrigger(text, text.length)).toBeNull(),
   );
 
+  it("opens the agent configuration trigger for % without taking # or @", () => {
+    expect(detectComposerTrigger("Use %", 5)).toEqual({
+      kind: "agent-config",
+      query: "",
+      rangeStart: 4,
+      rangeEnd: 5,
+    });
+    expect(detectComposerTrigger("Use %mo", 7)).toEqual({
+      kind: "agent-config",
+      query: "mo",
+      rangeStart: 4,
+      rangeEnd: 7,
+    });
+    expect(detectComposerTrigger("Use #12", 7)?.kind).toBe("pull-request");
+    expect(detectComposerTrigger("Use 50%", 7)).toBeNull();
+    expect(detectComposerTrigger("Use %[model: x/y]", 17)).toBeNull();
+  });
+
   it("does not keep a subcommand trigger active after /model arguments", () => {
     const text = "/model spark";
     const trigger = detectComposerTrigger(text, text.length);

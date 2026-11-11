@@ -17,7 +17,12 @@ import {
 
 import { resolveShortcutCommand, type ShortcutEventLike } from "./keybindings";
 
-export type ComposerTriggerKind = "path" | "pull-request" | "slash-command" | "skill";
+export type ComposerTriggerKind =
+  | "agent-config"
+  | "path"
+  | "pull-request"
+  | "slash-command"
+  | "skill";
 export type ComposerSlashCommand = "model" | "plan" | "default" | "side" | "btw" | "clear";
 export type ComposerSubmissionIntent = "foreground" | "background" | "alternate";
 
@@ -138,7 +143,7 @@ export function expandCollapsedComposerCursor(
       expandedCursor += expandedLength;
       continue;
     }
-    if (segment.type === "skill") {
+    if (segment.type === "skill" || segment.type === "agent-config") {
       const expandedLength = segment.source.length;
       if (remaining <= 1) {
         return expandedCursor + (remaining === 0 ? 0 : expandedLength);
@@ -224,7 +229,7 @@ export function collapseExpandedComposerCursor(
       collapsedCursor += 1;
       continue;
     }
-    if (segment.type === "skill") {
+    if (segment.type === "skill" || segment.type === "agent-config") {
       const expandedLength = segment.source.length;
       if (remaining === 0) {
         return collapsedCursor;
@@ -266,6 +271,15 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
     return {
       kind: "pull-request",
       query: pullRequestMatch[1] ?? "",
+      rangeStart: tokenStart,
+      rangeEnd: cursor,
+    };
+  }
+  const agentConfigMatch = /^%([^[\]\s]*)$/u.exec(token);
+  if (agentConfigMatch) {
+    return {
+      kind: "agent-config",
+      query: agentConfigMatch[1] ?? "",
       rangeStart: tokenStart,
       rangeEnd: cursor,
     };

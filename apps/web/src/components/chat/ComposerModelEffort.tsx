@@ -4,6 +4,7 @@ import {
   useComposerContextLimit,
   useComposerThreadStarted,
 } from "./ComposerContextLimit";
+import { Button } from "../ui/button";
 import {
   buildTraitsTriggerDisplay,
   getDescriptorStringValue,
@@ -692,6 +693,22 @@ function PermissionsMenu(props: {
 }
 
 /** The model picker's footer: speed stays one click away, permissions sit one menu deeper. */
+/** Footer for the `%` picker: traits only, since its picks stay in the message. */
+export function AgentConfigPickerFooter(props: {
+  traits: TraitsSelectionInput;
+  onInsert: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-border/70 bg-muted/40 px-3 py-2">
+      <SpeedControl traits={props.traits} />
+      <UltracodeControl traits={props.traits} />
+      <Button className="ms-auto" size="sm" onClick={props.onInsert}>
+        Insert
+      </Button>
+    </div>
+  );
+}
+
 export function ComposerPickerFooter(props: {
   traits: TraitsSelectionInput | null;
   runtimeMode: RuntimeMode;
