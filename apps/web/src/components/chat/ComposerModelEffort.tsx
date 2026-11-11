@@ -1,4 +1,9 @@
 import {
+  chosenContextLimit,
+  contextControlReadout,
+  useComposerContextLimit,
+} from "./ComposerContextLimit";
+import {
   buildTraitsTriggerDisplay,
   getDescriptorStringValue,
   isReasoningControl,
@@ -382,6 +387,8 @@ function OptionMenuRow(props: {
   const popupRef = useRef<HTMLDivElement>(null);
   const choices = selectableProviderOptionChoices(descriptor);
   const value = traits.selectValue(descriptor);
+  const chosenLimit = chosenContextLimit(traits.selectDescriptors);
+  const currentLimit = useComposerContextLimit();
   const current = choices.find((choice) => choice.id === value)?.label ?? "";
   return (
     <Menu
@@ -451,9 +458,11 @@ function OptionMenuRow(props: {
               <span className="flex items-center gap-3">
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="truncate">{choice.label}</span>
-                  {choice.description ? (
+                  {(choice.description ??
+                  contextControlReadout(descriptor.id, choice.id, chosenLimit, currentLimit)) ? (
                     <span className="line-clamp-2 text-muted-foreground text-xs">
-                      {choice.description}
+                      {choice.description ??
+                        contextControlReadout(descriptor.id, choice.id, chosenLimit, currentLimit)}
                     </span>
                   ) : null}
                 </span>

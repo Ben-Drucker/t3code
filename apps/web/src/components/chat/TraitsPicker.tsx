@@ -23,8 +23,11 @@ import {
   normalizeModelSlug,
 } from "@t3tools/shared/model";
 import { memo } from "react";
-import { formatContextWindowTokens } from "../../lib/contextWindow";
-import { useComposerContextLimit } from "./ComposerContextLimit";
+import {
+  chosenContextLimit,
+  contextControlReadout,
+  useComposerContextLimit,
+} from "./ComposerContextLimit";
 import { GaugeIcon } from "lucide-react";
 import {
   Menu,
@@ -68,38 +71,6 @@ function savedOptionLabel(id: string): string {
     SAVED_OPTION_LABELS[id] ??
     id.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, (character) => character.toUpperCase())
   );
-}
-
-/** Claude compacts this far short of its window unless a buffer is chosen. */
-const DEFAULT_COMPACT_RESERVE_TOKENS = 33_000;
-
-/** What a choice means in tokens, against the limit being chosen or else the thread's current one. */
-function contextControlReadout(
-  descriptors: ReadonlyArray<Extract<ProviderOptionDescriptor, { type: "select" }>>,
-  descriptorId: string,
-  optionId: string,
-  currentLimit: number | null,
-) {
-  const chosen = Number(
-    getDescriptorStringValue(
-      descriptors.find((descriptor) => descriptor.id === "contextLimit") ?? null,
-    ),
-  );
-  const limit = chosen > 0 ? chosen : currentLimit;
-  if (descriptorId === "contextLimit")
-    return optionId === "default" && limit
-      ? `Currently ${formatContextWindowTokens(limit)}`
-      : undefined;
-  if (descriptorId !== "compactBuffer" || !limit) return undefined;
-  const free =
-    optionId === "default"
-      ? DEFAULT_COMPACT_RESERVE_TOKENS
-      : Math.round((limit * Number(optionId)) / 100);
-  if (!(free > 0)) return undefined;
-  const percent = Math.round((free / limit) * 100);
-  const detail =
-    optionId === "default" ? ` (${formatContextWindowTokens(free)}, ${percent}% free)` : "";
-  return `Compacts at ~${formatContextWindowTokens(limit - free)}${detail}`;
 }
 
 function buildUnavailableModelOptionDescriptors(
@@ -478,17 +449,17 @@ const TraitsMenuContent = memo(function TraitsMenuContentImpl(props: TraitsSelec
                     </span>
                     {(option.description ??
                     contextControlReadout(
-                      selectDescriptors,
                       descriptor.id,
                       option.id,
+                      chosenContextLimit(selectDescriptors),
                       currentContextLimit,
                     )) ? (
                       <span className="max-w-56 text-pretty text-muted-foreground/80 text-xs">
                         {option.description ??
                           contextControlReadout(
-                            selectDescriptors,
                             descriptor.id,
                             option.id,
+                            chosenContextLimit(selectDescriptors),
                             currentContextLimit,
                           )}
                       </span>
