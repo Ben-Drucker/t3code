@@ -46,6 +46,7 @@ import {
   rankPullRequestMatches,
 } from "../pullRequest/pullRequestList.logic";
 import type { ComposerCommandItem } from "./ComposerCommandMenu";
+import { buildAgentToolSections } from "./agentToolMenu";
 import { filesystemPathDirectoryPrefix, isFilesystemPathQuery } from "./composerFilesystemPath";
 import {
   searchSlashCommandItems,
@@ -63,12 +64,17 @@ const AGENT_TOOL_STATUS_LABEL = {
   "needs-auth": "(needs auth)",
 } as const;
 
-/** The `%` menu's model row, then each tool that matches the typed text, `source > tool`. */
+const EMPTY_SECTION_OVERRIDES: ReadonlyMap<string, boolean> = new Map();
+
+/**
+ * The `%` menu's model row, then one header per tool source with its tools under it when open.
+ * Headers are items too, so arrow keys reach them and Enter opens or closes them.
+ */
 function agentConfigMenuItems(
   groups: ReadonlyArray<ComposerToolGroup>,
   query: string,
+  overrides: ReadonlyMap<string, boolean>,
 ): ComposerCommandItem[] {
-  const needle = query.toLowerCase();
   const items: ComposerCommandItem[] = [
     {
       id: "agent-model",
@@ -77,32 +83,41 @@ function agentConfigMenuItems(
       description: "Choose a model and its options",
     },
   ];
-  for (const group of groups) {
-    if (group.status !== "ready") {
-      const label = `${group.source} > ${AGENT_TOOL_STATUS_LABEL[group.status]}`;
-      if (label.toLowerCase().includes(needle)) {
-        items.push({
-          id: `agent-tool:${JSON.stringify([group.source, null])}`,
-          type: "agent-tool",
-          source: group.source,
-          tool: null,
-          status: group.status,
-          label,
-          description: "",
-        });
-      }
-      continue;
+  for (const section of buildAgentToolSections(groups, query, overrides)) {
+    const { group } = section;
+    items.push({
+      id: section.id,
+      type: "agent-section",
+      source: group.source,
+      kind: group.kind,
+      status: group.status,
+      toolCount: group.tools.length,
+      expanded: section.expanded,
+      label: group.source,
+      description: "",
+    });
+    if (!section.expanded) continue;
+    if (group.status === "checking") {
+      items.push({
+        id: `agent-tool:${JSON.stringify([group.source, null])}`,
+        type: "agent-tool",
+        source: group.source,
+        tool: null,
+        status: group.status,
+        deferred: false,
+        label: `${group.source} > ${AGENT_TOOL_STATUS_LABEL.checking}`,
+        description: "",
+      });
     }
-    for (const tool of group.tools) {
-      const label = `${group.source} > ${tool.name}`;
-      if (!label.toLowerCase().includes(needle)) continue;
+    for (const tool of section.tools) {
       items.push({
         id: `agent-tool:${JSON.stringify([group.source, tool.name])}`,
         type: "agent-tool",
         source: group.source,
         tool: tool.name,
         status: group.status,
-        label,
+        deferred: tool.deferred === true,
+        label: `${group.source} > ${tool.name}`,
         description: tool.description ?? "",
       });
     }
@@ -155,6 +170,24 @@ export function useComposerMenuItems({
   // Thread mentions rank by recency as of when the composer mounted.
   const [now] = useState(() => Date.now());
   const composerTriggerKind = composerTrigger?.kind ?? null;
+  // Open or closed choices for tool sections, kept for the `%` query that made them.
+  const [agentSectionState, setAgentSectionState] = useState<{
+    readonly rangeStart: number;
+    readonly expanded: ReadonlyMap<string, boolean>;
+  } | null>(null);
+  const agentSectionOverrides =
+    composerTrigger?.kind === "agent-config" &&
+    agentSectionState?.rangeStart === composerTrigger.rangeStart
+      ? agentSectionState.expanded
+      : EMPTY_SECTION_OVERRIDES;
+  const toggleAgentToolSection = (sectionId: string, expanded: boolean) => {
+    if (composerTrigger?.kind !== "agent-config") return;
+    const { rangeStart } = composerTrigger;
+    setAgentSectionState((current) => {
+      const base = current?.rangeStart === rangeStart ? current.expanded : EMPTY_SECTION_OVERRIDES;
+      return { rangeStart, expanded: new Map(base).set(sectionId, !expanded) };
+    });
+  };
   // Opened with the `%` menu only, so tools are probed once per open rather than per keystroke.
   const composerToolsQuery = useEnvironmentQuery(
     composerTriggerKind === "agent-config"
@@ -291,7 +324,11 @@ export function useComposerMenuItems({
   const items = ((): ComposerCommandItem[] => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "agent-config") {
-      return agentConfigMenuItems(composerToolsQuery.data?.groups ?? [], composerTrigger.query);
+      return agentConfigMenuItems(
+        composerToolsQuery.data?.groups ?? [],
+        composerTrigger.query,
+        agentSectionOverrides,
+      );
     }
     if (composerTrigger.kind === "path" && diskPathQuery) return diskPathItems;
     if (composerTrigger.kind === "path") {
@@ -536,5 +573,5 @@ export function useComposerMenuItems({
       : "No matching command.";
   })();
 
-  return { items, isLoading, emptyState };
+  return { items, isLoading, emptyState, toggleAgentToolSection };
 }

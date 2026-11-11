@@ -17,23 +17,25 @@ import {
 } from "@t3tools/contracts";
 import {
   BlocksIcon,
+  ChevronRightIcon,
   FolderIcon,
   MessagesSquareIcon,
-  KeyRoundIcon,
   PackageIcon,
   SettingsIcon,
   SlidersHorizontalIcon,
-  TriangleAlertIcon,
   UserRoundIcon,
   WrenchIcon,
   type LucideIcon,
 } from "lucide-react";
-import { Fragment, memo, useLayoutEffect, useRef } from "react";
+import { Fragment, memo, useLayoutEffect, useRef, type KeyboardEvent } from "react";
 
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
 import { Command, CommandGroup, CommandGroupLabel, CommandItem, CommandList } from "../ui/command";
+import { Collapsible, CollapsiblePanel } from "../ui/collapsible";
+import { Input } from "../ui/input";
+import { AgentToolSourceIcon } from "./AgentConfigChip";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { ComposerBanner } from "./ComposerBanner";
@@ -104,14 +106,52 @@ export type ComposerCommandItem =
     }
   | {
       id: string;
+      type: "agent-section";
+      source: string;
+      kind: ComposerToolGroup["kind"];
+      status: ComposerToolGroup["status"];
+      toolCount: number;
+      expanded: boolean;
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
       type: "agent-tool";
       source: string;
-      /** Null for a server row with no tool to insert: checking, unreachable, or needs auth. */
+      /** Null for a server row with no tool to insert: checking. */
       tool: string | null;
       status: ComposerToolGroup["status"];
+      deferred: boolean;
       label: string;
       description: string;
     };
+
+/** Rows of one tool source, shown under its header while the header is open. */
+type MenuBlock =
+  | { readonly kind: "item"; readonly item: ComposerCommandItem }
+  | {
+      readonly kind: "section";
+      readonly header: Extract<ComposerCommandItem, { type: "agent-section" }>;
+      readonly rows: ComposerCommandItem[];
+    };
+
+function menuBlocks(items: ReadonlyArray<ComposerCommandItem>): MenuBlock[] {
+  const blocks: MenuBlock[] = [];
+  for (const item of items) {
+    if (item.type === "agent-section") {
+      blocks.push({ kind: "section", header: item, rows: [] });
+      continue;
+    }
+    const last = blocks.at(-1);
+    if (item.type === "agent-tool" && last?.kind === "section") {
+      last.rows.push(item);
+    } else {
+      blocks.push({ kind: "item", item });
+    }
+  }
+  return blocks;
+}
 
 export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
   listId: string;
@@ -120,12 +160,33 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
   isLoading: boolean;
   triggerKind: ComposerTriggerKind | null;
   emptyStateText?: string;
+  /** The `%` query as the search field shows it; null outside the `%` menu. */
+  agentToolQuery: string | null;
+  onAgentToolQueryChange: (query: string) => void;
+  onAgentToolQueryKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
   activeItemId: string | null;
   onHighlightedItemChange: (itemId: string | null) => void;
   onSelect: (item: ComposerCommandItem) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
-  const firstToolItemId = props.items.find((item) => item.type === "agent-tool")?.id;
+  const firstSectionId = props.items.find((item) => item.type === "agent-section")?.id;
+  const renderItem = (item: ComposerCommandItem) => (
+    <Fragment key={item.id}>
+      {item.id === firstSectionId ? <CommandGroupLabel>Tools</CommandGroupLabel> : null}
+      {item.type === "agent-model" ? (
+        <CommandGroupLabel>Agent configuration</CommandGroupLabel>
+      ) : null}
+      <ComposerCommandMenuItem
+        optionId={composerSuggestionOptionId(props.listId, item.id)}
+        item={item}
+        triggerKind={props.triggerKind}
+        resolvedTheme={props.resolvedTheme}
+        isActive={props.activeItemId === item.id}
+        onHighlight={props.onHighlightedItemChange}
+        onSelect={props.onSelect}
+      />
+    </Fragment>
+  );
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the highlighted menu item's DOM node into view
   useLayoutEffect(() => {
@@ -151,6 +212,21 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
         className="flex min-h-0 w-full flex-col overflow-hidden pb-(--chat-composer-attachment-overlap) **:data-[slot=command-item]:rounded-lg **:data-[slot=scroll-area-scrollbar]:data-[orientation=vertical]:my-4"
         data-composer-command-drawer="true"
       >
+        {props.agentToolQuery !== null ? (
+          <div className="px-3 pt-3">
+            <Input
+              type="search"
+              size="sm"
+              aria-label="Search tools"
+              placeholder="Search tools"
+              autoComplete="off"
+              spellCheck={false}
+              value={props.agentToolQuery}
+              onChange={(event) => props.onAgentToolQueryChange(event.target.value)}
+              onKeyDown={props.onAgentToolQueryKeyDown}
+            />
+          </div>
+        ) : null}
         {props.items.length > 0 ? (
           <CommandList
             id={props.listId}
@@ -158,25 +234,18 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
             className="max-h-72 min-h-0 scroll-pb-6"
           >
             <CommandGroup>
-              {props.items.map((item) => (
-                <Fragment key={item.id}>
-                  {item.id === firstToolItemId ? (
-                    <CommandGroupLabel>Tools</CommandGroupLabel>
-                  ) : null}
-                  {item.type === "agent-model" ? (
-                    <CommandGroupLabel>Agent configuration</CommandGroupLabel>
-                  ) : null}
-                  <ComposerCommandMenuItem
-                    optionId={composerSuggestionOptionId(props.listId, item.id)}
-                    item={item}
-                    triggerKind={props.triggerKind}
-                    resolvedTheme={props.resolvedTheme}
-                    isActive={props.activeItemId === item.id}
-                    onHighlight={props.onHighlightedItemChange}
-                    onSelect={props.onSelect}
-                  />
-                </Fragment>
-              ))}
+              {menuBlocks(props.items).map((block) =>
+                block.kind === "item" ? (
+                  renderItem(block.item)
+                ) : (
+                  <Collapsible key={block.header.id} open={block.header.expanded}>
+                    {renderItem(block.header)}
+                    <CollapsiblePanel animate={false}>
+                      {block.rows.map(renderItem)}
+                    </CollapsiblePanel>
+                  </Collapsible>
+                ),
+              )}
             </CommandGroup>
           </CommandList>
         ) : (
@@ -258,11 +327,20 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
           className="size-4 shrink-0 text-secondary-label"
         />
       ) : null}
-      {props.item.type === "agent-tool" && props.item.status === "down" ? (
-        <TriangleAlertIcon aria-hidden="true" className="size-4 shrink-0 text-warning" />
+      {props.item.type === "agent-section" ? (
+        <ChevronRightIcon
+          aria-hidden="true"
+          className={cn(
+            "size-4 shrink-0 text-secondary-label transition-transform motion-reduce:transition-none",
+            props.item.expanded && "rotate-90",
+          )}
+        />
       ) : null}
-      {props.item.type === "agent-tool" && props.item.status === "needs-auth" ? (
-        <KeyRoundIcon aria-hidden="true" className="size-4 shrink-0 text-secondary-label" />
+      {props.item.type === "agent-section" ? (
+        <AgentToolSourceIcon
+          source={props.item.source}
+          className="size-4 shrink-0 text-secondary-label"
+        />
       ) : null}
       {props.item.type === "agent-tool" && props.item.tool !== null ? (
         <WrenchIcon aria-hidden="true" className="size-4 shrink-0 text-secondary-label" />
@@ -294,10 +372,40 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
             showSkillSuffix={props.triggerKind === "skill"}
           />
         ) : null}
+        {props.item.type === "agent-section" ? (
+          <AgentSectionBadge status={props.item.status} toolCount={props.item.toolCount} />
+        ) : null}
+        {props.item.type === "agent-tool" && props.item.deferred ? (
+          <Badge className="ms-auto" size="sm" variant="outline">
+            deferred
+          </Badge>
+        ) : null}
       </span>
     </CommandItem>
   );
 });
+
+const AGENT_SECTION_STATUS_BADGE: Record<Exclude<ComposerToolGroup["status"], "ready">, string> = {
+  checking: "checking…",
+  down: "unreachable",
+  "needs-auth": "needs auth",
+};
+
+/** The tool count for a ready source, or the status that replaces it. */
+function AgentSectionBadge(props: { status: ComposerToolGroup["status"]; toolCount: number }) {
+  if (props.status === "ready") {
+    return (
+      <Badge className="ms-auto" size="sm" variant="secondary">
+        {props.toolCount}
+      </Badge>
+    );
+  }
+  return (
+    <Badge className="ms-auto" size="sm" variant="outline">
+      {AGENT_SECTION_STATUS_BADGE[props.status]}
+    </Badge>
+  );
+}
 
 export function composerSuggestionOptionId(listId: string, itemId: string): string {
   // JSON escapes lone UTF-16 surrogates before URI encoding without losing identity.

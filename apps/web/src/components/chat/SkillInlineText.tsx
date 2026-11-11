@@ -7,6 +7,8 @@ import { useRightPanelStore } from "~/rightPanelStore";
 import { SKILL_CHIP_ICON_SVG } from "../composerInlineChip";
 import { ContextChipPopover } from "../contextChipParts";
 import { Button } from "../ui/button";
+import { AgentConfigChip } from "./AgentConfigChip";
+import { splitAgentConfigText } from "./agentConfigChipModel";
 
 function SkillInlineText(props: {
   text: string;
@@ -41,14 +43,48 @@ function SkillInlineText(props: {
   return <>{nodes}</>;
 }
 
-export function renderSkillInlineMarkdownChildren(
+/** Each segment keyed by its text offset, which stays put while the message is unchanged. */
+function keyedSegments(text: string) {
+  let offset = 0;
+  return splitAgentConfigText(text).map((segment) => {
+    const keyed = { key: `${offset}`, segment };
+    offset += segment.type === "text" ? segment.text.length : segment.raw.length;
+    return keyed;
+  });
+}
+
+function InlineChipText(props: {
+  text: string;
+  skills: ReadonlyArray<ServerProviderSkill>;
+  threadRef: ScopedThreadRef | undefined;
+}) {
+  return (
+    <>
+      {keyedSegments(props.text).map(({ key, segment }) =>
+        segment.type === "text" ? (
+          <SkillInlineText
+            key={key}
+            text={segment.text}
+            skills={props.skills}
+            threadRef={props.threadRef}
+          />
+        ) : (
+          <AgentConfigChip key={key} raw={segment.raw} />
+        ),
+      )}
+    </>
+  );
+}
+
+/** Turns `$skill` and `%[...]` chips in markdown text into their chips; other nodes pass through. */
+export function renderInlineChipMarkdownChildren(
   children: ReactNode,
   skills: ReadonlyArray<ServerProviderSkill>,
   threadRef: ScopedThreadRef | undefined,
 ): ReactNode {
   return Children.map(children, (child) => {
     if (typeof child === "string") {
-      return <SkillInlineText text={child} skills={skills} threadRef={threadRef} />;
+      return <InlineChipText text={child} skills={skills} threadRef={threadRef} />;
     }
     if (!isValidElement<{ children?: ReactNode; node?: { tagName?: string } }>(child)) {
       return child;
@@ -64,7 +100,7 @@ export function renderSkillInlineMarkdownChildren(
     return cloneElement(
       child,
       undefined,
-      renderSkillInlineMarkdownChildren(child.props.children, skills, threadRef),
+      renderInlineChipMarkdownChildren(child.props.children, skills, threadRef),
     );
   });
 }

@@ -65,6 +65,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { flushSync } from "react-dom";
 import {
@@ -1187,6 +1188,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     items: composerMenuItems,
     isLoading: isComposerMenuLoading,
     emptyState: composerMenuEmptyState,
+    toggleAgentToolSection,
   } = useComposerMenuItems({
     composerTrigger,
     environmentId,
@@ -2010,6 +2012,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     });
     const { snapshot, trigger } = resolveActiveComposerTrigger();
     if (!trigger) return;
+    if (item.type === "agent-section") {
+      toggleAgentToolSection(item.id, item.expanded);
+      return;
+    }
     if (item.type === "agent-model") {
       setAgentConfigPickState({
         rangeStart: trigger.rangeStart,
@@ -2228,6 +2234,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       (normalizedIndex + offset + composerMenuItems.length) % composerMenuItems.length;
     const nextItem = composerMenuItems[nextIndex];
     setComposerHighlightedItemId(nextItem?.id ?? null);
+  };
+
+  // The `%` menu's search field edits the `%` query in the composer, so both show the same text.
+  const onAgentToolQueryChange = (query: string) => {
+    const { snapshot, trigger } = resolveActiveComposerTrigger();
+    if (trigger?.kind !== "agent-config") return;
+    // The trigger ends at whitespace, so spaces are dropped rather than closing the menu.
+    const replacement = `%${query.replace(/\s/gu, "")}`;
+    applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, replacement, {
+      expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+    });
+  };
+  const onAgentToolQueryKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      nudgeComposerMenuHighlight(event.key);
+    } else if (event.key === "Enter" && activeComposerMenuItem) {
+      event.preventDefault();
+      onSelectComposerItemStable(activeComposerMenuItem);
+    }
   };
 
   const blurMobileComposerAfterSend = () => {
@@ -3635,6 +3661,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         activeItemId={activeComposerMenuItem?.id ?? null}
                         onHighlightedItemChange={onComposerMenuItemHighlightedStable}
                         onSelect={onSelectComposerItemStable}
+                        agentToolQuery={
+                          composerTrigger?.kind === "agent-config" ? composerTrigger.query : null
+                        }
+                        onAgentToolQueryChange={onAgentToolQueryChange}
+                        onAgentToolQueryKeyDown={onAgentToolQueryKeyDown}
                       />
                     </ComposerCommandMenuLayer>
                   )}

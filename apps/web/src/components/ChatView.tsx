@@ -1,3 +1,4 @@
+import { AgentConfigCatalogContext } from "./chat/AgentConfigChip";
 import { ChildThreadApprovals } from "./chat/ChildThreadApprovals";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
@@ -4067,13 +4068,15 @@ export default function ChatView(props: ChatViewProps) {
     </div>
   );
   return (
-    <FileMetadataThreadProvider
-      threadRef={activeThreadRef}
-      cwd={activeWorkspaceRoot}
-      checkpoints={serverProjection?.checkpoints}
-    >
-      {content}
-    </FileMetadataThreadProvider>
+    <AgentConfigCatalogContext value={providerInstanceEntries}>
+      <FileMetadataThreadProvider
+        threadRef={activeThreadRef}
+        cwd={activeWorkspaceRoot}
+        checkpoints={serverProjection?.checkpoints}
+      >
+        {content}
+      </FileMetadataThreadProvider>
+    </AgentConfigCatalogContext>
   );
 }
 

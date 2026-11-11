@@ -16,6 +16,8 @@ export type ComposerToolStatus = typeof ComposerToolStatus.Type;
 export const ComposerToolEntry = Schema.Struct({
   name: Schema.String,
   description: Schema.NullOr(Schema.String),
+  /** Set only where the source reports it: Claude names from `deferred_tools_delta`. */
+  deferred: Schema.optional(Schema.Boolean),
 });
 export type ComposerToolEntry = typeof ComposerToolEntry.Type;
 

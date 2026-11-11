@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  claudeDeferredEntries,
   claudeDeferredToolNames,
   codexAdditionalTools,
   splitClaudeMcpToolName,
@@ -11,6 +12,16 @@ const deferred = (added: string[], removed: string[] = []) =>
     type: "attachment",
     attachment: { type: "deferred_tools_delta", addedNames: added, removedNames: removed },
   });
+
+describe("Claude deferred tool entries", () => {
+  it("marks every name from deferred_tools_delta as deferred", () => {
+    const lines = [deferred(["CronCreate", "mcp__acp-bridge__ask"]), deferred([], ["CronCreate"])];
+
+    expect(claudeDeferredEntries(lines)).toEqual([
+      { name: "mcp__acp-bridge__ask", description: null, deferred: true },
+    ]);
+  });
+});
 
 describe("Claude deferred tool names", () => {
   it("applies additions and removals in transcript order", () => {

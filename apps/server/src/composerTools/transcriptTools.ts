@@ -32,6 +32,17 @@ export function claudeDeferredToolNames(lines: Iterable<string>): ReadonlyArray<
   return [...names].toSorted();
 }
 
+/** The names from `deferred_tools_delta`, marked deferred: the session has not loaded them yet. */
+export function claudeDeferredEntries(
+  lines: Iterable<string>,
+): ReadonlyArray<{ readonly name: string; readonly description: null; readonly deferred: true }> {
+  return claudeDeferredToolNames(lines).map((name) => ({
+    name,
+    description: null,
+    deferred: true,
+  }));
+}
+
 const descriptionOf = (value: Record<string, unknown>) =>
   typeof value.description === "string" && value.description !== "" ? value.description : null;
 

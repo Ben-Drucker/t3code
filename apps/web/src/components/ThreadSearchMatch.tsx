@@ -4,6 +4,10 @@ import {
   type SearchMatchHint,
   type SearchRange,
 } from "@t3tools/shared/paletteSearch";
+import { use } from "react";
+
+import { AgentConfigCatalogContext } from "./chat/AgentConfigChip";
+import { agentConfigPlainText } from "./chat/agentConfigChipModel";
 
 /** `text` with each range in semibold foreground. */
 function HighlightedSearchText(props: { text: string; ranges: ReadonlyArray<SearchRange> }) {
@@ -37,14 +41,16 @@ export function ThreadSearchMatchExcerpt(props: {
   };
 }) {
   const isUser = props.match.source === "user";
+  const catalog = use(AgentConfigCatalogContext);
+  const snippet = agentConfigPlainText(props.match.snippet, catalog);
   return (
     <span className="truncate text-xs text-muted-foreground/85">
       <span className={isUser ? "text-info-foreground" : "text-success-foreground"}>
         {isUser ? "You:" : "Agent:"}
       </span>{" "}
       <HighlightedSearchText
-        text={props.match.snippet}
-        ranges={findSearchTokenRanges(props.match.snippet, props.match.query)}
+        text={snippet}
+        ranges={findSearchTokenRanges(snippet, props.match.query)}
       />
     </span>
   );

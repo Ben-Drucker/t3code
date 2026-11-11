@@ -35,7 +35,7 @@ import {
 } from "./mcpConfigFiles.ts";
 import { probeMcpServer, type McpProbeResult } from "./mcpServerProbe.ts";
 import {
-  claudeDeferredToolNames,
+  claudeDeferredEntries,
   codexAdditionalTools,
   splitClaudeMcpToolName,
 } from "./transcriptTools.ts";
@@ -219,11 +219,10 @@ const make = Effect.gen(function* () {
     if (nativeId !== null && input.driver === CLAUDE_PROVIDER) {
       const lines = yield* claudeTranscriptLines(nativeId, env);
       if (lines !== undefined) {
-        const names = claudeDeferredToolNames(lines);
         const tools: Entry[] = [];
-        for (const name of names) {
-          const mcp = splitClaudeMcpToolName(name);
-          if (mcp === null) tools.push({ name, description: null });
+        for (const entry of claudeDeferredEntries(lines)) {
+          const mcp = splitClaudeMcpToolName(entry.name);
+          if (mcp === null) tools.push(entry);
           else mcpToolsFromSession.push(mcp);
         }
         providerGroup = {
@@ -271,7 +270,10 @@ const make = Effect.gen(function* () {
       const group = groupFor(key ?? item.server);
       mcpGroups.set(group.source, {
         ...group,
-        tools: sortEntries([...group.tools, { name: item.tool, description: null }]),
+        tools: sortEntries([
+          ...group.tools,
+          { name: item.tool, description: null, deferred: true },
+        ]),
       });
     }
 
