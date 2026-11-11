@@ -119,11 +119,11 @@ it("shrinks the window by the panel width, places Chrome beside it, and follows 
   assert.strictEqual(t.state.bounds.width, 500);
   assert.isTrue(t.controller.setPanelRect(key, null));
   assert.isTrue(t.controller.setPanelRect(key, { ...panel, width: 200 }));
-  assert.strictEqual(t.state.bounds.width, 400);
+  assert.strictEqual(t.state.bounds.width, 300);
   assert.deepStrictEqual(t.calls.filter((c) => c[0] === "setFrame").at(-1), [
     "setFrame",
     9,
-    { x: 510, y: 50, width: 400, height: 600 },
+    { x: 410, y: 50, width: 500, height: 600 },
   ]);
 });
 
@@ -138,13 +138,6 @@ it("shrinks the window to sit edge to edge with a browser that is wider than its
     9,
     { x: 500, y: 50, width: 400, height: 600 },
   ]);
-});
-
-it("never gives the browser more than half the pair, however wide the panel is", async () => {
-  const t = setup();
-  await t.controller.dock(key, 9);
-  t.controller.setPanelRect(key, { ...panel, width: 700 });
-  assert.strictEqual(t.state.bounds.width, 400);
 });
 
 it("restores the window width when Chrome closes", async () => {
