@@ -27,6 +27,7 @@ import {
   chosenContextLimit,
   contextControlReadout,
   useComposerContextLimit,
+  useComposerThreadStarted,
 } from "./ComposerContextLimit";
 import { GaugeIcon } from "lucide-react";
 import {
@@ -380,6 +381,7 @@ export const ULTRATHINK_IN_BODY_NOTE =
 const TraitsMenuContent = memo(function TraitsMenuContentImpl(props: TraitsSelectionInput) {
   const traits = useTraitsSelection(props);
   const currentContextLimit = useComposerContextLimit();
+  const threadStarted = useComposerThreadStarted();
   const {
     descriptors,
     selectDescriptors,
@@ -440,7 +442,10 @@ const TraitsMenuContent = memo(function TraitsMenuContentImpl(props: TraitsSelec
                   value={option.id}
                   hideIndicator
                   closeOnClick
-                  disabled={ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id}
+                  disabled={
+                    (ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id) ||
+                    (descriptor.lockedOnceStarted === true && threadStarted)
+                  }
                 >
                   <span className="flex w-full min-w-0 flex-col">
                     <span className="flex min-w-0 items-center gap-1">

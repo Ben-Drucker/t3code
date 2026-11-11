@@ -175,6 +175,8 @@ export interface AcpAdapterV2RuntimeInput {
   readonly acpMcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
   readonly httpMcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
   readonly processEnvironment?: NodeJS.ProcessEnv;
+  /** The thread's model choice when the process launches, for options only a launch can apply. */
+  readonly modelSelection?: ModelSelection;
   readonly resumeSessionId?: string;
   readonly interruptPromptOnCancel?: boolean;
   readonly clientCapabilities: EffectAcpSchema.InitializeRequest["clientCapabilities"];
@@ -495,6 +497,7 @@ export interface AcpAdapterV2Flavor {
   readonly pollContextUsage?: (input: {
     readonly sessionId: string;
     readonly cwd: string;
+    readonly modelSelection: ModelSelection;
   }) => Effect.Effect<
     | {
         readonly usedTokens: number;
@@ -2383,6 +2386,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           return {
             cwd: input.runtimePolicy.cwd ?? process.cwd(),
             runtimePolicy: input.runtimePolicy,
+            modelSelection: input.modelSelection,
             mcpServers: mcpContext.servers,
             acpMcpServers: mcpContext.acpServers,
             httpMcpServers: mcpContext.httpServers,
@@ -8298,7 +8302,11 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                 while (true) {
                   yield* Effect.sleep(CONTEXT_USAGE_POLL_INTERVAL);
                   if ((yield* Ref.get(activeTurn)) !== context || context.finalized) return;
-                  const usage = yield* pollContextUsage({ sessionId: requestedSessionId, cwd });
+                  const usage = yield* pollContextUsage({
+                    sessionId: requestedSessionId,
+                    cwd,
+                    modelSelection: turnInput.modelSelection,
+                  });
                   if (usage === undefined || usage.usedTokens === lastUsedTokens) continue;
                   lastUsedTokens = usage.usedTokens;
                   yield* Ref.update(polledBreakdownBySessionId, (current) =>

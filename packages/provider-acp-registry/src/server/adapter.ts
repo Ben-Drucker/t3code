@@ -9,7 +9,13 @@ import {
   extractDevinSubagentUpdate,
 } from "./devinAcp.ts";
 import { extractDroidElicitationForm } from "./droidAcp.ts";
-import { makeKimiContextUsageReader } from "./kimiSession.ts";
+import {
+  KIMI_DEFAULT_RESERVED_TOKENS,
+  kimiChosenLimit,
+  kimiLaunchEnvironment,
+  parseKimiReservedTokens,
+} from "./kimiCompaction.ts";
+import { makeKimiContextUsageReader, resolveKimiShareDirectory } from "./kimiSession.ts";
 import { isKimiAgent } from "./kimiUsage.ts";
 import {
   copilotClientCapabilitiesMeta,
@@ -17,7 +23,11 @@ import {
   isCopilotLostSessionError,
   makeCopilotSubagentRouting,
 } from "./copilotAcp.ts";
-import { defaultInstanceIdForDriver, ProviderDriverKind } from "@t3tools/contracts";
+import {
+  defaultInstanceIdForDriver,
+  ProviderDriverKind,
+  type ModelSelection,
+} from "@t3tools/contracts";
 import { readCustomModelEntries } from "@t3tools/shared/model";
 import { AcpRegistrySettings } from "../settings.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -135,6 +145,9 @@ export function acpRegistryPromptFailure(agentId: string, cause: unknown) {
 function makeAcpRegistryRuntime(
   options: AcpRegistryAdapterV2Options,
   catalog: AcpRegistrySupport.AcpRegistryCatalog["Service"],
+  launchEnvironment?: (
+    selection: ModelSelection | undefined,
+  ) => Effect.Effect<Readonly<Record<string, string>>>,
 ) {
   return (
     input: AcpAdapterV2RuntimeInput,
@@ -144,7 +157,12 @@ function makeAcpRegistryRuntime(
     ChildProcessSpawner.ChildProcessSpawner | SecureRandom.SecureRandom | Scope.Scope
   > =>
     Effect.gen(function* () {
-      const { processEnvironment, ...runtimeInput } = input;
+      const { processEnvironment: mcpEnvironment, modelSelection, ...runtimeInput } = input;
+      const launchOverrides = launchEnvironment ? yield* launchEnvironment(modelSelection) : {};
+      const processEnvironment =
+        mcpEnvironment === undefined && Object.keys(launchOverrides).length === 0
+          ? undefined
+          : { ...mcpEnvironment, ...launchOverrides };
       const resolved = yield* catalog
         .resolve(options.settings, input.cwd, options.environment)
         .pipe(
@@ -212,12 +230,32 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
     : options;
   const copilotRouting = isCopilot ? makeCopilotSubagentRouting() : undefined;
   // Fork: Kimi's ACP server never reports context usage, so read it from the CLI's session files.
+  const fileSystem = yield* FileSystem.FileSystem;
+  const pathService = yield* Path.Path;
+  const hostEnvironment = yield* HostProcess.Environment;
   const kimiContextUsage = isKimiAgent(options.settings)
     ? makeKimiContextUsageReader({
-        fs: yield* FileSystem.FileSystem,
-        path: yield* Path.Path,
-        environment: { ...(yield* HostProcess.Environment), ...options.environment },
+        fs: fileSystem,
+        path: pathService,
+        environment: { ...hostEnvironment, ...options.environment },
         homeDirectory: yield* HostProcess.HomeDirectory,
+      })
+    : undefined;
+  const kimiLaunchEnvironmentFor = isKimiAgent(options.settings)
+    ? Effect.fnUntraced(function* (selection: ModelSelection | undefined) {
+        const homeDirectory = yield* HostProcess.HomeDirectory;
+        const shareDirectory = resolveKimiShareDirectory({
+          path: pathService,
+          environment: { ...hostEnvironment, ...options.environment },
+          homeDirectory,
+        });
+        const config = yield* fileSystem
+          .readFileString(pathService.join(shareDirectory, "config.toml"))
+          .pipe(Effect.orElseSucceed(() => ""));
+        return kimiLaunchEnvironment(
+          selection,
+          parseKimiReservedTokens(config) ?? KIMI_DEFAULT_RESERVED_TOKENS,
+        );
       })
     : undefined;
   const flavor: AcpAdapterV2Flavor = {
@@ -241,7 +279,17 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
       : {}),
     ...(kimiContextUsage === undefined
       ? {}
-      : { pollContextUsage: ({ sessionId }) => kimiContextUsage({ sessionId }) }),
+      : {
+          pollContextUsage: ({ sessionId, modelSelection }) =>
+            kimiContextUsage({ sessionId }).pipe(
+              Effect.map((usage) => {
+                const limit = kimiChosenLimit(modelSelection);
+                return usage === undefined || limit === null
+                  ? usage
+                  : { ...usage, maxTokens: limit };
+              }),
+            ),
+        }),
     ...(isClaude
       ? {
           followAgentWorkState: true,
@@ -272,7 +320,9 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
           extractSubagentUpdate: extractCopilotSubagentUpdate,
           restartRuntimeAfterPromptError: isCopilotLostSessionError,
         }),
-    makeRuntime: options.makeRuntime ?? makeAcpRegistryRuntime(runtimeOptions, catalog),
+    makeRuntime:
+      options.makeRuntime ??
+      makeAcpRegistryRuntime(runtimeOptions, catalog, kimiLaunchEnvironmentFor),
     ...(runtimeCoordinator === undefined
       ? {}
       : {

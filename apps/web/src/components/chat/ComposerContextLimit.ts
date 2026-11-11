@@ -9,6 +9,12 @@ const ComposerContextLimitContext = createContext<number | null>(null);
 export const ComposerContextLimitProvider = ComposerContextLimitContext.Provider;
 export const useComposerContextLimit = () => useContext(ComposerContextLimitContext);
 
+/** Whether the thread has turns, which fixes options an agent reads only when it launches. */
+const ComposerThreadStartedContext = createContext(false);
+
+export const ComposerThreadStartedProvider = ComposerThreadStartedContext.Provider;
+export const useComposerThreadStarted = () => useContext(ComposerThreadStartedContext);
+
 /** Claude compacts this far short of its window unless a buffer is chosen. */
 const DEFAULT_COMPACT_RESERVE_TOKENS = 33_000;
 

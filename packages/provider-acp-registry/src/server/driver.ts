@@ -4,6 +4,7 @@ import {
   resolveOfficialAcpRegistryIconUrl,
   TextGenerationError,
   type AcpRegistryOperationError,
+  type ModelCapabilities,
   type ServerProvider,
   type ServerProviderModel,
 } from "@t3tools/contracts";
@@ -60,6 +61,7 @@ import * as AcpRegistrySupport from "./AcpRegistrySupport.ts";
 import * as AcpRegistryRuntimeCoordinator from "./AcpRegistryRuntimeCoordinator.ts";
 import * as AcpRegistryAuth from "./auth.ts";
 import * as AcpRegistryAuthenticationState from "./authenticationState.ts";
+import { withKimiContextControls } from "./kimiCompaction.ts";
 import { isKimiAgent, probeKimiUsage } from "./kimiUsage.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("acpRegistry");
@@ -95,12 +97,14 @@ function modelsFromDiscovery(
     | Pick<AcpRegistryLiveConfiguration, "models" | "currentModelId" | "configOptions">
     | undefined,
   customModels: ReadonlyArray<string>,
+  decorate: (capabilities: ModelCapabilities) => ModelCapabilities = (capabilities) => capabilities,
 ): ReadonlyArray<ServerProviderModel> {
   const discovered = discovery?.models ?? [];
-  const capabilities =
+  const capabilities = decorate(
     discovery === undefined || discovery.configOptions.length === 0
       ? EMPTY_CAPABILITIES
-      : createModelCapabilities({ optionDescriptors: discovery.configOptions });
+      : createModelCapabilities({ optionDescriptors: discovery.configOptions }),
+  );
   const builtInModels: ReadonlyArray<ServerProviderModel> =
     discovered.length === 0
       ? [
@@ -231,7 +235,11 @@ function baseSnapshot(
             : input.settings.agentId.length > 0),
     },
     ...(input.message ? { message: input.message } : {}),
-    models: modelsFromDiscovery(input.probe?.probe, input.settings.customModels),
+    models: modelsFromDiscovery(
+      input.probe?.probe,
+      input.settings.customModels,
+      isKimiAgent(input.settings) ? withKimiContextControls : undefined,
+    ),
     ...(input.probe === undefined
       ? {}
       : {
@@ -262,6 +270,7 @@ export function applyAcpRegistryLiveConfiguration(
   provider: ServerProvider,
   configuration: AcpRegistryLiveConfiguration,
   customModels: ReadonlyArray<string>,
+  decorate?: (capabilities: ModelCapabilities) => ModelCapabilities,
 ): ServerProvider {
   const { message: _staleProbeMessage, ...snapshot } = provider;
   // session/load may omit models (Kimi returns `{}`); keep the probed list
@@ -285,7 +294,7 @@ export function applyAcpRegistryLiveConfiguration(
     models:
       configuration.models.length === 0 && configuration.configOptions.length === 0
         ? provider.models
-        : modelsFromDiscovery(discovery, customModels),
+        : modelsFromDiscovery(discovery, customModels, decorate),
   };
 }
 
@@ -584,6 +593,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
                     withCommands,
                     liveConfiguration,
                     effectiveConfig.customModels,
+                    isKimiAgent(effectiveConfig) ? withKimiContextControls : undefined,
                   ),
               });
               return applyAcpRegistryUrlAuthAction(withConfiguration, authAction);
@@ -738,6 +748,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
                       current,
                       configuration,
                       effectiveConfig.customModels,
+                      isKimiAgent(effectiveConfig) ? withKimiContextControls : undefined,
                     ),
                   ),
                 ),

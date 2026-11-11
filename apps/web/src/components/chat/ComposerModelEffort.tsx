@@ -2,6 +2,7 @@ import {
   chosenContextLimit,
   contextControlReadout,
   useComposerContextLimit,
+  useComposerThreadStarted,
 } from "./ComposerContextLimit";
 import {
   buildTraitsTriggerDisplay,
@@ -389,6 +390,8 @@ function OptionMenuRow(props: {
   const value = traits.selectValue(descriptor);
   const chosenLimit = chosenContextLimit(traits.selectDescriptors);
   const currentLimit = useComposerContextLimit();
+  const threadStarted = useComposerThreadStarted();
+  const locked = descriptor.lockedOnceStarted === true && threadStarted;
   const current = choices.find((choice) => choice.id === value)?.label ?? "";
   return (
     <Menu
@@ -412,6 +415,7 @@ function OptionMenuRow(props: {
             type="button"
             data-effort-row
             tabIndex={props.tabStop ? 0 : -1}
+            disabled={locked}
             aria-label={`${descriptor.label}: ${current}`}
             className={cn(OPTION_ROW, "data-popup-open:bg-foreground/[0.09]")}
             onKeyDown={(event) => {
@@ -423,7 +427,10 @@ function OptionMenuRow(props: {
           />
         }
       >
-        <OptionRowText label={descriptor.label} value={current} />
+        <OptionRowText
+          label={descriptor.label}
+          value={locked ? `${current} (fixed once started)` : current}
+        />
         <ChevronRightIcon
           aria-hidden="true"
           className="-me-1 size-3.5 shrink-0 text-muted-foreground"
