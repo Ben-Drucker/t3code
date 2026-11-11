@@ -12,7 +12,6 @@ import * as Broker from "../mcp/PreviewAutomationBroker.ts";
 import { FirefoxBrowser } from "./FirefoxBrowser.ts";
 import * as FirefoxProcess from "./FirefoxProcess.ts";
 import * as MarionetteClient from "./MarionetteClient.ts";
-import * as GuardedBrowserClick from "./GuardedBrowserClick.ts";
 import { firefoxBidiPort } from "./FirefoxBidiEndpoint.ts";
 import type { ServerBrowser } from "./ServerBrowser.ts";
 import { ServerBrowserLaunchError } from "./ServerBrowser.ts";
@@ -25,8 +24,6 @@ export const makeBrowser = Effect.fn("FirefoxServerBrowser.makeBrowser")(functio
   const platform = yield* HostProcess.Platform;
   const client = yield* MarionetteClient.MarionetteClient;
   const bidiPort = firefoxBidiPort(env.T3CODE_FIREFOX_BIDI_PORT);
-  const guarded = yield* GuardedBrowserClick.GuardedBrowserClick;
-  const runPromise = Effect.runPromiseWith(yield* Effect.context<never>());
   const configuredPort = Number(env.T3CODE_FIREFOX_PORT ?? 2828);
   if (!Number.isInteger(configuredPort) || configuredPort < 1 || configuredPort > 65535)
     return yield* Effect.die(new Error("T3CODE_FIREFOX_PORT must be an integer from 1 to 65535."));
@@ -53,10 +50,7 @@ export const makeBrowser = Effect.fn("FirefoxServerBrowser.makeBrowser")(functio
         new FirefoxBrowser(connection, {
           ...options,
           ...(bidiPort === undefined ? {} : { bidiPort }),
-          autofill: {
-            supported: guarded.supported,
-            click: (pid, target) => runPromise(guarded.click(pid, target)),
-          },
+          autofill: { supported: platform === "darwin" },
         }),
     ),
     (browser) => Effect.promise(() => browser.close()),
@@ -151,4 +145,4 @@ export const make = Effect.gen(function* () {
       ),
     profileReporter: Effect.succeed(() => Effect.void),
   } satisfies ServerBrowser["Service"];
-}).pipe(Effect.provide(GuardedBrowserClick.layer));
+});

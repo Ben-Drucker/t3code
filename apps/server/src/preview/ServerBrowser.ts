@@ -93,7 +93,6 @@ import { MAC_CHROME_EXECUTABLE } from "./ServerBrowserDockedChrome.ts";
 import { BrowserControlInterrupted, SessionControl } from "./SessionControl.ts";
 import { installPdfDocumentNavigation, isPdfAssetUrl } from "./PdfDocumentNavigation.ts";
 import * as FirefoxServerBrowser from "./FirefoxServerBrowser.ts";
-import * as GuardedBrowserClick from "./GuardedBrowserClick.ts";
 import * as MarionetteClient from "./MarionetteClient.ts";
 import type { ServerBrowserBackend } from "./ServerBrowserBackend.ts";
 
@@ -568,7 +567,7 @@ const make = Effect.gen(function* () {
           .pipe(Effect.ignore),
       );
     },
-  }).pipe(Effect.provide(Layer.mergeAll(MarionetteClient.layer, GuardedBrowserClick.layer)));
+  }).pipe(Effect.provide(MarionetteClient.layer));
   let viewerResizeOrder = 0;
 
   const contexts = new ServerBrowserContexts({

@@ -115,7 +115,8 @@ export class FirefoxBrowser implements ServerBrowserBackend {
   readonly connection: MarionetteConnection;
   readonly options: {
     readonly bidiPort?: number;
-    readonly autofill?: AutofillOptions;
+    /** `click` is replaced only by tests; Firefox's own native click is the default. */
+    readonly autofill?: Omit<AutofillOptions, "click"> & Partial<Pick<AutofillOptions, "click">>;
     readonly docked?: () => boolean;
     readonly allocateTab?: (request: PreviewAutomationRequest) => Promise<string>;
     readonly opened?: (key: { threadId: string; tabId: string }, pid: number) => Promise<void>;
@@ -765,14 +766,11 @@ export class FirefoxBrowser implements ServerBrowserBackend {
           unsupported(
             "Firefox BiDi is off. Restart Firefox with --marionette --remote-debugging-port=<free-port> to use preview_autofill.",
           );
-        if (!this.connection.processId)
-          unsupported("Firefox did not report its process ID; OS autofill is unavailable.");
         return autofillFirefox(
           this.bidi!,
           tab.handle,
-          this.connection.processId!,
           request.input as import("@t3tools/contracts").PreviewAutomationAutofillInput,
-          this.options.autofill!,
+          { click: (target) => this.nativeClick(target), ...this.options.autofill! },
           () => this.autofillFrames(),
         );
       case "dialog": {
@@ -1016,6 +1014,30 @@ export class FirefoxBrowser implements ServerBrowserBackend {
         );
       default:
         unsupported(`Firefox does not implement ${request.operation}.`);
+    }
+  }
+
+  /**
+   * 1Password's banner ignores page-level input. A native event built inside Firefox is trusted,
+   * lands in extension frames, and needs no OS cursor, focus, or Accessibility permission.
+   */
+  private async nativeClick(target: () => Promise<{ x: number; y: number }>) {
+    const { x, y } = await target();
+    await this.connection.command("Marionette:SetContext", { value: "chrome" });
+    try {
+      await this.script(
+        "const w=Services.wm.getMostRecentWindow('navigator:browser'),[x,y]=arguments,d=w.devicePixelRatio,el=w.document.documentElement,px=Math.round(x*d),py=Math.round(y*d);for(const message of [5,1,2])w.windowUtils.sendNativeMouseEvent(px,py,message,0,0,el,null);",
+        [x, y],
+        false,
+        false,
+      );
+    } catch (cause) {
+      throw new Error(
+        "Firefox refused the browser-level click. Restart Firefox with --remote-allow-system-access (plus --marionette --remote-debugging-port=9333).",
+        { cause },
+      );
+    } finally {
+      await this.connection.command("Marionette:SetContext", { value: "content" });
     }
   }
 

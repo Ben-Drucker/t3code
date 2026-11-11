@@ -213,7 +213,7 @@ firefoxTest(
         autofill: (connection, origin) => ({
           supported: true,
           bannerOrigin: origin.replace("127.0.0.1", "localhost"),
-          click: async (_pid, target) => {
+          click: async (target) => {
             const point = await target();
             clicks.push(point);
             const unwrap = (packet: unknown) =>

@@ -13,10 +13,11 @@ Full-screen T3 windows hide the docked browser. Moving the pair between Spaces i
 ## Firefox and 1Password
 
 Firefox attaches to your running browser, using its signed-in profile and installed extensions.
-Quit Firefox normally, then start it with both automation listeners enabled:
+Quit Firefox normally, then start it with both automation listeners and system access enabled.
+System access lets T3 click 1Password's banner from inside Firefox:
 
 ```sh
-/Applications/Firefox.app/Contents/MacOS/firefox --marionette --remote-debugging-port=9333
+/Applications/Firefox.app/Contents/MacOS/firefox --marionette --remote-debugging-port=9333 --remote-allow-system-access
 ```
 
 Marionette uses port 2828 by default. If you change `marionette.port` in Firefox, set
@@ -26,11 +27,9 @@ Choose a free port; Chrome often uses 9222. Launch arguments must reach a new Fi
 so opening another window in an already-running Firefox does not enable the listeners.
 
 Open a preview and ask the agent to use `preview_autofill`, optionally with an exact username
-and entry title. Keep 1Password unlocked. Allow notifications for **T3 Code Browser Automation**
-when prompted. Before each OS click, a notification gives you five seconds' warning. T3 briefly
-activates Firefox, clicks the inline 1Password banner, then restores your app, cursor, and window
-order and removes the notification. It reports the selected entry's title and username and the
-URL after the click; passwords and verification codes stay in 1Password.
+and entry title. Keep 1Password unlocked. T3 clicks the inline 1Password banner from inside
+Firefox, so your cursor and other apps are untouched. It reports the selected entry's title and
+username and the URL after the click; passwords and verification codes stay in 1Password.
 
 T3 opens a separate Firefox work window and closes only tabs it created. Your other tabs and
 profile stay yours. Firefox allows one automation session at a time. Stop another automation
@@ -38,7 +37,7 @@ client before connecting; restart Firefox if an abandoned session still occupies
 `preview_status` reports when BiDi is off or its configured port belongs to Chrome.
 
 Firefox supports snapshots and browser actions; video recording and the streamed preview are
-unavailable. Use the docked Firefox window to view the page. Autofill OS clicks require macOS.
+unavailable. Use the docked Firefox window to view the page. Autofill requires macOS.
 
 ## Chrome and 1Password
 

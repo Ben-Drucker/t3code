@@ -207,7 +207,7 @@ sign_app() {
   local helper
   while IFS= read -r helper; do
     codesign --force --timestamp=none -s "$identity" "$helper" || die "Signing $helper failed."
-  done < <(find "$APP/Contents/Resources" -maxdepth 3 \( -name "*.app" -o -name "t3-window-dock" -o -name "t3-browser-click" \) -not -path "*/node_modules/*")
+  done < <(find "$APP/Contents/Resources" -maxdepth 3 \( -name "*.app" -o -name "t3-window-dock" \) -not -path "*/node_modules/*")
   codesign --force --deep --timestamp=none -s "$identity" "$APP" \
     && codesign --verify --deep --strict "$APP" \
     || die "Signing $APP with '$identity' failed."

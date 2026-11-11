@@ -8,7 +8,6 @@ import {
   bannerScreenPoint,
   selectAutofillEntry,
   type AutofillEntry,
-  type ClickTarget,
   type Point,
   type Rect,
 } from "./FirefoxAutofillGeometry.ts";
@@ -48,7 +47,7 @@ const ENTRIES = `(() => {
 })()`;
 
 export interface AutofillOptions {
-  readonly click: (pid: number, target: () => Promise<ClickTarget>) => Promise<void>;
+  readonly click: (target: () => Promise<Point>) => Promise<void>;
   readonly supported: boolean;
   /** Isolated fixture origins only; production accepts extension contexts exclusively. */
   readonly bannerOrigin?: string;
@@ -57,7 +56,6 @@ export interface AutofillOptions {
 export async function autofillFirefox(
   bidi: FirefoxBidi,
   context: string,
-  pid: number,
   input: PreviewAutomationAutofillInput,
   options: AutofillOptions,
   frames: () => Promise<Array<{ url: string; rect: Rect }>>,
@@ -159,7 +157,7 @@ export async function autofillFirefox(
     const bannerContext = banner.context;
     bannerFound = true;
     const clickLabel = async (expression: string) =>
-      options.click(pid, async () => {
+      options.click(async () => {
         if ((await url()) !== original)
           throw new Error("The login page redirected before the autofill click.");
         const label = await evaluate<{ rect: Rect; width: number; height: number }>(
@@ -190,13 +188,7 @@ export async function autofillFirefox(
           banner: { width: label.width, height: label.height },
           label: label.rect,
         });
-        // The OS click must land on this element; the cursor is already on it when this runs.
-        const verify = () =>
-          evaluate<boolean>(
-            bannerContext,
-            `(() => { const el = ${expression}; return !!el && el.matches(':hover'); })()`,
-          );
-        return { ...point, verify };
+        return point;
       });
     let entries = await evaluate<AutofillEntry[]>(bannerContext, ENTRIES);
     let selected = selectAutofillEntry(entries, input);
