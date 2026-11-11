@@ -24,6 +24,7 @@ import {
 } from "@t3tools/shared/model";
 import { memo } from "react";
 import { formatContextWindowTokens } from "../../lib/contextWindow";
+import { useComposerContextLimit } from "./ComposerContextLimit";
 import { GaugeIcon } from "lucide-react";
 import {
   Menu,
@@ -69,22 +70,36 @@ function savedOptionLabel(id: string): string {
   );
 }
 
-/** A compaction buffer is a share of the context limit, so its choices show the tokens they leave free. */
-function compactBufferReadout(
+/** Claude compacts this far short of its window unless a buffer is chosen. */
+const DEFAULT_COMPACT_RESERVE_TOKENS = 33_000;
+
+/** What a choice means in tokens, against the limit being chosen or else the thread's current one. */
+function contextControlReadout(
   descriptors: ReadonlyArray<Extract<ProviderOptionDescriptor, { type: "select" }>>,
   descriptorId: string,
   optionId: string,
+  currentLimit: number | null,
 ) {
-  if (descriptorId !== "compactBuffer") return undefined;
-  const percent = Number(optionId);
-  const limit = Number(
+  const chosen = Number(
     getDescriptorStringValue(
       descriptors.find((descriptor) => descriptor.id === "contextLimit") ?? null,
     ),
   );
-  return percent > 0 && limit > 0
-    ? `Compacts at ~${formatContextWindowTokens(Math.round(limit * (1 - percent / 100)))}`
-    : undefined;
+  const limit = chosen > 0 ? chosen : currentLimit;
+  if (descriptorId === "contextLimit")
+    return optionId === "default" && limit
+      ? `Currently ${formatContextWindowTokens(limit)}`
+      : undefined;
+  if (descriptorId !== "compactBuffer" || !limit) return undefined;
+  const free =
+    optionId === "default"
+      ? DEFAULT_COMPACT_RESERVE_TOKENS
+      : Math.round((limit * Number(optionId)) / 100);
+  if (!(free > 0)) return undefined;
+  const percent = Math.round((free / limit) * 100);
+  const detail =
+    optionId === "default" ? ` (${formatContextWindowTokens(free)}, ${percent}% free)` : "";
+  return `Compacts at ~${formatContextWindowTokens(limit - free)}${detail}`;
 }
 
 function buildUnavailableModelOptionDescriptors(
@@ -393,6 +408,7 @@ export const ULTRATHINK_IN_BODY_NOTE =
 
 const TraitsMenuContent = memo(function TraitsMenuContentImpl(props: TraitsSelectionInput) {
   const traits = useTraitsSelection(props);
+  const currentContextLimit = useComposerContextLimit();
   const {
     descriptors,
     selectDescriptors,
@@ -461,10 +477,20 @@ const TraitsMenuContent = memo(function TraitsMenuContentImpl(props: TraitsSelec
                       {option.isDefault ? <DefaultBadge /> : null}
                     </span>
                     {(option.description ??
-                    compactBufferReadout(selectDescriptors, descriptor.id, option.id)) ? (
+                    contextControlReadout(
+                      selectDescriptors,
+                      descriptor.id,
+                      option.id,
+                      currentContextLimit,
+                    )) ? (
                       <span className="max-w-56 text-pretty text-muted-foreground/80 text-xs">
                         {option.description ??
-                          compactBufferReadout(selectDescriptors, descriptor.id, option.id)}
+                          contextControlReadout(
+                            selectDescriptors,
+                            descriptor.id,
+                            option.id,
+                            currentContextLimit,
+                          )}
                       </span>
                     ) : null}
                   </span>
