@@ -773,6 +773,19 @@ describe("ClaudeAdapterV2 context usage", () => {
     );
     assert.strictEqual(usage.promptCacheExpiresAt, "2026-08-29T00:05:00.000Z");
   });
+
+  it("measures the meter against a configured compact window, not the model's full window", () => {
+    const usage = (window: string) =>
+      ClaudeAdapterV2.claudeProviderTurnTokenUsage(
+        { input_tokens: 1, output_tokens: 1 },
+        1_000_000,
+        "2026-08-29T00:03:00.000Z",
+        window,
+      );
+    assert.include(usage("375000"), { maxTokens: 375_000, autoCompactThreshold: 342_000 });
+    assert.include(usage(""), { maxTokens: 1_000_000 });
+    assert.include(usage("1000000"), { maxTokens: 1_000_000 });
+  });
 });
 
 describe("ClaudeAdapterV2 approval presentation", () => {

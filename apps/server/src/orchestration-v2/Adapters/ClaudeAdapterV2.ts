@@ -261,7 +261,7 @@ function claudeAutoCompactLimits(autoCompactWindow: string, catalogTokens: numbe
   const windowTokens = Number(autoCompactWindow);
   return windowTokens > 0 && (catalogTokens === null || windowTokens < catalogTokens)
     ? {
-        maxTokens: catalogTokens,
+        maxTokens: windowTokens,
         autoCompactThreshold: windowTokens - CLAUDE_AUTO_COMPACT_RESERVE_TOKENS,
       }
     : { maxTokens: catalogTokens };
