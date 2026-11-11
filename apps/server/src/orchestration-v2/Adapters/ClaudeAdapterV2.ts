@@ -192,6 +192,11 @@ import {
   scopeClaudeModelCatalog,
 } from "../../provider/ClaudeModelCatalog.ts";
 import {
+  CLAUDE_AUTO_COMPACT_RESERVE_TOKENS,
+  claudeSelectedCompaction,
+  resolveClaudeCompaction,
+} from "../../provider/claudeCompaction.ts";
+import {
   boundProviderEventForLogging,
   shouldPersistProviderEvent,
 } from "../../provider/EventNdjsonLogger.ts";
@@ -255,16 +260,19 @@ function claudePromptCacheTtlMs(
 // Claude caps the window at the model's context, so a setting at or above it never applies.
 // Below that, Claude compacts 33,000 tokens short of the window: Claude Code 2.1.305's
 // getContextUsage reports a 150,000 window as a 117,000 threshold, for every catalog model.
-const CLAUDE_AUTO_COMPACT_RESERVE_TOKENS = 33_000;
 
-function claudeAutoCompactLimits(autoCompactWindow: string, catalogTokens: number | null) {
+function claudeAutoCompactLimits(
+  autoCompactWindow: string,
+  catalogTokens: number | null,
+  contextLimit: number | null = null,
+) {
   const windowTokens = Number(autoCompactWindow);
   return windowTokens > 0 && (catalogTokens === null || windowTokens < catalogTokens)
     ? {
-        maxTokens: windowTokens,
+        maxTokens: contextLimit ?? windowTokens,
         autoCompactThreshold: windowTokens - CLAUDE_AUTO_COMPACT_RESERVE_TOKENS,
       }
-    : { maxTokens: catalogTokens };
+    : { maxTokens: contextLimit ?? catalogTokens };
 }
 
 function claudeMessageInputTokens(usage: {
@@ -291,11 +299,12 @@ export function claudeProviderTurnTokenUsage(
   updatedAt: string,
   autoCompactWindow = "",
   requestedAt?: DateTime.Utc,
+  contextLimit: number | null = null,
 ) {
   const inputTokens = claudeMessageInputTokens(usage);
   const outputTokens = usage.output_tokens;
   const promptCacheTtlMs = claudePromptCacheTtlMs(usage.cache_creation);
-  const limits = claudeAutoCompactLimits(autoCompactWindow, maxTokens);
+  const limits = claudeAutoCompactLimits(autoCompactWindow, maxTokens, contextLimit);
   // The cache lifetime starts with the request, not when its response ends.
   const promptCacheExpiresAt =
     promptCacheTtlMs === undefined || requestedAt === undefined
@@ -4380,6 +4389,7 @@ interface ActiveClaudeTurnContext {
   readonly queryPolicy: ClaudeRuntimeQueryPolicy;
   readonly input: ProviderAdapter.ProviderAdapterV2TurnInput;
   readonly autoCompactWindow: string;
+  readonly contextLimit: number | null;
   readonly nativeThreadId: string;
   readonly nativeTurnId: string;
   nativeMessageCursor: string | null;
@@ -4483,6 +4493,8 @@ interface ClaudeLiveQueryContext {
   readonly query: ClaudeAgentSdkQuerySession;
   readonly queryPolicyKey: string;
   selection: CompiledClaudeModelSelection;
+  /** The auto-compact window last pushed to this process by a picker choice; undefined until one is. */
+  pushedCompactWindow?: number | null;
   readonly closed: Deferred.Deferred<void, never>;
   lastTurn: ActiveClaudeTurnContext | null;
   // "early" echoes on the first frame; "acknowledged" confirms uuid acceptance, but resume turns can still precede the prompt.
@@ -5086,7 +5098,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
     },
   );
 
-  const resolveAutoCompactWindow = Effect.fn("ClaudeAdapterV2.resolveAutoCompactWindow")(function* (
+  const resolveConfiguredAutoCompactWindow = Effect.fn(
+    "ClaudeAdapterV2.resolveConfiguredAutoCompactWindow",
+  )(function* (
     cwd: string | null,
     modelSelection: ModelSelection,
     launchArgSettings: ClaudeSdkSettings | undefined,
@@ -5124,6 +5138,33 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
       if (value !== undefined) return value;
     }
     return "";
+  });
+
+  /** The thread's own context limit and compaction buffer win over Claude's configured window. */
+  const resolveAutoCompaction = Effect.fn("ClaudeAdapterV2.resolveAutoCompaction")(function* (
+    cwd: string | null,
+    modelSelection: ModelSelection,
+    launchArgSettings: ClaudeSdkSettings | undefined,
+  ) {
+    const configured = yield* resolveConfiguredAutoCompactWindow(
+      cwd,
+      modelSelection,
+      launchArgSettings,
+    );
+    const chosen = claudeSelectedCompaction(modelSelection);
+    if (chosen.limit === null && chosen.bufferPercent === null)
+      return { autoCompactWindow: configured, contextLimit: null, pushWindow: null };
+    const compaction = resolveClaudeCompaction({
+      ...chosen,
+      baseWindow: Number(configured) > 0 ? Number(configured) : null,
+      catalogTokens: claudeContextWindow(modelSelection),
+    });
+    return {
+      autoCompactWindow: compaction.window === null ? "" : String(compaction.window),
+      contextLimit: compaction.maxTokens,
+      // Claude falls back to its settings files when told nothing, so a full window is stated outright.
+      pushWindow: compaction.window ?? compaction.maxTokens,
+    };
   });
 
   const userInvocableSkills = (cwd: string | null) =>
@@ -5513,7 +5554,11 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             typeof usage === "number"
               ? {
                   usedTokens: usage,
-                  ...claudeAutoCompactLimits(context.autoCompactWindow, maxTokens),
+                  ...claudeAutoCompactLimits(
+                    context.autoCompactWindow,
+                    maxTokens,
+                    context.contextLimit,
+                  ),
                   updatedAt: DateTime.formatIso(now),
                 }
               : claudeProviderTurnTokenUsage(
@@ -5522,6 +5567,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   DateTime.formatIso(now),
                   context.autoCompactWindow,
                   context.streamUsage?.requestedAt,
+                  context.contextLimit,
                 );
           if (typeof usage !== "number") {
             if (claudeMessageInputTokens(usage) <= 0) return;
@@ -5591,6 +5637,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           const limits = claudeAutoCompactLimits(
             context.autoCompactWindow,
             claudeContextWindow(context.input.modelSelection),
+            context.contextLimit,
           );
           yield* emitProviderEvent({
             type: "provider_turn.updated",
@@ -11304,14 +11351,22 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     Effect.provideService(Path.Path, path),
                   );
             const querySession = yield* openQuery(turnInput, nativeThreadId);
-            const autoCompactWindow = yield* resolveAutoCompactWindow(
+            const compaction = yield* resolveAutoCompaction(
               querySession.settingsCwd,
               turnInput.modelSelection,
               querySession.launchArgSettings,
             );
+            // The picker can change the window between turns, larger or smaller, without a new process.
+            if ((querySession.pushedCompactWindow ?? null) !== compaction.pushWindow) {
+              yield* querySession.query
+                .applyFlagSettings({ autoCompactWindow: compaction.pushWindow })
+                .pipe(Effect.ignore);
+              querySession.pushedCompactWindow = compaction.pushWindow;
+            }
             const context: ActiveClaudeTurnContext = {
               input: turnInput,
-              autoCompactWindow,
+              autoCompactWindow: compaction.autoCompactWindow,
+              contextLimit: compaction.contextLimit,
               queryPolicy: querySession.queryPolicy,
               nativeThreadId,
               nativeTurnId,

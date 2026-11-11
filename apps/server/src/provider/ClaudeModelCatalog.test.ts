@@ -211,7 +211,7 @@ describe("Claude model catalog", () => {
       getClaudeCatalogModelCapabilities(catalog, "claude-custom-tuned").optionDescriptors?.map(
         ({ id, type }) => `${id}:${type}`,
       ),
-      ["effort:select", "ultracode:boolean"],
+      ["effort:select", "ultracode:boolean", "contextLimit:select", "compactBuffer:select"],
     );
     assert.strictEqual(
       normalizeClaudeCatalogEffort(catalog, "brutal", "claude-custom-tuned"),

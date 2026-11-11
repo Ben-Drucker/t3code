@@ -3083,8 +3083,11 @@ it.layer(
             ["gateway/kimi-3[1m]", "Kimi (mine)", true],
           ],
         );
-        assert.deepStrictEqual(added[0]?.capabilities?.optionDescriptors, []);
-        assert.deepStrictEqual(added[1]?.capabilities?.optionDescriptors, [
+        assert.deepStrictEqual(
+          added[0]?.capabilities?.optionDescriptors?.map((descriptor) => descriptor.id),
+          ["contextLimit", "compactBuffer"],
+        );
+        assert.deepStrictEqual(added[1]?.capabilities?.optionDescriptors?.slice(0, 1), [
           {
             id: "effort",
             label: "Reasoning",
@@ -3373,11 +3376,13 @@ it.layer(
         );
         const custom = status.models.find((model) => model.slug === "claude-custom-tuned");
         assert.deepStrictEqual(
-          custom?.capabilities?.optionDescriptors?.map((descriptor) =>
-            descriptor.type === "select"
-              ? `${descriptor.id}:${descriptor.options.map((option) => option.id).join("|")}`
-              : `${descriptor.id}:${descriptor.type}`,
-          ),
+          custom?.capabilities?.optionDescriptors
+            ?.filter((descriptor) => !["contextLimit", "compactBuffer"].includes(descriptor.id))
+            .map((descriptor) =>
+              descriptor.type === "select"
+                ? `${descriptor.id}:${descriptor.options.map((option) => option.id).join("|")}`
+                : `${descriptor.id}:${descriptor.type}`,
+            ),
           ["effort:high|xhigh", "ultracode:boolean"],
         );
       }).pipe(

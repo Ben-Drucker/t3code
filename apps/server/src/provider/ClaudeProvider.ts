@@ -55,7 +55,7 @@ import {
   formatClaudeVersionUpgradeMessage,
   resolveClaudeModelsForVersion,
   resolveClaudeUpdateRequiredModels,
-  withUltracodeToggle,
+  withClaudeModelControls,
 } from "./ClaudeModelCatalog.ts";
 
 const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabilities({
@@ -71,7 +71,9 @@ function claudeProviderModels(
     customModels,
     DEFAULT_CLAUDE_MODEL_CAPABILITIES,
   ).map((model) =>
-    model.isCustom ? { ...model, capabilities: withUltracodeToggle(model.capabilities) } : model,
+    model.isCustom
+      ? { ...model, capabilities: withClaudeModelControls(model.capabilities) }
+      : model,
   );
 }
 

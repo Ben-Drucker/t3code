@@ -23,6 +23,7 @@ import {
   normalizeModelSlug,
 } from "@t3tools/shared/model";
 import { memo } from "react";
+import { formatContextWindowTokens } from "../../lib/contextWindow";
 import { GaugeIcon } from "lucide-react";
 import {
   Menu,
@@ -66,6 +67,24 @@ function savedOptionLabel(id: string): string {
     SAVED_OPTION_LABELS[id] ??
     id.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, (character) => character.toUpperCase())
   );
+}
+
+/** A compaction buffer is a share of the context limit, so its choices show the tokens they leave free. */
+function compactBufferReadout(
+  descriptors: ReadonlyArray<Extract<ProviderOptionDescriptor, { type: "select" }>>,
+  descriptorId: string,
+  optionId: string,
+) {
+  if (descriptorId !== "compactBuffer") return undefined;
+  const percent = Number(optionId);
+  const limit = Number(
+    getDescriptorStringValue(
+      descriptors.find((descriptor) => descriptor.id === "contextLimit") ?? null,
+    ),
+  );
+  return percent > 0 && limit > 0
+    ? `Compacts at ~${formatContextWindowTokens(Math.round(limit * (1 - percent / 100)))}`
+    : undefined;
 }
 
 function buildUnavailableModelOptionDescriptors(
@@ -441,9 +460,11 @@ const TraitsMenuContent = memo(function TraitsMenuContentImpl(props: TraitsSelec
                       <span className="min-w-0 truncate">{option.label}</span>
                       {option.isDefault ? <DefaultBadge /> : null}
                     </span>
-                    {option.description ? (
+                    {(option.description ??
+                    compactBufferReadout(selectDescriptors, descriptor.id, option.id)) ? (
                       <span className="max-w-56 text-pretty text-muted-foreground/80 text-xs">
-                        {option.description}
+                        {option.description ??
+                          compactBufferReadout(selectDescriptors, descriptor.id, option.id)}
                       </span>
                     ) : null}
                   </span>

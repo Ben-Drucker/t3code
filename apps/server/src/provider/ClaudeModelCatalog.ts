@@ -24,6 +24,7 @@ import {
 } from "./ClaudeModelManifest.ts";
 import * as ModelCatalog from "@t3tools/provider-core/server/ModelCatalog";
 import { BUNDLED_MODEL_MANIFEST, resolveProviderCatalog } from "./ModelManifest.ts";
+import { CLAUDE_COMPACT_BUFFER_OPTION, CLAUDE_CONTEXT_LIMIT_OPTION } from "./claudeCompaction.ts";
 
 const CLAUDE = ProviderDriverKind.make("claudeAgent");
 const EMPTY_CAPABILITIES: ModelCapabilities = { optionDescriptors: [] };
@@ -50,7 +51,7 @@ function tryResolveClaudeModelCatalog(
     if (Option.isNone(profile) || Option.isNone(adapter)) return null;
     const model = ModelCatalog.catalogServerModel(resolved, entry);
     models.push({
-      model: { ...model, capabilities: withUltracodeToggle(model.capabilities) },
+      model: { ...model, capabilities: withClaudeModelControls(model.capabilities) },
       runtime: profile.value.claudeCode ?? {},
       compatibility: adapter.value.claudeCode ?? {},
     });
@@ -62,9 +63,7 @@ function tryResolveClaudeModelCatalog(
 }
 
 // The manifest keeps Ultracode as an effort level because released servers read it from main.
-export function withUltracodeToggle(
-  capabilities: ModelCapabilities | null,
-): ModelCapabilities | null {
+function withUltracodeToggle(capabilities: ModelCapabilities | null): ModelCapabilities | null {
   const descriptors = capabilities?.optionDescriptors ?? [];
   const effortIndex = descriptors.findIndex(
     (descriptor) =>
@@ -104,6 +103,53 @@ export function withUltracodeToggle(
       },
     ),
   };
+}
+
+const CONTEXT_LIMITS = [150_000, 200_000, 250_000, 300_000, 375_000, 500_000, 750_000, 1_000_000];
+const COMPACT_BUFFER_PERCENTS = [5, 10, 15, 20, 25, 30, 40];
+const formatTokens = (tokens: number) =>
+  tokens >= 1_000_000 ? `${tokens / 1_000_000}M` : `${tokens / 1_000}K`;
+
+/** Every Claude model can cap its context and choose how much of that cap stays free before compaction. */
+function withClaudeContextControls(
+  capabilities: ModelCapabilities | null,
+): ModelCapabilities | null {
+  const descriptors = capabilities?.optionDescriptors ?? [];
+  if (descriptors.some((descriptor) => descriptor.id === CLAUDE_CONTEXT_LIMIT_OPTION))
+    return capabilities;
+  return {
+    ...capabilities,
+    optionDescriptors: [
+      ...descriptors,
+      {
+        id: CLAUDE_CONTEXT_LIMIT_OPTION,
+        label: "Context limit",
+        type: "select",
+        options: [
+          { id: "default", label: "Default", isDefault: true },
+          ...CONTEXT_LIMITS.map((tokens) => ({ id: String(tokens), label: formatTokens(tokens) })),
+        ],
+      },
+      {
+        id: CLAUDE_COMPACT_BUFFER_OPTION,
+        label: "Compaction buffer",
+        type: "select",
+        options: [
+          { id: "default", label: "Default", isDefault: true },
+          ...COMPACT_BUFFER_PERCENTS.map((percent) => ({
+            id: String(percent),
+            label: `${percent}% free`,
+          })),
+        ],
+      },
+    ],
+  };
+}
+
+export function withClaudeModelControls(
+  capabilities: ModelCapabilities | null,
+): ModelCapabilities | null {
+  return withClaudeContextControls(withUltracodeToggle(capabilities));
 }
 
 /** Resolve the fallback on each read so its new-model badges can expire. */
@@ -151,7 +197,7 @@ export function scopeClaudeModelCatalog(
         slug: entry.slug,
         name: entry.name,
         isCustom: true,
-        capabilities: withUltracodeToggle(entry.capabilities),
+        capabilities: withClaudeModelControls(entry.capabilities),
       },
       runtime: {},
       compatibility: {},
@@ -200,7 +246,7 @@ export function claudeReportedModels(
       slug,
       name: info.displayName.trim() || slug,
       isCustom: false,
-      capabilities: {
+      capabilities: withClaudeContextControls({
         optionDescriptors: efforts.length
           ? [
               {
@@ -215,7 +261,7 @@ export function claudeReportedModels(
               },
             ]
           : [],
-      },
+      }),
     });
   }
   return models;
