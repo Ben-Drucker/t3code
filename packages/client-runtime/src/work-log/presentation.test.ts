@@ -4,12 +4,34 @@ import { ThreadId, TurnItemId, type OrchestrationV2TurnItem } from "@t3tools/con
 import * as DateTime from "effect/DateTime";
 
 import {
+  contextCompactionLabel,
+  contextCompactionTokenCounts,
   resolveWorkEntryToolPresentation,
   toolItemForDisplay,
   type WorkLogPresentationEntry,
   workEntryIndicatesToolFailure,
   workEntryDisplayIndicatesToolFailure,
 } from "./presentation.js";
+
+it("uses a completed compaction's titled summary in the existing web and mobile divider", () => {
+  const item = {
+    status: "completed" as const,
+    title: "Context compacted (detected)",
+    summary: "Context compacted (detected): 412K → 96K tokens, saved 316K",
+    beforeTokenCount: 412_000,
+    afterTokenCount: 96_000,
+  };
+  expect(contextCompactionLabel(item)).toBe(item.summary);
+  expect(contextCompactionTokenCounts(item)).toBeNull();
+  for (const summary of [
+    "A conversation summary",
+    "Context compacted (detected):\nA long summary",
+  ]) {
+    const native = { ...item, summary };
+    expect(contextCompactionLabel(native)).toBe("Context compacted 412K → 96K tokens");
+    expect(contextCompactionTokenCounts(native)).toEqual({ before: "412K", after: "96K" });
+  }
+});
 
 function commandItem(
   fields: Partial<Extract<OrchestrationV2TurnItem, { type: "command_execution" }>> = {},

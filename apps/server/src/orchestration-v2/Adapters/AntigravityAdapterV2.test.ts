@@ -23,6 +23,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
+import * as Ref from "effect/Ref";
 import { ChildProcessSpawner } from "effect/process";
 import type * as EffectAcpSchema from "effect-acp/compat";
 import * as EffectAcpErrors from "effect-acp/errors";
@@ -40,6 +41,7 @@ import {
   makeAntigravityAcpAdapterFlavor,
   makeAntigravityAdapterV2,
 } from "./AntigravityAdapterV2.ts";
+import { makeTurnInput } from "./AcpAdapterV2.testkit.ts";
 
 const flavor = makeAntigravityAcpAdapterFlavor({
   instanceId: ProviderInstanceId.make("antigravity-test"),
@@ -163,6 +165,140 @@ const layerSession = Layer.mergeAll(
 );
 
 describe("AntigravityAdapterV2 compaction", () => {
+  it.effect.each(["usage_update", "DB poll", "native plus DB"] as const)(
+    "emits one detected native compaction with savings from %s across turn endings",
+    (source) =>
+      Effect.gen(function* () {
+        const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const path = yield* Path.Path;
+        const crypto = yield* SecureRandom.SecureRandom;
+        const mockAgentPath = yield* path.fromFileUrl(
+          new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+        );
+        const instanceId = ProviderInstanceId.make("antigravity-detected-compaction");
+        const threadId = ThreadId.make("thread-detected-compaction");
+        const used = yield* Ref.make(412_000);
+        type RuntimeService = AcpSessionRuntime.AcpSessionRuntime["Service"];
+        let sessionUpdate: Parameters<RuntimeService["handleSessionUpdate"]>[0] | undefined;
+        const adapter = yield* makeAntigravityAdapterV2({
+          instanceId,
+          selfInvocation: yield* resolveSelfInvocation(),
+          makeRuntime: (input) =>
+            makeAntigravityAcpRuntime({
+              ...input,
+              childProcessSpawner,
+              spawn: {
+                command: process.execPath,
+                args: [mockAgentPath],
+                cwd: input.cwd,
+                env: { T3_ACP_ANTIGRAVITY: "1" },
+              },
+            }).pipe(
+              Effect.provideService(SecureRandom.SecureRandom, crypto),
+              Effect.map((runtime): RuntimeService => ({
+                ...runtime,
+                handleSessionUpdate: (handler) =>
+                  Effect.sync(() => {
+                    sessionUpdate = handler;
+                  }).pipe(Effect.andThen(runtime.handleSessionUpdate(handler))),
+                prompt: () =>
+                  Effect.gen(function* () {
+                    if (source !== "DB poll") {
+                      if (!sessionUpdate)
+                        return yield* Effect.die("Missing session update handler");
+                      for (const _duplicate of [0, 1]) {
+                        yield* sessionUpdate({
+                          sessionId: "mock-session-1",
+                          update: {
+                            sessionUpdate: "usage_update",
+                            used: yield* Ref.get(used),
+                            size: 1_048_576,
+                          },
+                        });
+                      }
+                    }
+                    return {
+                      stopReason: "end_turn" as const,
+                      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                    };
+                  }),
+              })),
+            ),
+          withProcess: (_stop, task) => task,
+          defaultModel: Effect.undefined,
+          ...(source !== "usage_update"
+            ? {
+                pollContextUsage: () =>
+                  Ref.get(used).pipe(
+                    Effect.map((usedTokens) => ({
+                      usedTokens: source === "native plus DB" ? 900_000 : usedTokens,
+                      maxTokens: 256_000,
+                      breakdown: [{ category: "messages" as const, tokens: usedTokens }],
+                    })),
+                  ),
+              }
+            : {}),
+        });
+        const modelSelection = { instanceId, model: "gemini-test-low" };
+        const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: process.cwd(),
+        });
+        const session = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make("session-detected-compaction"),
+          modelSelection,
+          runtimePolicy,
+        });
+        let providerThread = yield* session.ensureThread({
+          threadId,
+          modelSelection,
+          runtimePolicy,
+        });
+        const compactions = [];
+        for (const [index, usedTokens] of [412_000, 96_000, 96_000].entries()) {
+          yield* Ref.set(used, usedTokens);
+          yield* session.startTurn(
+            makeTurnInput({
+              threadId,
+              providerThread,
+              instanceId,
+              modelSelection,
+              runtimePolicy,
+              now: yield* DateTime.now,
+              ordinal: index + 1,
+            }),
+          );
+          const events = yield* session.events.pipe(
+            Stream.takeUntil((event) => event.type === "turn.terminal"),
+            Stream.runCollect,
+          );
+          for (const event of events) {
+            if (event.type === "provider_thread.updated") providerThread = event.providerThread;
+            if (event.type === "turn_item.updated" && event.turnItem.type === "compaction")
+              compactions.push(event.turnItem);
+          }
+        }
+        assert.lengthOf(compactions, 1);
+        assert.equal(compactions[0]?.runId, RunId.make(`run:${threadId}:2`));
+        if (source === "native plus DB") {
+          assert.equal(providerThread.contextUsage?.usedTokens, 96_000);
+          assert.deepEqual(providerThread.contextUsage?.breakdown, [
+            { category: "messages", tokens: 96_000 },
+          ]);
+        }
+        assert.containSubset(compactions[0], {
+          type: "compaction",
+          driver: "antigravity",
+          status: "completed",
+          beforeTokenCount: 412_000,
+          afterTokenCount: 96_000,
+          summary: "Context compacted (detected): 412K → 96K tokens, saved 316K",
+        });
+      }).pipe(Effect.provide(layerSession), Effect.scoped),
+  );
+
   it.effect("does not expose unsupported manual compaction on the provider session", () =>
     Effect.gen(function* () {
       const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
