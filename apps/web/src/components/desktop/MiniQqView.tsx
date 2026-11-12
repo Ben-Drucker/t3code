@@ -156,36 +156,40 @@ export function MiniQqView() {
   ) => {
     if (initializingRef.current) return;
     initializingRef.current = true;
+    // React Compiler rejects try/finally, and only the await needs the guard.
+    let projectRef: Awaited<ReturnType<typeof resolveDefaultProjectRef>>;
     try {
-      const projectRef = await resolveDefaultProjectRef();
-      if (!projectRef) return;
-
-      const store = useComposerDraftStore.getState();
-      if (previousSession && !hadServerThread) {
-        store.clearDraftThread(previousSession.draftId);
-      }
-
-      const draftId = newDraftId();
-      const draftThreadId = newThreadId();
-      store.setLogicalProjectDraftThreadId(MINI_QQ_LOGICAL_PROJECT_KEY, projectRef, draftId, {
-        threadId: draftThreadId,
-        branch: null,
-        worktreePath: null,
-        envMode: "local",
-        createdAt: new Date().toISOString(),
-      });
-      store.applyStickyState(draftId);
-
-      setPromotedByDraft(null);
-      setSession({
-        draftId,
-        environmentId: projectRef.environmentId,
-        draftThreadId,
-      });
-      focusMiniQqComposer(containerRef.current);
-    } finally {
+      projectRef = await resolveDefaultProjectRef();
+    } catch (error) {
       initializingRef.current = false;
+      throw error;
     }
+    initializingRef.current = false;
+    if (!projectRef) return;
+
+    const store = useComposerDraftStore.getState();
+    if (previousSession && !hadServerThread) {
+      store.clearDraftThread(previousSession.draftId);
+    }
+
+    const draftId = newDraftId();
+    const draftThreadId = newThreadId();
+    store.setLogicalProjectDraftThreadId(MINI_QQ_LOGICAL_PROJECT_KEY, projectRef, draftId, {
+      threadId: draftThreadId,
+      branch: null,
+      worktreePath: null,
+      envMode: "local",
+      createdAt: new Date().toISOString(),
+    });
+    store.applyStickyState(draftId);
+
+    setPromotedByDraft(null);
+    setSession({
+      draftId,
+      environmentId: projectRef.environmentId,
+      draftThreadId,
+    });
+    focusMiniQqComposer(containerRef.current);
   };
 
   const startFreshSessionStable = useStableCallback(startFreshSession);
@@ -223,7 +227,7 @@ export function MiniQqView() {
   const handleOpenInMainWindow = async () => {
     if (!activeServerThreadRef || promotingToMain) return;
     setPromotingToMain(true);
-    try {
+    const promote = async () => {
       const result = await updateThreadMetadata({
         environmentId: activeServerThreadRef.environmentId,
         input: {
@@ -244,9 +248,14 @@ export function MiniQqView() {
           params: buildThreadRouteParams(activeServerThreadRef),
         });
       }
-    } finally {
+    };
+    try {
+      await promote();
+    } catch (error) {
       setPromotingToMain(false);
+      throw error;
     }
+    setPromotingToMain(false);
   };
 
   const onWindowKeyDown = useStableCallback((event: KeyboardEvent) => {
