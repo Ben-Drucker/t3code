@@ -1,5 +1,6 @@
 import { EnvironmentId, MessageId, ThreadId, type AssistantCitation } from "@t3tools/contracts";
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
+import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -62,6 +63,17 @@ describe("splitPromptIntoComposerSegments", () => {
       { type: "text", text: " please" },
     ]);
   });
+
+  it.each(["apps/web/src", "My Folder/nested", "src/main.ts"])(
+    "splits generated file and directory links into mention segments: %s",
+    (path) => {
+      const source = serializeComposerFileLink(path);
+      expect(splitPromptIntoComposerSegments(`${source} `)).toEqual([
+        { type: "mention", path, source },
+        { type: "text", text: " " },
+      ]);
+    },
+  );
 
   it("splits generated markdown file links into mention segments", () => {
     expect(

@@ -2140,13 +2140,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     if (item.type === "path") {
       if (!isPathSuggestionCurrent(item.searchTarget, trigger, environmentId, gitCwd)) return;
-      if (item.directoryCompletion !== undefined) {
-        // Stay in the path trigger so the menu lists the folder's contents next.
-        applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, item.directoryCompletion, {
-          expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
-        });
-        return;
-      }
       const replacement = `${serializeComposerFileLink(item.path)} `;
       const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
         snapshot.value,

@@ -51,7 +51,6 @@ export type ComposerCommandItem =
       pathKind: ProjectEntry["kind"];
       searchTarget: ComposerPathSearchTarget;
       /** Set for folders found by typing a disk path: picking one keeps browsing inside it. */
-      directoryCompletion?: string;
       label: string;
       description: string;
     }

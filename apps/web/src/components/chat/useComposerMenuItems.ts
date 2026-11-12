@@ -54,7 +54,7 @@ import {
 } from "../pullRequest/pullRequestList.logic";
 import type { ComposerCommandItem } from "./ComposerCommandMenu";
 import { buildAgentToolSections, matchesAgentModelRow } from "./agentToolMenu";
-import { filesystemPathDirectoryPrefix, isFilesystemPathQuery } from "./composerFilesystemPath";
+import { isFilesystemPathQuery } from "./composerFilesystemPath";
 import { matchComposerModelItems } from "./composerModelMentions";
 import type { ModelEsque } from "./providerIconUtils";
 import type { ProviderInstanceEntry } from "../../providerInstances";
@@ -281,11 +281,6 @@ export function useComposerMenuItems({
             path: entry.fullPath,
             pathKind: kind,
             searchTarget: { environmentId, cwd: gitCwd, query: debouncedDiskPath },
-            ...(kind === "directory"
-              ? {
-                  directoryCompletion: `@${filesystemPathDirectoryPrefix(debouncedDiskPath)}${entry.name}/`,
-                }
-              : {}),
             label: entry.name,
             description: entry.fullPath.slice(0, Math.max(0, entry.fullPath.lastIndexOf("/"))),
           };
