@@ -73,6 +73,7 @@ import {
 import * as PreviewIpc from "./methods/preview.ts";
 import * as AppActivationIpc from "./methods/appActivation.ts";
 import * as WebLinksIpc from "./methods/webLinks.ts";
+import * as MiniQqIpc from "./methods/miniQq.ts";
 import {
   completeLegacyLocalStorage,
   takeLegacyLocalStorage,
@@ -93,6 +94,10 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(AppActivationIpc.setReady);
   yield* ipc.handle(AppActivationIpc.complete);
   yield* ipc.handle(WebLinksIpc.setReady);
+  yield* ipc.handle(MiniQqIpc.toggle);
+  yield* ipc.handle(MiniQqIpc.hide);
+  yield* ipc.handle(MiniQqIpc.openInMainWindow);
+  yield* ipc.handle(MiniQqIpc.setMainReady);
 
   yield* ipc.handleSync(takeLegacyLocalStorage);
   yield* ipc.handle(completeLegacyLocalStorage);

@@ -371,6 +371,34 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       };
     },
   },
+  miniQq: {
+    toggle: () => ipcRenderer.invoke(IpcChannels.MINI_QQ_TOGGLE_CHANNEL, undefined),
+    hide: () => ipcRenderer.invoke(IpcChannels.MINI_QQ_HIDE_CHANNEL, undefined),
+    openInMainWindow: (routePath) =>
+      ipcRenderer.invoke(IpcChannels.MINI_QQ_OPEN_IN_MAIN_CHANNEL, { routePath }),
+    onActivate: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+        if (typeof payload !== "object" || payload === null || !("focusComposer" in payload)) {
+          return;
+        }
+        listener(payload as Parameters<typeof listener>[0]);
+      };
+      ipcRenderer.on(IpcChannels.MINI_QQ_ACTIVATE_CHANNEL, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.MINI_QQ_ACTIVATE_CHANNEL, wrappedListener);
+      };
+    },
+    setMainReady: (ready) => ipcRenderer.invoke(IpcChannels.MINI_QQ_MAIN_READY_CHANNEL, ready),
+    onOpenRoute: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, routePath: unknown) => {
+        if (typeof routePath === "string") listener(routePath);
+      };
+      ipcRenderer.on(IpcChannels.MINI_QQ_OPEN_MAIN_ROUTE_CHANNEL, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.MINI_QQ_OPEN_MAIN_ROUTE_CHANNEL, wrappedListener);
+      };
+    },
+  },
   preview: {
     setForwardedShortcuts: (shortcuts) =>
       ipcRenderer.invoke(IpcChannels.PREVIEW_SET_FORWARDED_SHORTCUTS_CHANNEL, shortcuts),

@@ -12,6 +12,7 @@ import * as ElectronMenu from "../electron/ElectronMenu.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
+import * as MiniQqWindow from "./MiniQqWindow.ts";
 
 export class DesktopApplicationMenuActionError extends Schema.TaggedError<DesktopApplicationMenuActionError>()(
   "DesktopApplicationMenuActionError",
@@ -35,6 +36,7 @@ export class DesktopApplicationMenu extends Context.Service<
 type DesktopApplicationMenuRuntimeServices =
   | DesktopUpdates.DesktopUpdates
   | DesktopWindow.DesktopWindow
+  | MiniQqWindow.MiniQqWindow
   | ElectronDialog.ElectronDialog;
 
 const { logInfo: logUpdaterInfo } = makeComponentLogger("desktop-updater");
@@ -142,6 +144,12 @@ export const make = Effect.gen(function* () {
     const settingsClick = () => {
       runMenuEffect("open-settings", dispatchMenuAction("open-settings"));
     };
+    const quickQuestionClick = () => {
+      runMenuEffect(
+        "mini-qq-toggle",
+        Effect.flatMap(MiniQqWindow.MiniQqWindow, (miniQq) => miniQq.toggle),
+      );
+    };
     // Chromium and the renderer already handle this chord; injecting another paste duplicates text.
     const pasteAsTextClick = (
       _item: Electron.MenuItem,
@@ -190,6 +198,12 @@ export const make = Effect.gen(function* () {
       {
         label: "File",
         submenu: [
+          {
+            label: "Quick Question",
+            accelerator: "CmdOrCtrl+Shift+Space",
+            click: quickQuestionClick,
+          },
+          { type: "separator" },
           ...(environment.platform === "darwin"
             ? []
             : [

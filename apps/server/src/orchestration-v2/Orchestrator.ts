@@ -3423,6 +3423,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         parentThreadId: null,
         relationshipToParent: null,
         rootThreadId: command.threadId,
+        ...(command.quickQuestion === true ? { quickQuestion: true } : {}),
       },
       forkedFrom: null,
       createdAt: now,
@@ -4355,6 +4356,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 : {}),
             ...(command.branch === undefined ? {} : { branch: command.branch }),
             ...(command.worktreePath === undefined ? {} : { worktreePath: command.worktreePath }),
+            ...(command.quickQuestion === undefined
+              ? {}
+              : {
+                  lineage: (() => {
+                    const { quickQuestion: _previousQuickQuestion, ...restLineage } =
+                      thread.lineage;
+                    return command.quickQuestion
+                      ? { ...restLineage, quickQuestion: true }
+                      : restLineage;
+                  })(),
+                }),
             ...(command.linkedPullRequest === undefined
               ? {}
               : {

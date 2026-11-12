@@ -2124,6 +2124,9 @@ export const layerWsRpc = (
                           ...(input.reuseExistingThread === undefined
                             ? {}
                             : { reuseExistingThread: input.reuseExistingThread }),
+                          ...(input.quickQuestion === undefined
+                            ? {}
+                            : { quickQuestion: input.quickQuestion }),
                           projectId: input.projectId,
                           title: input.title,
                           ...(input.generateTitle === undefined

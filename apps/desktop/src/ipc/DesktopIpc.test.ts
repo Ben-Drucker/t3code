@@ -9,9 +9,10 @@ vi.mock("electron", () => ({}));
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopIpc from "./DesktopIpc.ts";
 
-it.effect("answers only the main window's top frame", () =>
+it.effect("answers only trusted windows' top frames", () =>
   Effect.gen(function* () {
     const mainFrame = {};
+    const miniQqFrame = {};
     const invoke = new Map<string, DesktopIpc.DesktopIpcHandleListener>();
     const sync = new Map<string, DesktopIpc.DesktopIpcSyncListener>();
     const ipc = yield* DesktopIpc.DesktopIpc.pipe(
@@ -24,9 +25,11 @@ it.effect("answers only the main window's top frame", () =>
         }).pipe(
           Layer.provide(
             Layer.mock(ElectronWindow.ElectronWindow, {
-              main: Effect.succeedSome({
-                webContents: { id: 1, mainFrame },
-              } as unknown as Electron.BrowserWindow),
+              isTrustedSender: (event) =>
+                Effect.succeed(
+                  (event.sender.id === 1 && event.senderFrame === mainFrame) ||
+                    (event.sender.id === 3 && event.senderFrame === miniQqFrame),
+                ),
             }),
           ),
         ),
@@ -44,6 +47,7 @@ it.effect("answers only the main window's top frame", () =>
 
     const senders = {
       app: { sender: { id: 1 }, senderFrame: mainFrame },
+      miniQq: { sender: { id: 3 }, senderFrame: miniQqFrame },
       appSubframe: { sender: { id: 1 }, senderFrame: {} },
       previewGuest: { sender: { id: 2 }, senderFrame: {} },
     };
@@ -60,6 +64,7 @@ it.effect("answers only the main window's top frame", () =>
     }
     assert.deepEqual(results, {
       app: ["secret", "secret"],
+      miniQq: ["secret", "secret"],
       appSubframe: ["rejected", undefined],
       previewGuest: ["rejected", undefined],
     });

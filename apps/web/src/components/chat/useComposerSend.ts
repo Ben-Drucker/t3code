@@ -254,6 +254,8 @@ interface ComposerSendInput {
   }) => Promise<AtomCommandResult<void, unknown>>;
   /** Links a checked-out pull request to its thread; best effort, failures only logged. */
   readonly linkCheckoutPullRequest: (threadRef: ScopedThreadRef, url: string) => void;
+  /** Marks bootstrap-created threads as quick-question threads hidden from main thread lists. */
+  readonly quickQuestion?: boolean;
 }
 
 /**
@@ -334,6 +336,7 @@ export function useComposerSend(input: ComposerSendInput) {
     handleNewThreadInActiveProject,
     persistThreadSettingsForNextTurn,
     linkCheckoutPullRequest,
+    quickQuestion,
   } = input;
   const linkedEnvironments = useLinkedEnvironments(environmentId);
   const handleNewThread = useNewThreadHandler();
@@ -1246,6 +1249,7 @@ export function useComposerSend(input: ComposerSendInput) {
                       branch: activeThreadBranch,
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
+                      ...(quickQuestion === true ? { quickQuestion: true } : {}),
                     },
                   }
                 : {}),
@@ -1262,7 +1266,7 @@ export function useComposerSend(input: ComposerSendInput) {
             }
           : undefined;
       const backgroundThreadRef =
-        submissionIntent === "background" && isLocalDraftThread
+        submissionIntent === "background" && isLocalDraftThread && !quickQuestion
           ? scopeThreadRef(environmentId, threadIdForSend)
           : null;
       // Read the live session, not the render snapshot: the draft is finalized away once the
@@ -1339,9 +1343,14 @@ export function useComposerSend(input: ComposerSendInput) {
           releaseDraftAttachments(composerAttachmentsSnapshot);
         }
         acknowledgeActiveThreadWoke();
-        // A draft still on screen finalizes once its thread route takes over.
+        // A draft still on screen finalizes once its thread route takes over; quick-question
+        // threads stay out of shell rows, so finalize as soon as startThreadTurn succeeds.
         if (sentDraftThreadRef) {
-          if (backgroundDraftOpened || currentRouteThreadKeyRef.current !== routeThreadKey) {
+          if (
+            quickQuestion ||
+            backgroundDraftOpened ||
+            currentRouteThreadKeyRef.current !== routeThreadKey
+          ) {
             finalizePromotedDraftThreadByRef(sentDraftThreadRef);
           } else {
             clearBackgroundDraftSubmissionByRef(sentDraftThreadRef);
@@ -1366,6 +1375,7 @@ export function useComposerSend(input: ComposerSendInput) {
           }
         } else if (
           submissionIntent === "background" &&
+          !quickQuestion &&
           currentRouteThreadKeyRef.current === routeThreadKey
         ) {
           handleNewThreadInActiveProject();

@@ -1198,7 +1198,29 @@ export interface DesktopBridge {
     complete: (response: DesktopAppActivationResponse) => Promise<void>;
     onRequest: (listener: (request: DesktopAppActivationRequest) => void) => () => void;
   };
+  miniQq?: DesktopMiniQqBridge;
   preview: DesktopPreviewBridge;
+}
+
+export const DesktopMiniQqOpenRouteInputSchema = Schema.Struct({
+  routePath: Schema.String.check(Schema.isTrimmed())
+    .check(Schema.isNonEmpty())
+    .check(Schema.isMaxLength(512)),
+});
+export type DesktopMiniQqOpenRouteInput = typeof DesktopMiniQqOpenRouteInputSchema.Type;
+
+export interface DesktopMiniQqActivateEvent {
+  readonly focusComposer: boolean;
+  readonly resetThread?: boolean;
+}
+
+export interface DesktopMiniQqBridge {
+  toggle: () => Promise<void>;
+  hide: () => Promise<void>;
+  openInMainWindow: (routePath: string) => Promise<void>;
+  onActivate: (listener: (event: DesktopMiniQqActivateEvent) => void) => () => void;
+  setMainReady: (ready: boolean) => Promise<void>;
+  onOpenRoute: (listener: (routePath: string) => void) => () => void;
 }
 
 /** Renderer callback invoked by Electron with a fresh user gesture before display-media capture. */
