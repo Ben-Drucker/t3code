@@ -17,3 +17,5 @@
 - Quick explainer (mermaid diagram): how device connect works through a private server, how it reaches the phone, and whether/how the iOS version code needs to change. Ben has a paid Apple developer account ($99/yr).
 - Investigate only: how dictation works or doesn't in T3. Do providers such as Claude Code (subscription) offer it over ACP or their SDKs? What about small free local models?
 - QQ button should toggle on click, adding or removing the `/qq` from the composer, instead of only turning it on.
+- Render `@` file and directory paths as hyperlinks in monospace, in the composer and in sent messages.
+- Opening an HTML file should go straight to a browser: no temp server, just `file:///path/to/file`, in a new browser tab instead of the limited HTML preview. Use the browser chosen in settings (native, Firefox docked, or Chrome docked).
