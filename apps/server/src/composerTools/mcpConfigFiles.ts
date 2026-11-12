@@ -1,4 +1,4 @@
-import { parse as parseJsonc } from "jsonc-parser";
+import { parse as parseJsonc } from "jsonc-parser/lib/esm/main.js";
 import { parse as parseToml } from "smol-toml";
 
 export type ConfiguredMcpTransport =
