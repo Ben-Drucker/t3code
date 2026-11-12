@@ -192,6 +192,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   children?: React.ReactNode;
   compact: boolean;
   canOperateThread: boolean;
+  qqActive: boolean;
   qqDisabled: boolean;
   onInsertQq: () => void;
   activeContextWindow: ContextWindowSnapshot | null;
@@ -240,9 +241,10 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
             <ComposerControl
               size="xs"
               disabled={props.qqDisabled}
+              aria-pressed={props.qqActive}
               aria-label="Insert /qq quick question chip"
               data-testid="composer-qq-button"
-              className="px-1.5 font-extrabold tracking-tight"
+              className="@max-[480px]/composer-surface:hidden px-1.5 font-extrabold tracking-tight aria-pressed:bg-accent/60 aria-pressed:text-foreground dark:aria-pressed:text-foreground"
               onClick={() => {
                 if (props.qqDisabled) return;
                 props.onInsertQq();

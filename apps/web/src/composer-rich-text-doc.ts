@@ -1848,6 +1848,36 @@ export function markdownToFlat(map: RichDocMap, markdownOffset: number): number 
   return map.docLength;
 }
 
+function tiptapBlocksContainQqChip(nodes: ReadonlyArray<Record<string, unknown>>): boolean {
+  for (const node of nodes) {
+    if (
+      node.type === "composer-skill" &&
+      (node.attrs as { skillName?: unknown } | undefined)?.skillName === "qq"
+    ) {
+      return true;
+    }
+    const children = node.content as ReadonlyArray<Record<string, unknown>> | undefined;
+    if (children && tiptapBlocksContainQqChip(children)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function hasComposerQqChip(
+  value: string,
+  skillLabelFor: (name: string) => SkillMeta | null = () => null,
+  options?: {
+    styling?: boolean;
+    blocks?: boolean;
+    literalText?: boolean;
+    isKnownModel?: IsKnownModel;
+  },
+): boolean {
+  if (!value.includes("qq")) return false;
+  return tiptapBlocksContainQqChip(buildTiptapContent(value, skillLabelFor, options));
+}
+
 export function flatToPm(map: RichDocMap, flatOffset: number): number {
   const bounded = Math.max(0, Math.min(flatOffset, map.docLength));
   for (const run of map.runs) {

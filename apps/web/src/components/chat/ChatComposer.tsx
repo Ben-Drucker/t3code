@@ -165,6 +165,7 @@ import {
   type ComposerPromptEditorHandle,
   ComposerPromptEditorTiptap as ComposerPromptEditor,
 } from "../ComposerPromptEditorTiptap";
+import { hasComposerQqChip } from "~/composer-rich-text-doc";
 import {
   ComposerContextActionsContext,
   composerContextRecordsFromDraft,
@@ -2772,6 +2773,38 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   };
   const insertComposerTextStable = useStableCallback(insertComposerText);
 
+  const hasKnownQqSkill = selectedProviderSkills.some(
+    (skill) => skill.name === "qq" && isProviderSkillUserInvocable(skill),
+  );
+  const qqSkillLabelFor = hasKnownQqSkill
+    ? (name: string) => (name === "qq" ? { label: "qq", description: null } : null)
+    : undefined;
+  const qqActive = hasComposerQqChip(
+    activePendingProgress ? activePendingProgress.customAnswer : prompt,
+    qqSkillLabelFor,
+    {
+      styling: settings.composerRichTextEnabled,
+      literalText: isLiteralPendingAnswer,
+    },
+  );
+  const onInsertQqStable = useStableCallback(() => {
+    const currentValue = activePendingProgress
+      ? activePendingProgress.customAnswer
+      : promptRef.current;
+    if (
+      qqActive ||
+      hasComposerQqChip(currentValue, qqSkillLabelFor, {
+        styling: settings.composerRichTextEnabled,
+        literalText: isLiteralPendingAnswer,
+      })
+    ) {
+      return;
+    }
+    insertComposerTextStable(hasKnownQqSkill ? "$qq " : "/qq ", "cursor", {
+      ensureLeadingBoundary: true,
+    });
+  });
+
   const insertAttachmentReferences = (
     references: ReadonlyArray<ComposerContextReference>,
     selection?: { start: number; end: number },
@@ -3913,6 +3946,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         key={`${environmentId}:${activeThreadId ?? "new"}`}
                         compact={isComposerPrimaryActionsCompact}
                         canOperateThread={canOperateThread}
+                        qqActive={qqActive}
                         qqDisabled={
                           !canOperateThread ||
                           environmentUnavailable !== null ||
@@ -3923,14 +3957,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           speechInput.freezesEditor ||
                           (pendingUserInputs.length > 0 && !activePendingProgress?.activeQuestion)
                         }
-                        onInsertQq={() => {
-                          const hasKnownQqSkill = selectedProviderSkills.some(
-                            (skill) => skill.name === "qq" && isProviderSkillUserInvocable(skill),
-                          );
-                          insertComposerTextStable(hasKnownQqSkill ? "$qq " : "/qq ", "cursor", {
-                            ensureLeadingBoundary: true,
-                          });
-                        }}
+                        onInsertQq={onInsertQqStable}
                         activeContextWindow={activeContextWindow}
                         contextBreakdown={contextBreakdown}
                         reserveContextWindowMeter={reserveContextWindowMeter}

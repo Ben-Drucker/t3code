@@ -27,6 +27,7 @@ import {
   ComposerTaskItemExtension,
   flatToMarkdown,
   flatToPm,
+  hasComposerQqChip,
   markdownToFlat,
   pmToFlat,
   serializeEditorDoc,
@@ -1449,5 +1450,36 @@ describe("surroundSelectionWithMark", () => {
     doc.check();
     const state = EditorState.create({ doc });
     expect(surroundSelectionWithMark(state, 1, doc.content.size - 1, "`")).toBeNull();
+  });
+});
+
+describe("hasComposerQqChip", () => {
+  const knownQqSkill = (name: string) =>
+    name === "qq" ? { label: "qq", description: null } : null;
+
+  it("detects /qq skill chips across draft positions and blocks", () => {
+    expect(hasComposerQqChip("")).toBe(false);
+    expect(hasComposerQqChip("plain question without chip")).toBe(false);
+    expect(hasComposerQqChip("/qq ")).toBe(true);
+    expect(hasComposerQqChip("/qq explain this")).toBe(true);
+    expect(hasComposerQqChip("before /qq after")).toBe(true);
+    expect(hasComposerQqChip("- /qq in a list")).toBe(true);
+    expect(hasComposerQqChip("> /qq in a quote")).toBe(true);
+  });
+
+  it("detects $qq chips only when qq is a known skill", () => {
+    expect(hasComposerQqChip("$qq ", knownQqSkill)).toBe(true);
+    expect(hasComposerQqChip("ask $qq quickly", knownQqSkill)).toBe(true);
+    expect(hasComposerQqChip("$qq ")).toBe(false);
+    expect(hasComposerQqChip("$other ", knownQqSkill)).toBe(false);
+  });
+
+  it("ignores incomplete tokens, paths, fenced code blocks, math, and literal mode", () => {
+    expect(hasComposerQqChip("/qq")).toBe(false);
+    expect(hasComposerQqChip("/qq/path ")).toBe(false);
+    expect(hasComposerQqChip("foo/qq ")).toBe(false);
+    expect(hasComposerQqChip("```\n/qq inside code\n```")).toBe(false);
+    expect(hasComposerQqChip("$\\text{/qq } + 1$")).toBe(false);
+    expect(hasComposerQqChip("/qq ", knownQqSkill, { literalText: true })).toBe(false);
   });
 });
