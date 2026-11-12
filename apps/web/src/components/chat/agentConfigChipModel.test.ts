@@ -98,6 +98,59 @@ describe("splitAgentConfigText", () => {
     expect(splitAgentConfigText("see %[model: claudeAgent/x")).toEqual([
       { type: "text", text: "see %[model: claudeAgent/x" },
     ]);
+    expect(splitAgentConfigText("calling %[tool: T3 >")).toEqual([
+      { type: "text", text: "calling %[tool: T3 >" },
+    ]);
+  });
+
+  it("parses multiple chips in one paragraph next to prose punctuation", () => {
+    const text =
+      "Try (%[tool: T3 > delegate_task]), then %[model: claudeAgent/claude-haiku-5-5, effort=high, contextWindow=200k, contextLimit=500000, compactBuffer=10], and finally %[tool: T3 > task_status].";
+
+    expect(splitAgentConfigText(text)).toEqual([
+      { type: "text", text: "Try (" },
+      {
+        type: "tool",
+        raw: "%[tool: T3 > delegate_task]",
+        chip: { source: "T3", tool: "delegate_task" },
+      },
+      { type: "text", text: "), then " },
+      {
+        type: "model",
+        raw: "%[model: claudeAgent/claude-haiku-5-5, effort=high, contextWindow=200k, contextLimit=500000, compactBuffer=10]",
+        chip: {
+          instanceId: "claudeAgent",
+          model: "claude-haiku-5-5",
+          options: [
+            { id: "effort", value: "high" },
+            { id: "contextWindow", value: "200k" },
+            { id: "contextLimit", value: "500000" },
+            { id: "compactBuffer", value: "10" },
+          ],
+        },
+      },
+      { type: "text", text: ", and finally " },
+      {
+        type: "tool",
+        raw: "%[tool: T3 > task_status]",
+        chip: { source: "T3", tool: "task_status" },
+      },
+      { type: "text", text: "." },
+    ]);
+  });
+
+  it("recovers a later complete chip after an unclosed %[ earlier on the same line", () => {
+    const text = "broken %[tool: T3 > oops then %[tool: T3 > delegate_task].";
+
+    expect(splitAgentConfigText(text)).toEqual([
+      { type: "text", text: "broken %[tool: T3 > oops then " },
+      {
+        type: "tool",
+        raw: "%[tool: T3 > delegate_task]",
+        chip: { source: "T3", tool: "delegate_task" },
+      },
+      { type: "text", text: "." },
+    ]);
   });
 });
 

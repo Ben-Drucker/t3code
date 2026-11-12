@@ -510,6 +510,51 @@ describe("ChatMarkdown skill chips", () => {
     expect(buttonsLabelled(screen.container, "Model gpt-4o. Show details")).toEqual([]);
     expect(screen.container.textContent).toBe("Ask (GPT-6.1), not model:openai/gpt-4o.");
   });
+
+  it("renders %[...] model and tool chips in assistant prose and tables while leaving code untouched", async () => {
+    setup();
+    const envId = EnvironmentId.make("models");
+    const streaming = (text: string, isStreaming: boolean) => (
+      <ChatMarkdown cwd={undefined} text={text} environmentId={envId} isStreaming={isStreaming} />
+    );
+
+    await using screen = await render(streaming("Call %[tool: T3 >", true));
+    expect(screen.container.querySelectorAll("[data-markdown-copy]")).toHaveLength(0);
+    expect(screen.container.textContent).toBe("Call %[tool: T3 >");
+
+    await screen.rerender(
+      streaming(
+        [
+          "Call (%[tool: T3 > delegate_task]), then %[model: codex/gpt-6.1, effort=high, contextWindow=200k] — not `%[tool: T3 > delegate_task]`.",
+          "",
+          "| Step | Tool |",
+          "| --- | --- |",
+          "| 1 | %[tool: T3 > task_status] |",
+          "",
+          "```txt",
+          "%[model: codex/gpt-6.1, effort=high]",
+          "```",
+        ].join("\n"),
+        false,
+      ),
+    );
+
+    const copiedChips = [...screen.container.querySelectorAll("[data-markdown-copy]")].map((node) =>
+      node.getAttribute("data-markdown-copy"),
+    );
+    expect(copiedChips).toEqual([
+      "%[tool: T3 > delegate_task]",
+      "%[model: codex/gpt-6.1, effort=high, contextWindow=200k]",
+      "%[tool: T3 > task_status]",
+    ]);
+    await expect.element(screen.getByText("GPT-6.1")).toBeVisible();
+    expect(screen.container.querySelector("p code")?.textContent).toBe(
+      "%[tool: T3 > delegate_task]",
+    );
+    expect(screen.container.querySelector("pre")?.textContent).toContain(
+      "%[model: codex/gpt-6.1, effort=high]",
+    );
+  });
 });
 
 describe("ChatMarkdown headings", () => {

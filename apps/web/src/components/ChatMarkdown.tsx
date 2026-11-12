@@ -980,14 +980,36 @@ function markdownHeadingRenderer(level: 1 | 2 | 3 | 4 | 5 | 6) {
   const Tag = `h${level}` as const;
   return function MarkdownHeading({
     node: _node,
+    children,
     ...props
   }: ComponentProps<typeof Tag> & ReactMarkdownExtraProps) {
-    const { headingLevelOffset } = use(ChatMarkdownRendererContext);
+    const { headingLevelOffset, skills, threadRef, environmentId } = use(
+      ChatMarkdownRendererContext,
+    );
     return (
       <Tag
         {...props}
         aria-level={headingLevelOffset > 0 ? Math.min(level + headingLevelOffset, 6) : undefined}
-      />
+      >
+        {renderInlineChipMarkdownChildren(children, skills, threadRef, environmentId)}
+      </Tag>
+    );
+  };
+}
+
+function markdownInlineChipContainerRenderer<Tag extends "td" | "th" | "dd" | "dt" | "summary">(
+  tag: Tag,
+) {
+  return function MarkdownInlineChipContainer({
+    node: _node,
+    children,
+    ...props
+  }: ComponentProps<Tag> & ReactMarkdownExtraProps) {
+    const { skills, threadRef, environmentId } = use(ChatMarkdownRendererContext);
+    return React.createElement(
+      tag,
+      props,
+      renderInlineChipMarkdownChildren(children, skills, threadRef, environmentId),
     );
   };
 }
@@ -1011,6 +1033,11 @@ const CHAT_MARKDOWN_COMPONENTS = {
   h4: markdownHeadingRenderer(4),
   h5: markdownHeadingRenderer(5),
   h6: markdownHeadingRenderer(6),
+  td: markdownInlineChipContainerRenderer("td"),
+  th: markdownInlineChipContainerRenderer("th"),
+  dd: markdownInlineChipContainerRenderer("dd"),
+  dt: markdownInlineChipContainerRenderer("dt"),
+  summary: markdownInlineChipContainerRenderer("summary"),
   div: function MarkdownDiv({ node, children, ...props }) {
     const { onUseArtifactTemplate } = use(ChatMarkdownRendererContext);
     const artifactTemplate = artifactTemplateFromHastProperties(node?.properties);
