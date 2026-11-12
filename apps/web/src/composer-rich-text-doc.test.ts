@@ -6,6 +6,11 @@ import { EditorState, TextSelection } from "@tiptap/pm/state";
 import { splitBlockKeepMarks } from "@tiptap/pm/commands";
 import { describe, expect, it, onTestFinished } from "vite-plus/test";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
+import { EnvironmentId, MessageId, ThreadId } from "@t3tools/contracts";
+import {
+  collectAssistantCitations,
+  serializeAssistantCitation,
+} from "@t3tools/shared/assistantCitations";
 
 import {
   collapseExpandedComposerCursor,
@@ -41,9 +46,10 @@ import {
 function stubAtom(name: string, attrs: Record<string, { default: unknown }>) {
   return Node.create({
     name,
-    group: "inline",
-    inline: true,
-    atom: true,
+    group: name === "composer-citation" ? "block" : "inline",
+    inline: name !== "composer-citation",
+    atom: name !== "composer-citation",
+    ...(name === "composer-citation" ? { content: "inline*" } : {}),
     addAttributes: () => attrs,
   });
 }
@@ -102,6 +108,46 @@ function roundTrip(value: string) {
   doc.check();
   return serializeEditorDoc(doc);
 }
+
+describe("editable citation comments", () => {
+  it("restores rich text, maps its caret, edits and copies the bound comment once", () => {
+    const citation = {
+      version: 1 as const,
+      environmentId: EnvironmentId.make("environment"),
+      threadId: ThreadId.make("thread"),
+      messageId: MessageId.make("message"),
+      text: "quoted passage",
+      start: 0,
+      end: 14,
+      prefix: "",
+      suffix: "",
+      comment: "Explain **why** 雪 & 👋\nthen `main`",
+    };
+    const source = serializeAssistantCitation(citation);
+    const doc = schema.nodeFromJSON(buildDocJson(source, () => null));
+    doc.check();
+    const map = serializeEditorDoc(doc);
+    expect(map.value).toBe(source);
+    const run = map.runs.find((entry) => entry.citationComment)!;
+    const commentMap = run.citationComment!.map;
+    for (let flat = 0; flat <= commentMap.docLength; flat += 1) {
+      const pos = flatToPm(commentMap, flat);
+      if (/[\uD800-\uDBFF]/.test(doc.textBetween(pos - 1, pos))) continue;
+      expect(pmToFlat(map, pos)).toBe(run.flatStart + 1 + flat);
+      const md = flatToMarkdown(map, run.flatStart + 1 + flat);
+      expect(markdownToFlat(map, md)).toBe(run.flatStart + 1 + flat);
+    }
+    const state = EditorState.create({ doc });
+    const pos = flatToPm(commentMap, 7);
+    const updated = state.apply(state.tr.insertText("really ", pos));
+    const nextSource = serializeEditorDoc(updated.doc).value;
+    expect(collectAssistantCitations(nextSource)[0]?.citation.comment).toBe(
+      "Explainreally  **why** 雪 & 👋\nthen `main`",
+    );
+    expect(serializeSelection(doc, 0, doc.content.size)).toBe(source);
+    expect(serializeSelection(doc, run.pmPos + 1, run.pmPos + 8)).toBe("Explain");
+  });
+});
 
 describe("editable math source", () => {
   it.each(["app/routes/posts.$postId.tsx", "pages/posts/[id].tsx"])(

@@ -107,15 +107,16 @@ describe("assistant citation draft helpers", () => {
     suffix: " after",
   };
 
-  it("inserts single and multiple cites on their own lines with the caret on the commentary line below", () => {
+  it("inserts single and multiple cites with the caret inside each bound comment", () => {
     const first = insertAssistantCitationIntoPrompt("", 0, citation);
     const firstToken = serializeAssistantCitation(citation);
     expect(first).toEqual({
       text: `${firstToken}\n`,
-      cursor: firstToken.length + 1,
+      cursor: firstToken.length,
     });
 
-    const withComment = `${first.text}Check **this** in @app.ts`;
+    const commented = { ...citation, comment: "Check **this** in @app.ts" };
+    const withComment = `${serializeAssistantCitation(commented)}\n`;
     const second = insertAssistantCitationIntoPrompt(
       withComment,
       withComment.length,
@@ -123,15 +124,22 @@ describe("assistant citation draft helpers", () => {
     );
     const secondToken = serializeAssistantCitation(secondCitation);
     expect(second).toEqual({
-      text: `${firstToken}\nCheck **this** in @app.ts\n${secondToken}\n`,
-      cursor: `${firstToken}\nCheck **this** in @app.ts\n${secondToken}\n`.length,
+      text: `${serializeAssistantCitation(commented)}\n${secondToken}\n`,
+      cursor: `${serializeAssistantCitation(commented)}\n${secondToken}`.length,
     });
 
     const parsed = collectAssistantCitations(second.text);
-    expect(parsed.map((entry) => entry.citation)).toEqual([citation, secondCitation]);
+    expect(parsed.map((entry) => entry.citation)).toEqual([commented, secondCitation]);
     expect(expandAssistantCitationsForProvider(`${second.text}And compare here.`)).toContain(
-      "[assistant-quote-1]\nCheck **this** in @app.ts\n[assistant-quote-2]\nAnd compare here.",
+      "[assistant-quote-1]\n[assistant-quote-2]\nAnd compare here.",
     );
+    expect(
+      insertAssistantCitationIntoPrompt(
+        withComment,
+        withComment.indexOf("&comment=") + 10,
+        secondCitation,
+      ),
+    ).toEqual(second);
   });
 
   it("removes a sole or multi-cite quote cleanly from the draft", () => {
@@ -569,6 +577,16 @@ it("preserves the caret before trailing text after mixed-width skill chips", () 
 });
 
 describe("assistant citation cursor offsets", () => {
+  it("roundtrips editable comment offsets through URL encoding and rich-text markers", () => {
+    const comment = "Check **雪** + & % then 👋";
+    const source = serializeAssistantCitation({ ...citation, comment });
+    for (let offset = 0; offset <= comment.length; offset += 1) {
+      if (offset === comment.length - 1) continue;
+      const expanded = expandCollapsedComposerCursor(source, 1 + offset);
+      expect(collapseExpandedComposerCursor(source, expanded)).toBe(1 + offset);
+    }
+    expect(clampCollapsedComposerCursor(source, Infinity)).toBe(1 + comment.length);
+  });
   it("roundtrips every collapsed offset across citations, mentions, skills, and Unicode", () => {
     const prefix = "👋(";
     const between = "),雪";

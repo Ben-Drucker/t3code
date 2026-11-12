@@ -6,6 +6,7 @@ import type {
 } from "@t3tools/contracts";
 import type { ComposerPathSearchTarget } from "@t3tools/client-runtime/state/threads";
 import {
+  collectAssistantCitations,
   serializeAssistantCitation,
   withAssistantCitationComment,
 } from "@t3tools/shared/assistantCitations";
@@ -57,10 +58,12 @@ export function insertAssistantCitationIntoPrompt(
   cursorInput: number,
   citation: AssistantCitation,
 ): { text: string; cursor: number } {
-  const cursor = clampCursor(prompt, cursorInput);
-  const serialized = serializeAssistantCitation(
-    withAssistantCitationComment(citation, citation.comment ?? ""),
+  const boundedCursor = clampCursor(prompt, cursorInput);
+  const containingCitation = collectAssistantCitations(prompt).find(
+    (entry) => boundedCursor > entry.start && boundedCursor < entry.end,
   );
+  const cursor = containingCitation?.end ?? boundedCursor;
+  const serialized = serializeAssistantCitation(citation);
   const leadingNewline = cursor > 0 && prompt[cursor - 1] !== "\n" ? "\n" : "";
   const skipSpacesEnd =
     prompt[cursor] === " " && (cursor === 0 || prompt[cursor - 1] === "\n") ? cursor + 1 : cursor;
@@ -71,8 +74,7 @@ export function insertAssistantCitationIntoPrompt(
   const nextCursor =
     cursor +
     leadingNewline.length +
-    serialized.length +
-    (hasTrailingNewline ? 1 : trailingNewline.length);
+    citationCommentOffsets(serialized, citation.comment ?? "").at(-1)!;
   return { text, cursor: nextCursor };
 }
 
@@ -181,6 +183,19 @@ function tokenStartForCursor(text: string, cursor: number): number {
   return index + 1;
 }
 
+// URLSearchParams encodes spaces as + and counts astral characters as one UTF-8 sequence.
+export function citationCommentOffsets(source: string, comment: string): number[] {
+  const start = source.lastIndexOf("&comment=");
+  const offsets = [start < 0 ? source.length : start + "&comment=".length];
+  for (const character of comment) {
+    const encoded = new URLSearchParams({ c: character }).toString().slice(2);
+    const end = offsets.at(-1)! + encoded.length;
+    if (character.length === 2) offsets.push(end);
+    offsets.push(end);
+  }
+  return offsets;
+}
+
 export function expandCollapsedComposerCursor(
   text: string,
   cursorInput: number,
@@ -197,11 +212,15 @@ export function expandCollapsedComposerCursor(
   let expandedCursor = 0;
 
   for (const segment of segments) {
-    if (
-      segment.type === "mention" ||
-      segment.type === "citation" ||
-      segment.type === "context-reference"
-    ) {
+    if (segment.type === "citation") {
+      const offsets = citationCommentOffsets(segment.source, segment.citation.comment ?? "");
+      if (remaining === 0) return expandedCursor;
+      if (remaining <= offsets.length) return expandedCursor + offsets[remaining - 1]!;
+      remaining -= offsets.length;
+      expandedCursor += segment.source.length;
+      continue;
+    }
+    if (segment.type === "mention" || segment.type === "context-reference") {
       const expandedLength = segment.source.length;
       if (remaining <= 1) {
         return expandedCursor + (remaining === 0 ? 0 : expandedLength);
@@ -232,6 +251,7 @@ export function expandCollapsedComposerCursor(
 }
 
 function collapsedSegmentLength(segment: ComposerPromptSegment): number {
+  if (segment.type === "citation") return 1 + (segment.citation.comment?.length ?? 0);
   if (segment.type === "text") {
     return segment.text.length;
   }
@@ -280,11 +300,18 @@ export function collapseExpandedComposerCursor(
   let collapsedCursor = 0;
 
   for (const segment of segments) {
-    if (
-      segment.type === "mention" ||
-      segment.type === "citation" ||
-      segment.type === "context-reference"
-    ) {
+    if (segment.type === "citation") {
+      const offsets = citationCommentOffsets(segment.source, segment.citation.comment ?? "");
+      if (remaining === 0) return collapsedCursor;
+      if (remaining <= segment.source.length) {
+        const index = offsets.findLastIndex((offset) => offset <= remaining);
+        return collapsedCursor + 1 + Math.max(0, index);
+      }
+      remaining -= segment.source.length;
+      collapsedCursor += offsets.length;
+      continue;
+    }
+    if (segment.type === "mention" || segment.type === "context-reference") {
       const expandedLength = segment.source.length;
       if (remaining === 0) {
         return collapsedCursor;
@@ -419,4 +446,4 @@ export function extendReplacementRangeForTrailingSpace(
   return text[rangeEnd] === " " ? rangeEnd + 1 : rangeEnd;
 }
 
-export { replaceTextRange } from "@t3tools/shared/composerTrigger";
+export { replaceCitationCommentText as replaceTextRange } from "@t3tools/shared/assistantCitations";

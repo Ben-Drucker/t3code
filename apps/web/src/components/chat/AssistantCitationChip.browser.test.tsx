@@ -4,27 +4,44 @@ import {
   EnvironmentId,
   MessageId,
   ThreadId,
+  ComposerContextId,
+  TurnItemId,
 } from "@t3tools/contracts";
-import { useState, type ReactNode } from "react";
+import { useState, type AnchorHTMLAttributes } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
+import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import "~/index.css";
 import { act, render } from "../../../test/render";
+import { serializeRenderedMarkdownFragment } from "~/markdown-clipboard";
 
-const mocks = vi.hoisted(() => ({ observeSource: vi.fn(), dispose: vi.fn() }));
+const mocks = vi.hoisted(() => ({ observeSource: vi.fn(), dispose: vi.fn(), navigate: vi.fn() }));
 vi.mock(import("./AssistantCitationSource"), async (importOriginal) => ({
   ...(await importOriginal()),
   observeAssistantCitationCommentSource: mocks.observeSource,
 }));
 vi.mock(import("@tanstack/react-router"), async (importOriginal) => ({
   ...(await importOriginal()),
-  useNavigate: () => vi.fn(),
-  Link: (({ children }: { children: ReactNode }) => <a>{children}</a>) as never,
+  useNavigate: () => mocks.navigate,
+  Link: (({
+    children,
+    onClick,
+    className,
+    "aria-label": label,
+  }: AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <a href="#source" onClick={onClick} className={className} aria-label={label}>
+      {children}
+    </a>
+  )) as never,
 }));
 
-import { AssistantCitationChip } from "./AssistantCitationChip";
+import {
+  AssistantCitationChip,
+  AssistantCitationEmbed,
+  ResponseReplyCard,
+} from "./AssistantCitationChip";
 
 const citation = {
   version: 1 as const,
@@ -40,6 +57,7 @@ const citation = {
 
 // The mocked source observer is shared, so every test starts by resetting it.
 function setup() {
+  mocks.navigate.mockClear();
   mocks.observeSource.mockReset().mockReturnValue(mocks.dispose);
   mocks.dispose.mockClear();
   const source = document.createElement("p");
@@ -50,6 +68,88 @@ function setup() {
   const sourceAnchor = { source, range, viewport: document.body } as AssistantCitationSourceAnchor;
   return { sourceAnchor, [Symbol.dispose]: () => source.remove() };
 }
+
+describe("quoted response blocks", () => {
+  it("clamps three lines, expands with the keyboard, and keeps source navigation separate", async () => {
+    using _source = setup();
+    const quoted = {
+      ...citation,
+      text: "quoted passage ".repeat(30),
+      prefix: "before ",
+      suffix: " after",
+      comment: "Please explain this.",
+    };
+    await using screen = await render(
+      <div style={{ width: 260 }}>
+        <AssistantCitationEmbed citation={quoted} leading trailing />
+      </div>,
+    );
+    const block = screen.container.querySelector<HTMLElement>(
+      '[data-assistant-citation-card="true"]',
+    )!;
+    const toggle = screen.getByRole("button", { name: "Expand quoted response" });
+    const passage = block.querySelector<HTMLElement>("[dir]")!;
+    expect(getComputedStyle(passage).webkitLineClamp).toBe("3");
+    expect(passage.scrollHeight).toBeGreaterThan(passage.clientHeight);
+    expect(block.querySelector("mark")?.textContent).toBe(quoted.text);
+    expect(block.textContent).toContain("…before ");
+    expect(block.textContent).toContain(" after…");
+    expect(block.textContent).toContain(quoted.comment);
+    expect(block.getAttribute("data-markdown-copy")).toBe(serializeAssistantCitation(quoted));
+    expect(block.querySelectorAll("[data-markdown-copy]")).toHaveLength(0);
+    expect(serializeRenderedMarkdownFragment(screen.container)).toBe(
+      serializeAssistantCitation(quoted),
+    );
+    await toggle.click();
+    await expect
+      .element(screen.getByRole("button", { name: "Collapse quoted response" }))
+      .toHaveAttribute("aria-expanded", "true");
+    expect(passage.scrollHeight).toBe(passage.clientHeight);
+    await screen.getByRole("link", { name: "Go to quoted response:", exact: false }).click();
+    expect(mocks.navigate).toHaveBeenCalledOnce();
+    await expect
+      .element(screen.getByRole("button", { name: "Collapse quoted response" }))
+      .toHaveAttribute("aria-expanded", "true");
+    const button = block.querySelector<HTMLButtonElement>("button")!;
+    button.focus();
+    await userEvent.keyboard("{Enter}");
+    await expect
+      .element(screen.getByRole("button", { name: "Expand quoted response" }))
+      .toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("shows whole responses without highlighting and keeps reply cards as source links", async () => {
+    using _source = setup();
+    await using screen = await render(
+      <>
+        <AssistantCitationEmbed
+          citation={{ ...citation, text: "مرحبا", comment: "ملاحظة" }}
+          leading
+          trailing
+        />
+        <ResponseReplyCard
+          record={{
+            version: 1,
+            kind: "response",
+            contextId: ComposerContextId.make("response_1"),
+            itemId: TurnItemId.make("item_1"),
+            citation,
+            label: "hello",
+          }}
+          copyMarkdown="reply"
+          leading
+          trailing
+        />
+      </>,
+    );
+    expect(screen.container.querySelector("mark")).toBeNull();
+    expect(screen.container.querySelectorAll('[dir="rtl"]')).toHaveLength(2);
+    const reply = screen.getByRole("link", { name: "Go to the response this replies to: hello" });
+    await reply.click();
+    expect(mocks.navigate).toHaveBeenCalledOnce();
+    expect(screen.container.querySelectorAll("button[aria-expanded]")).toHaveLength(1);
+  });
+});
 
 function mount(
   sourceAnchor: AssistantCitationSourceAnchor | undefined,

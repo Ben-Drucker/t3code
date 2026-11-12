@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema";
-import { replaceTextRange } from "@t3tools/shared/composerTrigger";
+import { replaceCitationCommentText } from "@t3tools/shared/assistantCitations";
 
 import {
   VoiceTranscriptionError,
@@ -150,7 +150,7 @@ export function resolveTranscriptCommit(
     insertion = `${leftNeedsBoundary ? " " : ""}${replacement}${rightNeedsBoundary ? " " : ""}`;
   }
 
-  const result = replaceTextRange(
+  const result = replaceCitationCommentText(
     captured.text,
     captured.selection.start,
     captured.selection.end,

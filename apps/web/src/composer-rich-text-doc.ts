@@ -53,6 +53,9 @@ import {
 } from "~/composer-rich-text";
 import { collectInlineContextIds } from "~/lib/composerContextReferences";
 import { composerMathRanges } from "@t3tools/shared/composerInlineTokens";
+import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
+import type { AssistantCitation } from "@t3tools/contracts";
+import { citationCommentOffsets } from "./composer-logic";
 
 export type SkillMeta = { label: string; description: string | null };
 
@@ -793,7 +796,18 @@ function listKey(prefix: ListLinePrefix): string {
 }
 
 type InlineJson = Record<string, unknown>;
-type AtomJson = { type: string; attrs: Record<string, unknown> };
+type AtomJson = { type: string; attrs: Record<string, unknown>; content?: InlineJson[] };
+
+export function buildCitationCommentContent(comment: string, styling = true): InlineJson[] {
+  return comment
+    .split("\n")
+    .flatMap((line, index) => [
+      ...(index > 0 ? [{ type: "hardBreak" }] : []),
+      ...(styling ? parseInlineMarkdown(line) : [{ text: line, marks: [] }])
+        .filter((span) => span.text.length > 0)
+        .map((span) => textJsonForSpan(span.text, span.marks)),
+    ]);
+}
 
 interface DocLine {
   list: ListLinePrefix | null;
@@ -804,6 +818,7 @@ interface DocLine {
 function atomJsonForSegment(
   segment: Exclude<ReturnType<typeof splitPromptIntoComposerSegments>[number], { type: "text" }>,
   chips: ChipResolver,
+  styling = true,
 ): AtomJson | null {
   if (segment.type === "mention") {
     return {
@@ -840,6 +855,7 @@ function atomJsonForSegment(
     return {
       type: "composer-citation",
       attrs: { citation: segment.citation, source: segment.source, citeKey: randomNodeKey() },
+      content: buildCitationCommentContent(segment.citation.comment ?? "", styling),
     };
   }
   return {
@@ -959,7 +975,7 @@ export function buildTiptapContent(
       return splitPromptIntoComposerSegments(chunk.text)
         .map((segment) => {
           if (segment.type === "text") return segment.text;
-          const atom = atomJsonForSegment(segment, chips);
+          const atom = atomJsonForSegment(segment, chips, styling);
           if (!atom) return segment.source;
           atoms.push(atom);
           atomSources.push(segment.source);
@@ -1153,7 +1169,33 @@ export function buildTiptapContent(
   }
   flushQuote();
   flushLists();
-  return blocks;
+  return blocks.flatMap(splitCitationBlocks);
+}
+
+function splitCitationBlocks(block: Record<string, unknown>): Record<string, unknown>[] {
+  const content = block.content as Record<string, unknown>[] | undefined;
+  if (!content) return [block];
+  if (block.type !== "paragraph" && block.type !== "heading") {
+    const children = content.flatMap(splitCitationBlocks);
+    if (
+      (block.type === "listItem" || block.type === "taskItem") &&
+      children[0]?.type !== "paragraph"
+    ) {
+      children.unshift({ type: "paragraph" });
+    }
+    return [{ ...block, content: children }];
+  }
+  const result: Record<string, unknown>[] = [];
+  let inline: Record<string, unknown>[] = [];
+  for (const child of content) {
+    if (child.type === "composer-citation") {
+      if (inline.length > 0) result.push({ ...block, content: inline });
+      result.push(child);
+      inline = [];
+    } else inline.push(child);
+  }
+  if (inline.length > 0 || result.length === 0) result.push({ ...block, content: inline });
+  return result;
 }
 
 export function buildDocJson(
@@ -1178,6 +1220,7 @@ export interface RichRun {
   pmPos: number;
   mdStart: number;
   nodeName?: string;
+  citationComment?: { map: RichDocMap; offsets: number[]; pmEnd: number };
 }
 
 // Shared by every caller that serializes the same doc, so it must not be mutated.
@@ -1218,7 +1261,9 @@ interface RichAccumulator {
 
 function pushBreakRun(acc: RichAccumulator, position?: number): void {
   const previous = acc.runs[acc.runs.length - 1];
-  const pmPos = position ?? (previous ? previous.pmPos + previous.docLen : 1);
+  const pmPos =
+    position ??
+    (previous ? (previous.citationComment?.pmEnd ?? previous.pmPos + previous.docLen) : 1);
   acc.runs.push({
     kind: "break",
     flatStart: acc.flat,
@@ -1387,6 +1432,43 @@ function appendInlineRuns(
       mdStart: acc.md,
     });
   }
+}
+
+function appendCitationRun(node: ProseMirrorNode, pmPos: number, acc: RichAccumulator): void {
+  const comment: RichAccumulator = { runs: [], value: "", flat: 0, md: 0 };
+  appendInlineRuns(node, pmPos + 1, comment);
+  const citation = node.attrs.citation as AssistantCitation;
+  const hasComment = comment.value.length > 0 || citation.comment !== undefined;
+  const source = serializeAssistantCitation({
+    ...citation,
+    comment: hasComment ? comment.value : undefined,
+  });
+  const map: RichDocMap = {
+    value: comment.value,
+    runs: comment.runs,
+    docLength: comment.flat,
+    contextIds: [],
+  };
+  const docLen = 1 + comment.flat;
+  acc.runs.push({
+    kind: "token",
+    flatStart: acc.flat,
+    docLen,
+    mdLen: source.length,
+    openLen: 0,
+    closeLen: 0,
+    pmPos,
+    mdStart: acc.md,
+    nodeName: node.type.name,
+    citationComment: {
+      map,
+      offsets: citationCommentOffsets(source, comment.value),
+      pmEnd: pmPos + node.nodeSize,
+    },
+  });
+  acc.value += source;
+  acc.flat += docLen;
+  acc.md += source.length;
 }
 
 const LIST_NODE_NAMES = new Set(["taskList", "bulletList", "orderedList"]);
@@ -1587,6 +1669,8 @@ function walkList(list: ProseMirrorNode, listStart: number, acc: RichAccumulator
         walkList(child, childPos, acc);
       } else if (child.type.name === "paragraph") {
         appendInlineRuns(child, childPos + 1, acc);
+      } else if (child.type.name === "composer-citation") {
+        appendCitationRun(child, childPos, acc);
       }
       childPos += child.nodeSize;
     });
@@ -1639,12 +1723,22 @@ function walkBlockquote(quote: ProseMirrorNode, quoteStart: number, acc: RichAcc
     acc.value += prefix;
     acc.md += prefix.length;
     if (child.type.name === "paragraph") appendInlineRuns(child, childPos + 1, acc);
+    else if (child.type.name === "composer-citation") appendCitationRun(child, childPos, acc);
     childPos += child.nodeSize;
   });
 }
 
 /** Restores list and quote markers omitted by slices that contain only shared-block content. */
 export function serializeSelection(doc: ProseMirrorNode, from: number, to: number): string {
+  const start = doc.resolve(from);
+  const end = doc.resolve(to);
+  if (start.sameParent(end) && start.parent.type.name === "composer-citation") {
+    const paragraph = doc.type.schema.nodes.paragraph!.create(
+      null,
+      start.parent.content.cut(start.parentOffset, end.parentOffset),
+    );
+    return serializeEditorDoc(doc.type.create(null, paragraph)).value;
+  }
   const slice = doc.slice(from, to);
   const $from = doc.resolve(from);
   let depth = $from.sharedDepth(to);
@@ -1688,7 +1782,9 @@ function serializeDoc(doc: ProseMirrorNode): RichDocMap {
     if (blockIndex > 0 && needsBlankLineAfterQuote(blocks[blockIndex - 1]!, block)) {
       pushBlankLineRun(acc, pmBlockStart + 1);
     }
-    if (LIST_NODE_NAMES.has(block.type.name)) {
+    if (block.type.name === "composer-citation") {
+      appendCitationRun(block, pmBlockStart, acc);
+    } else if (LIST_NODE_NAMES.has(block.type.name)) {
       walkList(block, pmBlockStart, acc);
     } else if (block.type.name === "codeBlock") {
       appendCodeBlockRun(block, pmBlockStart + 1, blockIndex < blocks.length - 1, acc);
@@ -1812,13 +1908,21 @@ export function skillChipReplacements(
 // Run ends belong to the next run, except code ends must stay inside their closing fence.
 function runOwnsOffset(run: RichRun, flatOffset: number): boolean {
   const end = run.flatStart + run.docLen;
-  return flatOffset < end || (flatOffset === end && run.nodeName === "codeBlock");
+  return (
+    flatOffset < end ||
+    (flatOffset === end && (run.nodeName === "codeBlock" || Boolean(run.citationComment)))
+  );
 }
 
 export function flatToMarkdown(map: RichDocMap, flatOffset: number): number {
   const bounded = Math.max(0, Math.min(flatOffset, map.docLength));
   for (const run of map.runs) {
     if (runOwnsOffset(run, bounded)) {
+      if (run.citationComment) {
+        if (bounded === run.flatStart) return run.mdStart;
+        const offset = flatToMarkdown(run.citationComment.map, bounded - run.flatStart - 1);
+        return run.mdStart + run.citationComment.offsets[offset]!;
+      }
       if (run.kind === "text" || run.kind === "token") {
         return run.mdStart + run.openLen + (bounded - run.flatStart);
       }
@@ -1832,6 +1936,13 @@ export function flatToMarkdown(map: RichDocMap, flatOffset: number): number {
 export function markdownToFlat(map: RichDocMap, markdownOffset: number): number {
   for (const run of map.runs) {
     if (markdownOffset < run.mdStart + run.mdLen) {
+      if (run.citationComment) {
+        if (markdownOffset <= run.mdStart) return run.flatStart;
+        const offset = run.citationComment.offsets.findLastIndex(
+          (value) => value <= markdownOffset - run.mdStart,
+        );
+        return run.flatStart + 1 + markdownToFlat(run.citationComment.map, Math.max(0, offset));
+      }
       if (run.kind === "prefix") return run.flatStart;
       if (run.kind === "text" || run.kind === "token") {
         const within = markdownOffset - run.mdStart;
@@ -1902,6 +2013,11 @@ export function removeComposerQqChips(
 export function flatToPm(map: RichDocMap, flatOffset: number): number {
   const bounded = Math.max(0, Math.min(flatOffset, map.docLength));
   for (const run of map.runs) {
+    if (run.citationComment && bounded >= run.flatStart && bounded <= run.flatStart + run.docLen) {
+      return bounded === run.flatStart
+        ? run.pmPos
+        : flatToPm(run.citationComment.map, bounded - run.flatStart - 1);
+    }
     if (bounded < run.flatStart + run.docLen) {
       return run.pmPos + (bounded - run.flatStart);
     }
@@ -1913,6 +2029,11 @@ export function flatToPm(map: RichDocMap, flatOffset: number): number {
 
 export function pmToFlat(map: RichDocMap, pmPos: number): number {
   for (const run of map.runs) {
+    if (run.citationComment && pmPos >= run.pmPos && pmPos < run.citationComment.pmEnd) {
+      return pmPos === run.pmPos
+        ? run.flatStart
+        : run.flatStart + 1 + pmToFlat(run.citationComment.map, pmPos);
+    }
     if (pmPos >= run.pmPos && pmPos <= run.pmPos + run.docLen) {
       if (run.kind === "token" && pmPos === run.pmPos + run.docLen) {
         return run.flatStart + run.docLen;

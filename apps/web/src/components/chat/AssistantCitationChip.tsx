@@ -5,7 +5,7 @@ import {
   serializeAssistantCitation,
 } from "@t3tools/shared/assistantCitations";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { PencilIcon, QuoteIcon, XIcon } from "lucide-react";
+import { ArrowUpRightIcon, PencilIcon, QuoteIcon, XIcon } from "lucide-react";
 import {
   useEffect,
   useEffectEvent,
@@ -52,14 +52,9 @@ function useCitationSourceLinkProps(citation: AssistantCitation) {
 
 const flat = (text: string) => text.replace(/\s+/g, " ");
 
-/**
- * The card a response shows as inside a message. Clicking it goes to the source; a comment follows
- * as text. `leading` and `trailing` say it starts or ends its block, which already has spacing.
- */
 function ResponseCard({
   citation,
   copyMarkdown,
-  cardCopyMarkdown = copyMarkdown,
   label,
   title,
   preview,
@@ -67,49 +62,95 @@ function ResponseCard({
   leading,
   trailing,
   onRemove,
+  reply = false,
 }: {
   citation: AssistantCitation;
   copyMarkdown: string;
-  cardCopyMarkdown?: string;
   label: string;
   title?: string | undefined;
   preview: ReactNode;
-  comment?: string | undefined;
+  comment?: ReactNode;
   leading: boolean;
   trailing: boolean;
   onRemove?: (() => void) | undefined;
+  reply?: boolean;
 }) {
   const linkProps = useCitationSourceLinkProps(citation);
+  const [expanded, setExpanded] = useState(false);
+  const quote = (
+    <>
+      <QuoteIcon aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+      <span className="min-w-0 flex-1">
+        {title ? (
+          <span className="block truncate text-xs font-medium text-foreground/80" dir="auto">
+            {title}
+          </span>
+        ) : null}
+        <span
+          className={cn(
+            "block border-s-2 border-border ps-2 italic",
+            !expanded && (reply ? "line-clamp-2" : "line-clamp-3"),
+          )}
+          dir={textDirection(citation.text)}
+        >
+          {preview}
+        </span>
+      </span>
+    </>
+  );
   return (
     // One copy boundary for the card and its comment, so a copied card carries the comment once.
     <span
       data-markdown-copy={copyMarkdown}
       data-assistant-citation-card="true"
-      className={cn("block", !leading && "mt-[0.65rem]", !trailing && "mb-[0.65rem]")}
+      className={cn(
+        "relative block min-w-0 rounded-lg border border-border/70 bg-muted/40 px-3 py-2 text-sm wrap-break-word",
+        !leading && "mt-[0.65rem]",
+        !trailing && "mb-[0.65rem]",
+      )}
     >
-      <span className="relative block">
-        <Link
-          {...linkProps}
-          // A selection inside the card's boundary copies the card here and the comment as text.
-          data-markdown-copy={cardCopyMarkdown}
-          // The response is findable in its own message; here it is clamped and mostly hidden.
-          data-thread-find-ignore
-          aria-label={label}
-          // The message's markdown styles colour and underline links; a card is neither.
-          className={cn(
-            "block min-w-0 rounded-lg bg-black/10 px-2.5 py-1.5 text-start text-sm text-muted-foreground! no-underline! wrap-break-word hover:bg-black/14 focus-visible:outline-2 focus-visible:outline-ring dark:bg-black/35 dark:hover:bg-black/50",
-            onRemove && "pe-7",
-          )}
-        >
-          {title ? (
-            <span className="block truncate text-xs font-medium text-foreground/80" dir="auto">
-              {title}
-            </span>
-          ) : null}
-          <span className="line-clamp-2" dir={textDirection(citation.text)}>
-            {preview}
-          </span>
-        </Link>
+      <span contentEditable={false} data-thread-find-ignore className="block">
+        {reply ? (
+          <Link
+            {...linkProps}
+            data-markdown-copy={undefined}
+            aria-label={label}
+            className="flex w-full items-start gap-2 text-start text-muted-foreground! no-underline! hover:text-foreground! focus-visible:outline-2 focus-visible:outline-ring"
+          >
+            {quote}
+          </Link>
+        ) : (
+          <>
+            <button
+              type="button"
+              aria-expanded={expanded}
+              aria-label={expanded ? "Collapse quoted response" : "Expand quoted response"}
+              onClick={() => setExpanded((value) => !value)}
+              className={cn(
+                "flex w-full cursor-pointer items-start gap-2 text-start text-muted-foreground hover:text-foreground focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring",
+                onRemove ? "pe-12" : "pe-5",
+              )}
+            >
+              {quote}
+            </button>
+            <Link
+              {...linkProps}
+              data-markdown-copy={undefined}
+              aria-label={label}
+              title="Go to source"
+              onClick={(event) => {
+                event.stopPropagation();
+                linkProps.onClick(event);
+              }}
+              className={cn(
+                "absolute top-2 inline-flex size-5 items-center justify-center rounded-sm text-muted-foreground! no-underline! hover:text-foreground! focus-visible:outline-2 focus-visible:outline-ring",
+                onRemove ? "end-8" : "end-2",
+              )}
+            >
+              <ArrowUpRightIcon aria-hidden="true" className="size-3.5" />
+            </Link>
+          </>
+        )}
         {onRemove ? (
           <button
             type="button"
@@ -129,8 +170,11 @@ function ResponseCard({
           </button>
         ) : null}
       </span>
-      {comment ? (
-        <span className="mt-1.5 block whitespace-pre-wrap" dir={textDirection(comment)}>
+      {comment !== undefined && comment !== null ? (
+        <span
+          className="mt-2 block border-t border-border/50 pt-2 whitespace-pre-wrap"
+          dir={typeof comment === "string" ? textDirection(comment) : undefined}
+        >
           {comment}
         </span>
       ) : null}
@@ -144,11 +188,13 @@ export function AssistantCitationEmbed({
   leading,
   trailing,
   onRemove,
+  commentContent,
 }: {
   citation: AssistantCitation;
   leading: boolean;
   trailing: boolean;
   onRemove?: (() => void) | undefined;
+  commentContent?: ReactNode;
 }) {
   const wholeResponse = citation.prefix === "" && citation.suffix === "";
   const { comment, ...quoted } = citation;
@@ -156,9 +202,8 @@ export function AssistantCitationEmbed({
     <ResponseCard
       citation={citation}
       copyMarkdown={serializeAssistantCitation(citation)}
-      cardCopyMarkdown={serializeAssistantCitation(quoted)}
       label={`Go to quoted response: ${assistantCitationLabel(quoted)}`}
-      comment={comment}
+      comment={commentContent ?? (comment || undefined)}
       leading={leading}
       trailing={trailing}
       onRemove={onRemove}
@@ -200,6 +245,7 @@ export function ResponseReplyCard({
       preview={flat(record.citation.text)}
       leading={leading}
       trailing={trailing}
+      reply
     />
   );
 }

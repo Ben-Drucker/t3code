@@ -79,7 +79,8 @@ export function CollapsedComposerPromptPreview(props: {
           <ContextChip key={key} kind="citation">
             <QuoteIcon aria-hidden="true" />
             <ContextChipLabel className="max-w-[16em]">
-              {assistantCitationLabel(segment.citation)}
+              {assistantCitationLabel({ ...segment.citation, comment: undefined })}
+              {segment.citation.comment ? ` · ${segment.citation.comment}` : null}
             </ContextChipLabel>
           </ContextChip>
         );

@@ -17,6 +17,7 @@ import {
   formatAssistantCitationHref,
   parseAssistantCitationHref,
   renderAssistantCitationsAsText,
+  replaceCitationCommentText,
   serializeAssistantCitation,
   withAssistantCitationComment,
 } from "./assistantCitations.ts";
@@ -32,6 +33,34 @@ const citation: AssistantCitation = {
   prefix: "Before the quote. ",
   suffix: " After the quote.",
 };
+
+it("replaces editable or dictated comment text without breaking the serialized quote", () => {
+  const commented = { ...citation, comment: "Check 雪 & 👋 now" };
+  const source = serializeAssistantCitation(commented);
+  const start = source.indexOf("%E9");
+  const end = source.indexOf("+now");
+  const next = replaceCitationCommentText(`${source}\nother text`, start, end, "**why** & when");
+  const expected = { ...citation, comment: "Check **why** & when now" };
+  expect(next.text).toBe(`${serializeAssistantCitation(expected)}\nother text`);
+  expect(next.cursor).toBe(
+    serializeAssistantCitation({ ...citation, comment: "Check **why** & when" }).length - 1,
+  );
+  const empty = serializeAssistantCitation(citation);
+  expect(
+    collectAssistantCitations(
+      replaceCitationCommentText(empty, empty.length, empty.length, "Explain").text,
+    )[0]?.citation.comment,
+  ).toBe("Explain");
+  expect(replaceCitationCommentText("hello", 1, 4, "i")).toEqual({ text: "hio", cursor: 2 });
+  expect(
+    replaceCitationCommentText(
+      source,
+      start,
+      end,
+      "x".repeat(ASSISTANT_CITATION_MAX_COMMENT_LENGTH),
+    ).text,
+  ).toBe(source);
+});
 
 const legacyHref =
   "t3-citation://v1/a/b/c?text=A+quote+%26+a+newline.%0A&start=0&end=21&prefix=&suffix=+Next.";

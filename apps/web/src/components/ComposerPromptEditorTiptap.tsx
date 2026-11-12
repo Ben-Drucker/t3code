@@ -11,7 +11,12 @@ import {
   type JSONContent,
   type TiptapEditorHTMLElement,
 } from "@tiptap/core";
-import { ReactNodeViewRenderer, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
+import {
+  ReactNodeViewRenderer,
+  NodeViewContent,
+  NodeViewWrapper,
+  type NodeViewProps,
+} from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { newlineInCode, splitBlockKeepMarks } from "@tiptap/pm/commands";
 import { isHistoryTransaction } from "@tiptap/pm/history";
@@ -30,6 +35,7 @@ import type {
   ComposerContextClipboardFragment,
   ServerProviderSkill,
 } from "@t3tools/contracts";
+import { ASSISTANT_CITATION_MAX_COMMENT_LENGTH } from "@t3tools/contracts";
 import {
   serializeAssistantCitation,
   withAssistantCitationComment,
@@ -72,6 +78,7 @@ import {
 } from "~/composer-editor-mentions";
 import {
   buildDocJson,
+  buildCitationCommentContent,
   ComposerBlockExtensions,
   ComposerCodeBlockExtension,
   ComposerListExtensions,
@@ -455,9 +462,9 @@ function ComposerAgentConfigNodeView({ node }: NodeViewProps) {
 
 const ComposerCitationExtension = Node.create({
   name: "composer-citation",
-  group: "inline",
-  inline: true,
-  atom: true,
+  group: "block",
+  content: "inline*",
+  isolating: true,
   selectable: true,
   addAttributes() {
     return {
@@ -467,10 +474,23 @@ const ComposerCitationExtension = Node.create({
     };
   },
   parseHTML() {
-    return [{ tag: "span[data-composer-citation]" }];
+    return [{ tag: "div[data-composer-citation]" }, { tag: "span[data-composer-citation]" }];
   },
   renderHTML({ HTMLAttributes }) {
-    return ["span", { "data-composer-citation": "", ...HTMLAttributes }];
+    return ["div", { "data-composer-citation": "", ...HTMLAttributes }, 0];
+  },
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        filterTransaction: (transaction) =>
+          !transaction.docChanged ||
+          serializeEditorDoc(transaction.doc).runs.every(
+            (run) =>
+              !run.citationComment ||
+              run.citationComment.map.value.length <= ASSISTANT_CITATION_MAX_COMMENT_LENGTH,
+          ),
+      }),
+    ];
   },
   addNodeView() {
     return ReactNodeViewRenderer(ComposerCitationNodeView);
@@ -495,7 +515,14 @@ function readComposerCitationEdges(
 }
 
 function ComposerCitationNodeView({ node, editor, getPos }: NodeViewProps) {
-  const citation = node.attrs.citation as AssistantCitation;
+  const storedCitation = node.attrs.citation as AssistantCitation;
+  const comment = serializeEditorDoc(
+    editor.schema.nodes.doc!.create(
+      null,
+      editor.schema.nodes.paragraph!.create(null, node.content),
+    ),
+  ).value;
+  const citation = { ...storedCitation, comment };
   const [edges, setEdges] = useState(() => readComposerCitationEdges(editor, getPos));
   const [editable, setEditable] = useState(() => editor.isEditable);
 
@@ -527,46 +554,17 @@ function ComposerCitationNodeView({ node, editor, getPos }: NodeViewProps) {
     const { doc } = editor.state;
     const current = doc.nodeAt(pos);
     if (!current || current.type.name !== "composer-citation") return;
-    const $pos = doc.resolve(pos);
-    if ($pos.parent.type.name === "paragraph" && $pos.parent.childCount === 1) {
-      const blockStart = $pos.before();
-      const blockEnd = $pos.after();
-      const trailingEmptyOnly =
-        blockEnd < doc.content.size &&
-        blockEnd + 2 === doc.content.size &&
-        doc.lastChild?.type.name === "paragraph" &&
-        doc.lastChild.content.size === 0;
-      if (blockStart === 0 && trailingEmptyOnly) {
-        editor.chain().focus().deleteRange({ from: 0, to: doc.content.size }).run();
-        return;
-      }
-      if (blockStart > 0 && trailingEmptyOnly) {
-        editor
-          .chain()
-          .focus(blockStart - 1)
-          .deleteRange({ from: blockStart, to: doc.content.size })
-          .run();
-        return;
-      }
-      if (blockEnd < doc.content.size || blockStart > 0) {
-        editor.chain().focus().deleteRange({ from: blockStart, to: blockEnd }).run();
-        return;
-      }
-    }
-    const end = pos + current.nodeSize;
-    const removeAfter = end < $pos.end() && doc.textBetween(end, end + 1) === " " ? end + 1 : end;
-    const removeBefore =
-      removeAfter === end && pos > $pos.start() && doc.textBetween(pos - 1, pos) === " "
-        ? pos - 1
-        : pos;
-    editor.chain().focus().deleteRange({ from: removeBefore, to: removeAfter }).run();
+    editor
+      .chain()
+      .focus()
+      .deleteRange({ from: pos, to: pos + current.nodeSize })
+      .run();
   };
 
   return (
     <NodeViewWrapper
-      as="span"
+      as="div"
       className={cn(CHIP_NODE_SELECTION_CLASS_NAME, "block")}
-      contentEditable={false}
       spellCheck={false}
       data-composer-citation-chip="true"
     >
@@ -575,6 +573,9 @@ function ComposerCitationNodeView({ node, editor, getPos }: NodeViewProps) {
         leading={edges.leading}
         trailing={edges.trailing}
         onRemove={editable ? onRemove : undefined}
+        commentContent={
+          <NodeViewContent<"span"> as="span" className="block min-h-5 outline-none" dir="auto" />
+        }
       />
     </NodeViewWrapper>
   );
@@ -1358,6 +1359,17 @@ function ComposerPromptEditorTiptapInner(
               return true;
             }
             event.preventDefault();
+            if (instance && hasAncestor(view.state.selection.$from, "composer-citation")) {
+              const { from, to } = view.state.selection;
+              const tr = view.state.tr.replaceWith(
+                from,
+                to,
+                view.state.schema.nodes.hardBreak!.create(),
+              );
+              tr.setSelection(TextSelection.create(tr.doc, from + 1));
+              view.dispatch(tr.scrollIntoView());
+              return true;
+            }
             if (
               (isTaskItem || isListItem) &&
               instance &&
@@ -1506,6 +1518,16 @@ function ComposerPromptEditorTiptapInner(
             ? 0
             : pastedPathQueryLength(lineBefore, text, readCallbacks().isPathQueryActive?.());
           const editorInstance = (view.dom as TiptapEditorHTMLElement).editor;
+          if (editorInstance && hasAncestor(view.state.selection.$from, "composer-citation")) {
+            return editorInstance
+              .chain()
+              .command(({ tr }) => {
+                markAsClipboardEdit(tr, "paste");
+                return true;
+              })
+              .insertContent(buildCitationCommentContent(text, richText))
+              .run();
+          }
           if (editorInstance) {
             const $paste = view.state.selection.$from;
             const nested = ["listItem", "taskItem", "blockquote"].some((name) =>

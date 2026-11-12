@@ -7,6 +7,7 @@ import {
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { replaceTextRange } from "./composerTrigger.ts";
 
 const CITATION_PROTOCOL = "t3-citation:";
 const CITATION_HREF_PREFIX = `${CITATION_PROTOCOL}//v1/`;
@@ -133,6 +134,35 @@ export function collectAssistantCitations(text: string) {
     });
   }
   return citations;
+}
+
+/** Inserts composer text into a citation's encoded comment without changing its quote. */
+export function replaceCitationCommentText(
+  text: string,
+  start: number,
+  end: number,
+  replacement: string,
+) {
+  for (const entry of collectAssistantCitations(text)) {
+    const marker = entry.source.lastIndexOf("&comment=");
+    const commentStart =
+      entry.start + (marker < 0 ? entry.source.length : marker + "&comment=".length);
+    const commentEnd = entry.end - (marker < 0 ? 0 : 1);
+    if (start < commentStart || end > commentEnd || end < start) continue;
+    const before =
+      marker < 0 ? "" : new URLSearchParams(`c=${text.slice(commentStart, start)}`).get("c")!;
+    const after =
+      marker < 0 ? "" : new URLSearchParams(`c=${text.slice(end, commentEnd)}`).get("c")!;
+    const comment = before + replacement + after;
+    if (comment.length > ASSISTANT_CITATION_MAX_COMMENT_LENGTH) return { text, cursor: start };
+    const source = serializeAssistantCitation({ ...entry.citation, comment });
+    const prefix = serializeAssistantCitation({ ...entry.citation, comment: before + replacement });
+    return {
+      text: text.slice(0, entry.start) + source + text.slice(entry.end),
+      cursor: entry.start + prefix.length - 1,
+    };
+  }
+  return replaceTextRange(text, start, end, replacement);
 }
 
 export function assistantCitationsToPlainText(prompt: string): string {

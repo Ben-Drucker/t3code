@@ -132,12 +132,12 @@ On web and desktop, select text within one assistant response and choose
 **Cite in composer**. You can add a comment about the quote and write instructions
 around it.
 
-Select the quote in a draft or sent message to return to its source. If the source
-is unavailable or has changed, the saved quote remains readable.
+Write your comment below the quote, inside its block in the composer. Comments support
+the composer's rich-text formatting. Select the quoted passage to expand or collapse it,
+or use **Go to source** to return to the response. If the source is unavailable or has
+changed, the saved quote remains readable.
 
-The chip shows your comment when it has one, or a short quote preview otherwise. Use the pencil
-button to add or change the comment. To remove the citation, place the caret beside its chip and
-delete it like other inline context. Copying, reloading, and restoring a
+Removing a quote also removes its comment. Copying, reloading, and restoring a
 [stashed prompt](#prompt-stash) keep each comment
 with its quote, and sending tells the agent which words were quoted and which comment you wrote.
 The quoted text and comment count toward the message limit.

@@ -62,7 +62,7 @@ it("shows quotes, file mentions, context references and skills as chips", async 
   const chips = [...container.querySelectorAll('[data-slot="context-chip"]')];
   expect(chips.map((chip) => chip.textContent)).toEqual([
     "Cache the parsed config.",
-    "Also on 429?",
+    "Retry on 503. · Also on 429?",
     "package.json",
     "file.txt",
     "Terminal 1",
@@ -76,7 +76,7 @@ it("shows quotes, file mentions, context references and skills as chips", async 
   ).toEqual(["Terminal 1"]);
   expect(chips.every((chip) => chip.querySelector("svg") !== null)).toBe(true);
   expect(container.textContent).toBe(
-    "Cache the parsed config. vs Also on 429? in package.json and file.txt per Terminal 1 on Build host with Review PR please",
+    "Cache the parsed config. vs Retry on 503. · Also on 429? in package.json and file.txt per Terminal 1 on Build host with Review PR please",
   );
   // The row is one tap target that expands the composer, so chips stay inert.
   expect(container.querySelector("button, a, [tabindex]")).toBeNull();
