@@ -11,3 +11,9 @@
 - Render `%[model: …]` and `%[tool: …]` chips in assistant messages too. Today they only render in the composer and in sent user messages; assistant output shows the raw text.
 - `%` menu: when it opens, put the cursor in the search box at once, and do not type the search text back into the composer (it does that now).
 - Cites (quoting assistant text with a comment): write the comment in the real composer so it has rich text. Show both the quoted material and the comment before sending, laid out the same way they look after sending.
+- `@`-mention directories, not just files. Return/Enter selects the highlighted item from the menu.
+- Fix `/qq` on the Kimi harness: it answers "Unknown ACP command: /qq. Use /help to see available commands." (screenshot: attachment 4bbfbc05-8177-4a3b-b6b7-df38844723d0-80938358-c49b-47bf-9a5b-71f665df0bc8).
+- OpenCode models ignore the chosen context window unevenly: some (e.g. Haiku) respect it, others (Gemini 4 Carbon via the API, the 1.05M-context kind, not Antigravity) do not. Find out why.
+- Quick explainer (mermaid diagram): how device connect works through a private server, how it reaches the phone, and whether/how the iOS version code needs to change. Ben has a paid Apple developer account ($99/yr).
+- Investigate only: how dictation works or doesn't in T3. Do providers such as Claude Code (subscription) offer it over ACP or their SDKs? What about small free local models?
+- QQ button should toggle on click, adding or removing the `/qq` from the composer, instead of only turning it on.
