@@ -12,6 +12,7 @@ import {
   hasUnseenCompletion,
   resolveSidebarRowThreadId,
   buildSidebarChildren,
+  hideSettledSidebarChildren,
   listSidebarChildRows,
   listSidebarDescendants,
   rollUpSidebarThreadStatus,
@@ -280,6 +281,43 @@ describe("sidebar child rows", () => {
     const loops = buildSidebarChildren([root, loopA, loopB, child("c", "loop-a")]);
     expect(listSidebarChildRows(keyOf("loop-a"), loops, none).length).toBeLessThanOrEqual(2);
     expect(listSidebarDescendants(keyOf("loop-a"), loops).length).toBeLessThanOrEqual(3);
+  });
+
+  it("hides settled rows and their subtrees while Settled is closed, except the open thread's path", () => {
+    const settled = (id: string, parentId: string) => ({
+      ...child(id, parentId),
+      settledOverride: "settled" as const,
+    });
+    const children = buildSidebarChildren([
+      root,
+      child("live", "root"),
+      settled("done", "root"),
+      settled("under-done", "done"),
+      settled("settled-leaf", "live"),
+    ]);
+    const view = (settledExpanded: boolean, routeThreadKey: string | null) =>
+      listSidebarChildRows(
+        keyOf("root"),
+        hideSettledSidebarChildren(children, { settledExpanded, routeThreadKey }),
+        none,
+      ).map((row) => row.thread.id);
+    expect(view(true, null)).toEqual(["done", "under-done", "live", "settled-leaf"]);
+    expect(view(false, null)).toEqual(["live"]);
+    // The open thread keeps its whole path, so a settled row never hides what is on screen.
+    expect(view(false, keyOf("done"))).toEqual(["done", "live"]);
+    expect(view(false, keyOf("under-done"))).toEqual(["done", "under-done", "live"]);
+  });
+
+  it("keeps unsettled children of a settled parent listed", () => {
+    const settledParent = { ...child("parent", "root"), settledOverride: "settled" as const };
+    const children = buildSidebarChildren([root, settledParent, child("kid", "parent")]);
+    const closed = hideSettledSidebarChildren(children, {
+      settledExpanded: false,
+      routeThreadKey: keyOf("parent"),
+    });
+    expect(listSidebarChildRows(keyOf("parent"), closed, none).map((row) => row.thread.id)).toEqual(
+      ["kid"],
+    );
   });
 
   it("rolls descendant status up without hiding the parent's own attention state", () => {

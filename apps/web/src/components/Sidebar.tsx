@@ -176,6 +176,7 @@ import {
   applySidebarThreadDrop,
   buildSidebarChildren,
   filterSidebarV2VisibleThreads,
+  hideSettledSidebarChildren,
   listSidebarChildRows,
   listSidebarDescendants,
   resolveSidebarThreadStatus,
@@ -1471,6 +1472,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       return next;
     });
   const childrenByParent = buildSidebarChildren(threads);
+  // Status roll-ups keep every descendant; only the listed rows follow the Settled shelf.
+  const listedChildrenByParent = hideSettledSidebarChildren(childrenByParent, {
+    settledExpanded: settledShelfExpanded,
+    routeThreadKey,
+  });
 
   const navigateToThread = (threadRef: ScopedThreadRef) => {
     if (useThreadSelectionStore.getState().selectedThreadKeys.size > 0) {
@@ -3361,7 +3367,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             ? "card"
                             : "slim";
                         const hasChildRows =
-                          projectFolders === null && childrenByParent.has(threadKey);
+                          projectFolders === null && listedChildrenByParent.has(threadKey);
                         const row = (
                           <SortableThreadRow
                             key={threadKey}
@@ -3474,7 +3480,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         if (!hasChildRows) return row;
                         return [
                           row,
-                          ...listSidebarChildRows(threadKey, childrenByParent, foldedChildKeys).map(
+                          ...listSidebarChildRows(
+                            threadKey,
+                            listedChildrenByParent,
+                            foldedChildKeys,
+                          ).map(
                             ({ thread: child, depth, hasChildren, isLast, continuingLevels }) => {
                               const childKey = scopedThreadKey(
                                 scopeThreadRef(child.environmentId, child.id),

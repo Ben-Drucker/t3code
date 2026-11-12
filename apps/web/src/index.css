@@ -108,6 +108,11 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     var(--contrast-sidebar-muted-foreground) 85%,
     var(--sidebar)
   );
+  --sidebar-tree-line: color-mix(
+    in srgb,
+    var(--contrast-sidebar-muted-foreground) 30%,
+    var(--sidebar)
+  );
   --sidebar-row-content-inset: 0.625rem;
   --command-shell-inset: 0.5rem;
   --command-content-inset: 1rem;

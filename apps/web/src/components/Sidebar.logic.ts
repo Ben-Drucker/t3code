@@ -647,6 +647,40 @@ export function buildSidebarChildren<T extends SidebarNestThread>(
   return children;
 }
 
+/**
+ * Settled threads belong to the Settled shelf, so a closed shelf hides settled rows wherever
+ * they nest, along with everything under them. The open thread and its ancestors stay so it
+ * never vanishes from the sidebar. Unsettled children of a settled parent still show.
+ */
+export function hideSettledSidebarChildren<
+  T extends SidebarNestThread & Pick<SidebarThreadSummary, "settledOverride">,
+>(
+  children: ReadonlyMap<string, readonly T[]>,
+  options: { settledExpanded: boolean; routeThreadKey: string | null },
+): ReadonlyMap<string, readonly T[]> {
+  if (options.settledExpanded) return children;
+  const parentKeyOf = new Map<string, string>();
+  for (const [parentKey, siblings] of children) {
+    for (const thread of siblings) parentKeyOf.set(sidebarThreadKey(thread), parentKey);
+  }
+  const keep = new Set<string>();
+  for (
+    let key = options.routeThreadKey;
+    key !== null && key !== undefined && !keep.has(key);
+    key = parentKeyOf.get(key) ?? null
+  ) {
+    keep.add(key);
+  }
+  const visible = new Map<string, readonly T[]>();
+  for (const [parentKey, siblings] of children) {
+    const shown = siblings.filter(
+      (thread) => thread.settledOverride !== "settled" || keep.has(sidebarThreadKey(thread)),
+    );
+    if (shown.length > 0) visible.set(parentKey, shown);
+  }
+  return visible;
+}
+
 export interface SidebarChildRow<T> {
   readonly thread: T;
   readonly depth: number;
