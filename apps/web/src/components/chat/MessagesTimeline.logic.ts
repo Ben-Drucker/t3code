@@ -281,7 +281,10 @@ export function workEntryIsVisibleInGroup(
     !workEntryIndicatesToolNeutralStatus(entry)
   );
 }
-const TIMELINE_MINIMAP_ITEM_SPACING = 8;
+export const TIMELINE_MINIMAP_ITEM_SPACING = 8;
+export const TIMELINE_MINIMAP_TRACK_PADDING_Y = 4;
+const TIMELINE_MINIMAP_EDGE_FADE_PX = 24;
+const TIMELINE_MINIMAP_SCROLL_EDGE_EPSILON_PX = 1;
 export const TIMELINE_MINIMAP_MIN_ITEMS = 2;
 const TIMELINE_MINIMAP_MAX_HEIGHT_CSS = "calc(100vh - 18rem)";
 const TIMELINE_MINIMAP_PERSISTENT_GUTTER = 48;
@@ -336,22 +339,106 @@ export function resolveTimelineIsAtEnd(state: TimelineEndState | undefined): boo
   return contentLength - scroll - scrollLength <= TIMELINE_FOLLOW_REARM_THRESHOLD_PX;
 }
 
+export function resolveTimelineMinimapTrackHeight(itemCount: number): number {
+  if (itemCount <= 0) {
+    return 0;
+  }
+  return Math.max(
+    1,
+    (itemCount - 1) * TIMELINE_MINIMAP_ITEM_SPACING + TIMELINE_MINIMAP_TRACK_PADDING_Y * 2,
+  );
+}
+
+export function resolveTimelineMinimapItemOffset(index: number): number {
+  return TIMELINE_MINIMAP_TRACK_PADDING_Y + Math.max(0, index) * TIMELINE_MINIMAP_ITEM_SPACING;
+}
+
 export function resolveTimelineMinimapHeightStyle(itemCount: number): string {
-  const naturalHeight = Math.max(1, (itemCount - 1) * TIMELINE_MINIMAP_ITEM_SPACING);
+  const naturalHeight = Math.max(1, resolveTimelineMinimapTrackHeight(itemCount));
   return `min(${naturalHeight}px, ${TIMELINE_MINIMAP_MAX_HEIGHT_CSS})`;
 }
 
-export function resolveTimelineMinimapTopPercent(index: number, itemCount: number): number {
-  if (itemCount <= 1) {
-    return 0;
+export function resolveTimelineMinimapEdgeFade(input: {
+  readonly scrollTop: number;
+  readonly clientHeight: number;
+  readonly scrollHeight: number;
+}): {
+  readonly fadeTop: boolean;
+  readonly fadeBottom: boolean;
+} {
+  if (
+    input.clientHeight <= 0 ||
+    input.scrollHeight <= input.clientHeight + TIMELINE_MINIMAP_SCROLL_EDGE_EPSILON_PX
+  ) {
+    return { fadeTop: false, fadeBottom: false };
   }
-  return (Math.max(0, Math.min(index, itemCount - 1)) / (itemCount - 1)) * 100;
+  return {
+    fadeTop: input.scrollTop > TIMELINE_MINIMAP_SCROLL_EDGE_EPSILON_PX,
+    fadeBottom:
+      input.scrollTop + input.clientHeight <
+      input.scrollHeight - TIMELINE_MINIMAP_SCROLL_EDGE_EPSILON_PX,
+  };
+}
+
+export function resolveTimelineMinimapMaskImage(fade: {
+  readonly fadeTop: boolean;
+  readonly fadeBottom: boolean;
+}): string | undefined {
+  if (!fade.fadeTop && !fade.fadeBottom) {
+    return undefined;
+  }
+  if (fade.fadeTop && fade.fadeBottom) {
+    return `linear-gradient(to bottom, transparent 0px, black ${TIMELINE_MINIMAP_EDGE_FADE_PX}px, black calc(100% - ${TIMELINE_MINIMAP_EDGE_FADE_PX}px), transparent 100%)`;
+  }
+  if (fade.fadeTop) {
+    return `linear-gradient(to bottom, transparent 0px, black ${TIMELINE_MINIMAP_EDGE_FADE_PX}px, black 100%)`;
+  }
+  return `linear-gradient(to bottom, black 0px, black calc(100% - ${TIMELINE_MINIMAP_EDGE_FADE_PX}px), transparent 100%)`;
+}
+
+export function resolveTimelineMinimapAutoScrollTop(input: {
+  readonly targetIndex: number | null;
+  readonly itemCount: number;
+  readonly scrollTop: number;
+  readonly clientHeight: number;
+  readonly scrollHeight: number;
+}): number | null {
+  if (
+    input.targetIndex === null ||
+    input.targetIndex < 0 ||
+    input.targetIndex >= input.itemCount ||
+    input.clientHeight <= 0
+  ) {
+    return null;
+  }
+  const maxScrollTop = Math.max(0, input.scrollHeight - input.clientHeight);
+  if (maxScrollTop <= TIMELINE_MINIMAP_SCROLL_EDGE_EPSILON_PX) {
+    return input.scrollTop > 0 ? 0 : null;
+  }
+  if (input.targetIndex === 0) {
+    return input.scrollTop === 0 ? null : 0;
+  }
+  if (input.targetIndex === input.itemCount - 1) {
+    return Math.abs(input.scrollTop - maxScrollTop) <= 0.5 ? null : maxScrollTop;
+  }
+  const margin = Math.min(TIMELINE_MINIMAP_EDGE_FADE_PX, Math.floor(input.clientHeight / 3));
+  const itemOffset = resolveTimelineMinimapItemOffset(input.targetIndex);
+  let nextScrollTop = input.scrollTop;
+  if (itemOffset < input.scrollTop + margin) {
+    nextScrollTop = Math.max(0, itemOffset - margin);
+  } else if (itemOffset > input.scrollTop + input.clientHeight - margin) {
+    nextScrollTop = Math.min(maxScrollTop, itemOffset + margin - input.clientHeight);
+  } else {
+    return null;
+  }
+  return Math.abs(nextScrollTop - input.scrollTop) <= 0.5 ? null : nextScrollTop;
 }
 
 export function resolveTimelineMinimapIndexFromPointer(input: {
   readonly itemCount: number;
   readonly railTop: number;
   readonly railHeight: number;
+  readonly scrollTop?: number;
   readonly pointerY: number;
 }): number | null {
   if (input.itemCount <= 0 || input.railHeight <= 0) {
@@ -361,8 +448,12 @@ export function resolveTimelineMinimapIndexFromPointer(input: {
     return 0;
   }
 
-  const progress = Math.max(0, Math.min(1, (input.pointerY - input.railTop) / input.railHeight));
-  return Math.max(0, Math.min(input.itemCount - 1, Math.round(progress * (input.itemCount - 1))));
+  const clampedViewportY = Math.max(0, Math.min(input.railHeight, input.pointerY - input.railTop));
+  const trackY = clampedViewportY + Math.max(0, input.scrollTop ?? 0);
+  const rawIndex = Math.round(
+    (trackY - TIMELINE_MINIMAP_TRACK_PADDING_Y) / TIMELINE_MINIMAP_ITEM_SPACING,
+  );
+  return Math.max(0, Math.min(input.itemCount - 1, rawIndex));
 }
 
 /** Recheck the rendered buffer: LegendList's unbuffered range can lag during scrolling. */

@@ -1,16 +1,22 @@
 import { resolveTimelineMinimapPreview, type TimelineMinimapItem } from "./timelineMinimapItems";
-import { useRef, useState, type MouseEvent } from "react";
+import { useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import {
+  resolveTimelineMinimapAutoScrollTop,
+  resolveTimelineMinimapEdgeFade,
   resolveTimelineMinimapHeightStyle,
   resolveTimelineMinimapIndexFromPointer,
   resolveTimelineMinimapInteractiveWidth,
+  resolveTimelineMinimapItemOffset,
+  resolveTimelineMinimapMaskImage,
   resolveTimelineMinimapNavigationInteractive,
-  resolveTimelineMinimapTopPercent,
+  resolveTimelineMinimapTrackHeight,
   TIMELINE_MINIMAP_MIN_ITEMS,
+  TIMELINE_MINIMAP_TRACK_PADDING_Y,
 } from "./MessagesTimeline.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
 
 function timelineMinimapEventTargetsPreview(target: EventTarget): boolean {
@@ -34,6 +40,20 @@ function onMouseButtonsReleased(onRelease: () => void): () => void {
   return stop;
 }
 
+interface RailScrollMetrics {
+  readonly scrollTop: number;
+  readonly clientHeight: number;
+  readonly scrollHeight: number;
+}
+
+function readRailScrollMetrics(node: HTMLElement): RailScrollMetrics {
+  return {
+    scrollTop: node.scrollTop,
+    clientHeight: node.clientHeight,
+    scrollHeight: node.scrollHeight,
+  };
+}
+
 export function TimelineMinimap({
   hasPersistentGutter,
   hitStripWidth,
@@ -52,10 +72,50 @@ export function TimelineMinimap({
   onSelect: (item: TimelineMinimapItem) => void;
 }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [scrollMetrics, setScrollMetrics] = useState<RailScrollMetrics>({
+    scrollTop: 0,
+    clientHeight: 0,
+    scrollHeight: 0,
+  });
+  const railNodeRef = useRef<HTMLButtonElement | null>(null);
+  const pointerClientYRef = useRef<number | null>(null);
+
+  const syncScrollMetrics = (node: HTMLElement) => {
+    const next = readRailScrollMetrics(node);
+    setScrollMetrics((current) =>
+      current.scrollTop === next.scrollTop &&
+      current.clientHeight === next.clientHeight &&
+      current.scrollHeight === next.scrollHeight
+        ? current
+        : next,
+    );
+  };
+
   const wheelTargetRef = (node: HTMLDivElement | null) => {
     if (!node) return;
-    node.addEventListener("wheel", onWheel, { passive: false });
-    return () => node.removeEventListener("wheel", onWheel);
+    const handleWheel = (event: WheelEvent) => {
+      const rail = railNodeRef.current;
+      if (
+        rail &&
+        event.target instanceof Node &&
+        rail.contains(event.target) &&
+        !timelineMinimapEventTargetsPreview(event.target) &&
+        rail.scrollHeight > rail.clientHeight + 1
+      ) {
+        return;
+      }
+      onWheel(event);
+    };
+    node.addEventListener("wheel", handleWheel, { passive: false });
+    return () => node.removeEventListener("wheel", handleWheel);
+  };
+
+  const railRef = (node: HTMLButtonElement | null) => {
+    railNodeRef.current = node;
+    if (!node) return;
+    syncScrollMetrics(node);
+    const track = node.firstElementChild;
+    return observeResize(track ? [node, track] : node, () => syncScrollMetrics(node));
   };
 
   const pressedOnStripRef = useRef(false);
@@ -68,16 +128,25 @@ export function TimelineMinimap({
   );
   const navigationInteractive =
     resolveTimelineMinimapNavigationInteractive(hitStripWidth) && !passThrough;
-  const activeTopPercent =
+  const trackHeight = resolveTimelineMinimapTrackHeight(items.length);
+  const viewportHeight = scrollMetrics.clientHeight > 0 ? scrollMetrics.clientHeight : trackHeight;
+  const activeVisualTopPx =
     resolvedActiveIndex === null
       ? 0
-      : resolveTimelineMinimapTopPercent(resolvedActiveIndex, items.length);
+      : Math.max(
+          0,
+          Math.min(
+            viewportHeight,
+            resolveTimelineMinimapItemOffset(resolvedActiveIndex) - scrollMetrics.scrollTop,
+          ),
+        );
   const activeTooltipTranslate =
     resolvedActiveIndex === null
       ? "-50%"
-      : resolvedActiveIndex === 0
+      : resolvedActiveIndex === 0 || (viewportHeight > 48 && activeVisualTopPx <= 16)
         ? "0%"
-        : resolvedActiveIndex === items.length - 1
+        : resolvedActiveIndex === items.length - 1 ||
+            (viewportHeight > 48 && activeVisualTopPx >= viewportHeight - 16)
           ? "-100%"
           : "-50%";
   const resolvedCurrentIndex =
@@ -86,31 +155,86 @@ export function TimelineMinimap({
     resolvedCurrentIndex === null ? null : (items[resolvedCurrentIndex - 1] ?? null);
   const nextItem = resolvedCurrentIndex === null ? null : (items[resolvedCurrentIndex + 1] ?? null);
 
-  const resolveActiveIndexFromPointer = (event: MouseEvent<HTMLElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
+  const scrollIndexIntoView = (targetIndex: number | null) => {
+    const node = railNodeRef.current;
+    if (!node || targetIndex === null) return;
+    const nextScrollTop = resolveTimelineMinimapAutoScrollTop({
+      targetIndex,
+      itemCount: items.length,
+      scrollTop: node.scrollTop,
+      clientHeight: node.clientHeight,
+      scrollHeight: node.scrollHeight,
+    });
+    if (nextScrollTop !== null) {
+      node.scrollTop = nextScrollTop;
+    }
+    syncScrollMetrics(node);
+  };
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the rail DOM node to keep the active turn in view and reads back its post-layout scroll metrics
+  useLayoutEffect(() => {
+    const node = railNodeRef.current;
+    if (!node) return;
+    if (pointerClientYRef.current === null) {
+      const nextScrollTop = resolveTimelineMinimapAutoScrollTop({
+        targetIndex: resolvedCurrentIndex,
+        itemCount: items.length,
+        scrollTop: node.scrollTop,
+        clientHeight: node.clientHeight,
+        scrollHeight: node.scrollHeight,
+      });
+      if (nextScrollTop !== null) {
+        node.scrollTop = nextScrollTop;
+      }
+    }
+    const next = readRailScrollMetrics(node);
+    setScrollMetrics((current) =>
+      current.scrollTop === next.scrollTop &&
+      current.clientHeight === next.clientHeight &&
+      current.scrollHeight === next.scrollHeight
+        ? current
+        : next,
+    );
+  }, [resolvedCurrentIndex, items.length]);
+
+  const resolveActiveIndexFromElementAndPointer = (element: HTMLElement, clientY: number) => {
+    const rect = element.getBoundingClientRect();
     return resolveTimelineMinimapIndexFromPointer({
       itemCount: items.length,
       railTop: rect.top,
       railHeight: rect.height,
-      pointerY: event.clientY,
+      scrollTop: element.scrollTop,
+      pointerY: clientY,
     });
   };
 
+  const resolveActiveIndexFromPointer = (event: MouseEvent<HTMLElement>) =>
+    resolveActiveIndexFromElementAndPointer(event.currentTarget, event.clientY);
+
   const updateActiveIndexFromPointer = (event: MouseEvent<HTMLElement>) => {
+    pointerClientYRef.current = event.clientY;
     const nextIndex = resolveActiveIndexFromPointer(event);
     setActiveIndex(nextIndex);
   };
 
+  const focusActiveIndex = (nextIndex: number) => {
+    const clamped = Math.max(0, Math.min(items.length - 1, nextIndex));
+    setActiveIndex(clamped);
+    scrollIndexIntoView(clamped);
+  };
+
   const moveActiveIndex = (delta: number) => {
-    setActiveIndex((current) => {
-      const base = current ?? 0;
-      return Math.max(0, Math.min(items.length - 1, base + delta));
-    });
+    const base = resolvedActiveIndex ?? resolvedCurrentIndex ?? 0;
+    focusActiveIndex(base + delta);
   };
 
   if (items.length < TIMELINE_MINIMAP_MIN_ITEMS) {
     return null;
   }
+
+  const edgeFade = resolveTimelineMinimapEdgeFade(scrollMetrics);
+  const maskImage = resolveTimelineMinimapMaskImage(edgeFade);
+  const spineHeight = Math.max(0, trackHeight - TIMELINE_MINIMAP_TRACK_PADDING_Y * 2);
 
   return (
     <div
@@ -137,6 +261,10 @@ export function TimelineMinimap({
               pressedOnStripRef.current = false;
             });
           }}
+          onMouseLeave={() => {
+            pointerClientYRef.current = null;
+            setActiveIndex(null);
+          }}
           onMouseMove={(event) => {
             if (event.buttons === 0 || pressedOnStripRef.current || passThrough) return;
             setPassThrough(true);
@@ -157,8 +285,14 @@ export function TimelineMinimap({
           />
           <button
             aria-label={`Jump to message: ${activeItem?.userText ?? "User message"}`}
-            className="absolute inset-y-0 left-0 w-full cursor-pointer bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
-            onBlur={() => setActiveIndex(null)}
+            className="absolute inset-y-0 left-0 w-full cursor-pointer overflow-y-auto overflow-x-hidden overscroll-y-contain bg-transparent [-ms-overflow-style:none] [scrollbar-width:none] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70 [&::-webkit-scrollbar]:hidden"
+            data-fade-bottom={edgeFade.fadeBottom ? "true" : "false"}
+            data-fade-top={edgeFade.fadeTop ? "true" : "false"}
+            onBlur={() => {
+              if (pointerClientYRef.current === null) {
+                setActiveIndex(null);
+              }
+            }}
             onClick={(event) => {
               if (timelineMinimapEventTargetsPreview(event.target)) {
                 return;
@@ -180,10 +314,10 @@ export function TimelineMinimap({
                 moveActiveIndex(-1);
               } else if (event.key === "Home") {
                 event.preventDefault();
-                setActiveIndex(0);
+                focusActiveIndex(0);
               } else if (event.key === "End") {
                 event.preventDefault();
-                setActiveIndex(items.length - 1);
+                focusActiveIndex(items.length - 1);
               } else if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
                 if (activeItem) {
@@ -191,7 +325,6 @@ export function TimelineMinimap({
                 }
               }
             }}
-            onMouseLeave={() => setActiveIndex(null)}
             onMouseMove={(event) => {
               if (event.buttons !== 0 && !pressedOnStripRef.current) return;
               updateActiveIndexFromPointer(event);
@@ -202,75 +335,100 @@ export function TimelineMinimap({
               }
               event.preventDefault();
             }}
+            onScroll={(event) => {
+              const element = event.currentTarget;
+              syncScrollMetrics(element);
+              if (pointerClientYRef.current !== null) {
+                setActiveIndex(
+                  resolveActiveIndexFromElementAndPointer(element, pointerClientYRef.current),
+                );
+              }
+            }}
+            ref={railRef}
+            style={
+              maskImage
+                ? {
+                    maskImage,
+                    WebkitMaskImage: maskImage,
+                  }
+                : undefined
+            }
             type="button"
           >
-            <div className="absolute top-0 left-3 h-full w-px bg-border/15" />
-            {items.map((item, index) => {
-              const top = `${resolveTimelineMinimapTopPercent(index, items.length)}%`;
-              const activeDistance =
-                resolvedActiveIndex === null ? null : Math.abs(index - resolvedActiveIndex);
-              return (
-                // Compositor-friendly on purpose: in-view state and the hover
-                // fisheye animate constantly (every scroll tick and streaming
-                // update flips a band of strips), so the strip animates only
-                // transform and opacity.
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "pointer-events-none absolute left-0 h-0.5 w-6 origin-left -translate-y-1/2 rounded-full transition-transform duration-150 after:absolute after:inset-0 after:rounded-full after:bg-foreground/55 after:opacity-0 after:transition-opacity after:duration-150 data-[in-view=true]:after:opacity-100",
-                    activeDistance === 0 ? "bg-muted-foreground/60" : "bg-muted-foreground/25",
-                    activeDistance === 0
-                      ? "scale-x-100"
-                      : activeDistance === 1
-                        ? "scale-x-[0.667]"
-                        : activeDistance === 2
-                          ? "scale-x-[0.417]"
-                          : "scale-x-[0.333]",
-                  )}
-                  data-in-view="false"
-                  data-minimap-strip
-                  key={item.id}
-                  ref={(node) => {
-                    if (node) {
-                      stripMap.set(item.id, node);
-                    } else {
-                      stripMap.delete(item.id);
-                    }
-                  }}
-                  style={{ top }}
-                />
-              );
-            })}
-            {activeItem ? (
+            <span className="relative block w-full" style={{ height: `${trackHeight}px` }}>
               <span
-                className="pointer-events-auto absolute left-8 w-80 cursor-text select-text"
-                data-minimap-preview
-                onMouseMove={(event) => event.stopPropagation()}
+                className="pointer-events-none absolute left-3 w-px bg-border/15"
                 style={{
-                  top: `${activeTopPercent}%`,
-                  transform: `translateY(${activeTooltipTranslate})`,
+                  top: `${TIMELINE_MINIMAP_TRACK_PADDING_Y}px`,
+                  height: `${spineHeight}px`,
                 }}
-              >
-                <span className="dropdown-glass block rounded-xl p-3 text-left text-popover-foreground shadow-xl shadow-black/25">
-                  <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium leading-5">
-                    {activeItem.userText ?? "User message"}
-                  </span>
-                  {activeItem.assistantText ? (
-                    <span
-                      className="mt-1 max-h-[3.75rem] overflow-hidden text-muted-foreground text-sm leading-5"
-                      style={{
-                        display: "-webkit-box",
-                        WebkitBoxOrient: "vertical",
-                        WebkitLineClamp: 3,
-                      }}
-                    >
-                      {activeItem.assistantText}
-                    </span>
-                  ) : null}
-                </span>
-              </span>
-            ) : null}
+              />
+              {items.map((item, index) => {
+                const top = `${resolveTimelineMinimapItemOffset(index)}px`;
+                const activeDistance =
+                  resolvedActiveIndex === null ? null : Math.abs(index - resolvedActiveIndex);
+                return (
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "pointer-events-none absolute left-0 h-0.5 w-6 origin-left -translate-y-1/2 rounded-full transition-transform duration-150 after:absolute after:inset-0 after:rounded-full after:bg-foreground/55 after:opacity-0 after:transition-opacity after:duration-150 data-[in-view=true]:after:opacity-100",
+                      activeDistance === 0 ? "bg-muted-foreground/60" : "bg-muted-foreground/25",
+                      activeDistance === 0
+                        ? "scale-x-100"
+                        : activeDistance === 1
+                          ? "scale-x-[0.667]"
+                          : activeDistance === 2
+                            ? "scale-x-[0.417]"
+                            : "scale-x-[0.333]",
+                    )}
+                    data-in-view="false"
+                    data-minimap-strip
+                    key={item.id}
+                    ref={(node) => {
+                      if (node) {
+                        stripMap.set(item.id, node);
+                      } else {
+                        stripMap.delete(item.id);
+                      }
+                    }}
+                    style={{ top }}
+                  />
+                );
+              })}
+            </span>
           </button>
+          {activeItem ? (
+            <span
+              className="pointer-events-auto absolute left-8 z-20 w-80 cursor-text select-text"
+              data-minimap-preview
+              onMouseEnter={() => {
+                pointerClientYRef.current = null;
+              }}
+              onMouseMove={(event) => event.stopPropagation()}
+              style={{
+                top: `${activeVisualTopPx}px`,
+                transform: `translateY(${activeTooltipTranslate})`,
+              }}
+            >
+              <span className="dropdown-glass block rounded-xl p-3 text-left text-popover-foreground shadow-xl shadow-black/25">
+                <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium leading-5">
+                  {activeItem.userText ?? "User message"}
+                </span>
+                {activeItem.assistantText ? (
+                  <span
+                    className="mt-1 max-h-[3.75rem] overflow-hidden text-muted-foreground text-sm leading-5"
+                    style={{
+                      display: "-webkit-box",
+                      WebkitBoxOrient: "vertical",
+                      WebkitLineClamp: 3,
+                    }}
+                  >
+                    {activeItem.assistantText}
+                  </span>
+                ) : null}
+              </span>
+            </span>
+          ) : null}
           <TimelineMinimapNavigationButton
             direction="next"
             disabled={nextItem === null}
