@@ -298,6 +298,8 @@ export function acpPerTurnPromptUsage(
 }
 
 export interface AcpAdapterV2Flavor {
+  /** Registry agents can reject unknown slash commands before the model sees a skill request. */
+  readonly unknownSlashCommandsAsText?: boolean;
   readonly buildPrompt?: (input: {
     readonly text: string;
     readonly attachments: ReadonlyArray<ChatAttachment>;
@@ -1986,6 +1988,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         const activeSelection = yield* Ref.make<ModelSelection | null>(null);
         const activeInteractionMode = yield* Ref.make<ProviderInteractionMode | null>(null);
         const promptInstructionStates = yield* Ref.make(new Map<string, T3AcpInstructionState>());
+        const availableCommands = new Map<string, ReadonlySet<string>>();
         // Unique markers keep delayed prompt completions from clearing later compactions.
         const compactionMarkers = yield* Ref.make(new Map<string, symbol>());
         const runtimeRestartRequired = yield* Ref.make(false);
@@ -6399,6 +6402,14 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                       clientTerminals.readOutputSnapshot,
                     );
               if (notification.update.sessionUpdate === "available_commands_update") {
+                availableCommands.set(
+                  notification.sessionId,
+                  new Set(
+                    notification.update.availableCommands.map((command) =>
+                      command.name.replace(/^\//, ""),
+                    ),
+                  ),
+                );
                 yield* (
                   flavor.onAvailableCommandsUpdate?.(notification.update.availableCommands) ??
                     Effect.void
@@ -7181,6 +7192,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             yield* Ref.set(activeSelection, null);
             yield* Ref.set(activeInteractionMode, null);
             yield* Ref.set(promptInstructionStates, new Map());
+            availableCommands.clear();
             yield* Ref.set(compactionMarkers, new Map());
             yield* Ref.set(providerTurns, new Map());
             yield* Ref.set(snapshot, emptySnapshotState());
@@ -8002,7 +8014,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           } satisfies T3AcpInstructionState;
           const previousInstructionState = (yield* Ref.get(promptInstructionStates)).get(sessionId);
           const compactionMarker = (yield* Ref.get(compactionMarkers)).get(sessionId);
-          const userText =
+          let userText =
             flavor.rewriteUserText === undefined
               ? turnInput.message.text
               : yield* flavor
@@ -8013,6 +8025,16 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                       childProcessSpawner,
                     ),
                   );
+          const command = /^\s*\/([^\s]+)/.exec(userText)?.[1];
+          if (
+            flavor.unknownSlashCommandsAsText === true &&
+            command !== undefined &&
+            command !== "compact" &&
+            command !== "help" &&
+            !availableCommands.get(sessionId)?.has(command)
+          ) {
+            userText = `<user_request>\n${userText}\n</user_request>`;
+          }
           const messageText = yield* providerMessageTextWithAttachmentPaths({
             text: userText,
             attachments: turnInput.message.attachments,
