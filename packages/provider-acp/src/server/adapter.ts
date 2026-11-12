@@ -402,6 +402,7 @@ export interface AcpAdapterV2Flavor {
   readonly ownedModelOptionIds?: ReadonlyArray<string>;
   readonly sessionModeForPolicy?: (
     policy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
+    availableModeIds: ReadonlyArray<string> | undefined,
   ) => string | undefined;
   /**
    * Fork: later names a runtime gave a policy's session mode. When set, the first of the mode and its
@@ -7473,7 +7474,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           const yieldedModeIds = (yield* runtime.getModeState)?.availableModes.map(
             (mode) => mode.id,
           );
-          const requestedPolicyMode = flavor.sessionModeForPolicy?.(runtimePolicy);
+          const requestedPolicyMode = flavor.sessionModeForPolicy?.(runtimePolicy, yieldedModeIds);
           const policyMode =
             requestedPolicyMode === undefined || flavor.sessionModeAliases === undefined
               ? requestedPolicyMode

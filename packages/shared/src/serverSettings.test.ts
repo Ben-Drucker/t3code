@@ -72,6 +72,40 @@ describe("fallbackTextGenerationModelSelection", () => {
 });
 
 describe("serverSettings helpers", () => {
+  it("keeps permission defaults independent when changing a legacy default", () => {
+    const legacy = { ...DEFAULT_SERVER_SETTINGS, defaultRuntimeMode: "auto" as const };
+    const settings = applyServerSettingsPatch(legacy, { defaultRuntimeMode: "approval-required" });
+    expect(settings.defaultRuntimeMode).toBe("approval-required");
+    expect(settings.defaultRuntimeModeWithAuto).toBe("auto");
+    const projectId = ProjectId.make("permission-project");
+    const projectLegacy = {
+      ...legacy,
+      projectSettingsOverrides: {
+        [projectId]: { defaultRuntimeMode: "auto-accept-edits" as const },
+      },
+    };
+    expect(
+      applyServerSettingsPatch(projectLegacy, { defaultRuntimeMode: "approval-required" })
+        .projectSettingsOverrides[projectId],
+    ).toEqual({
+      defaultRuntimeMode: "auto-accept-edits",
+      defaultRuntimeModeWithAuto: "auto-accept-edits",
+    });
+    const project = applyServerSettingsPatch(legacy, {
+      projectSettingsOverrides: { [projectId]: { defaultRuntimeMode: "approval-required" } },
+    });
+    expect(project.projectSettingsOverrides[projectId]).toEqual({
+      defaultRuntimeMode: "approval-required",
+      defaultRuntimeModeWithAuto: "auto",
+    });
+    expect(
+      applyServerSettingsPatch(legacy, {
+        defaultRuntimeMode: "approval-required",
+        defaultRuntimeModeWithAuto: "full-access",
+      }).defaultRuntimeModeWithAuto,
+    ).toBe("full-access");
+  });
+
   it("translates a shipped client's idle compaction switch into a mode", () => {
     const off = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, { idleCompaction: "off" });
     expect([off.idleCompaction, off.compactIdleThreads]).toEqual(["off", false]);

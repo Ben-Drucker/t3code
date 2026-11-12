@@ -18,6 +18,8 @@ import {
   DraftId,
 } from "../../composerDraftStore";
 import { openPullRequestThreadDialog } from "./ChatOverlayHosts";
+import { useEnvironmentProviders } from "../../state/environments";
+import { resolveDefaultRuntimeMode } from "@t3tools/shared/runtimeMode";
 interface PullRequestDraftThreadInput {
   readonly routeKind: "server" | "draft";
   readonly draftId: DraftId | null;
@@ -45,6 +47,7 @@ export function usePullRequestDraftThread(input: PullRequestDraftThreadInput) {
     canCheckoutPullRequestIntoThread,
   } = input;
   const navigate = useNavigate();
+  const providersByEnvironment = useEnvironmentProviders();
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const getDraftSessionByLogicalProjectKey = useComposerDraftStore(
     (store) => store.getDraftSessionByLogicalProjectKey,
@@ -116,8 +119,13 @@ export function usePullRequestDraftThread(input: PullRequestDraftThreadInput) {
     setLogicalProjectDraftThreadId(logicalProjectKey, activeProjectRef, nextDraftId, {
       threadId: nextThreadId,
       createdAt: new Date().toISOString(),
-      runtimeMode: resolveProjectSettings(settings, activeProject.id, activeProject).settings
-        .defaultRuntimeMode,
+      runtimeMode: resolveDefaultRuntimeMode(
+        resolveProjectSettings(settings, activeProject.id, activeProject).settings,
+        providersByEnvironment
+          .get(activeProject.environmentId)
+          ?.find((provider) => provider.instanceId === settings.defaultModelSelection?.instanceId)
+          ?.supportedRuntimeModes,
+      ),
       interactionMode: DEFAULT_INTERACTION_MODE,
       ...input,
     });

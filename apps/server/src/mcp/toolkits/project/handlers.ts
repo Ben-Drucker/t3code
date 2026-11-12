@@ -26,6 +26,7 @@ import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as DateTime from "effect/DateTime";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { resolveDefaultRuntimeMode } from "@t3tools/shared/runtimeMode";
 import { resolveRuntimeMode } from "../../delegatedTaskModes.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -239,19 +240,23 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
             message:
               "Pass modelSelection: the project has no default model. orchestrator_capabilities lists providers and models.",
           });
+        const providers = replaying
+          ? []
+          : yield* (yield* ProviderRegistry.ProviderRegistry).getProviders;
+        const supportedRuntimeModes = providers.find(
+          (provider) => provider.instanceId === modelSelection.instanceId,
+        )?.supportedRuntimeModes;
         let startedRuntimeMode =
           projectDefaults !== undefined && input.runtimeMode === undefined
-            ? yield* resolveRuntimeMode(runtimeMode, projectDefaults.defaultRuntimeMode).pipe(
-                Effect.orElseSucceed(() => runtimeMode),
-              )
+            ? yield* resolveRuntimeMode(
+                runtimeMode,
+                resolveDefaultRuntimeMode(projectDefaults, supportedRuntimeModes),
+              ).pipe(Effect.orElseSucceed(() => runtimeMode))
             : runtimeMode;
         if (!replaying) {
-          const providers = yield* (yield* ProviderRegistry.ProviderRegistry).getProviders;
           startedRuntimeMode = yield* resolveRuntimeMode(startedRuntimeMode, input.runtimeMode, {
             modelSelection,
-            supportedRuntimeModes: providers.find(
-              (provider) => provider.instanceId === modelSelection.instanceId,
-            )?.supportedRuntimeModes,
+            supportedRuntimeModes,
           });
         }
         const result = yield* ThreadMessageIntake.launchThread({

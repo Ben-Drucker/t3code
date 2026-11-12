@@ -549,6 +549,8 @@ describe("AcpRegistryAdapterV2", () => {
       readonly customModels?: ReadonlyArray<string>;
       readonly storedModel?: string;
       readonly storedModePick?: string;
+      readonly agentId?: string;
+      readonly storedModeOptionId?: string;
       readonly turnModels?: ReadonlyArray<string>;
       readonly rejectedModel?: string;
     }) {
@@ -597,7 +599,7 @@ describe("AcpRegistryAdapterV2", () => {
         selfInvocation: yield* resolveSelfInvocation(),
         instanceId,
         settings: yield* decodeAcpRegistryAdapterSettings({
-          agentId: "fixture-agent",
+          agentId: input.agentId ?? "fixture-agent",
           authMethodId: "test",
           customModels: input.customModels ?? [],
         }),
@@ -637,7 +639,14 @@ describe("AcpRegistryAdapterV2", () => {
         model: input.storedModel ?? "default",
         ...(input.storedModePick === undefined
           ? {}
-          : { options: [{ id: ACP_SESSION_MODE_OPTION_ID, value: input.storedModePick }] }),
+          : {
+              options: [
+                {
+                  id: input.storedModeOptionId ?? ACP_SESSION_MODE_OPTION_ID,
+                  value: input.storedModePick,
+                },
+              ],
+            }),
       };
       const configurations: Array<AcpRegistryLiveConfiguration | undefined> = [];
       yield* Effect.gen(function* () {
@@ -736,6 +745,50 @@ describe("AcpRegistryAdapterV2", () => {
         storedModePick: "auto",
       }).pipe(Effect.provide(layerTest), Effect.scoped),
     );
+
+    it.effect(
+      "keeps Kimi permission requests under T3 control despite a stored native YOLO pick",
+      () =>
+        openWithStoredPicks({
+          agentId: "kimi",
+          setup: {
+            modes: {
+              currentModeId: "yolo",
+              availableModes: ["default", "auto", "yolo", "plan"].map((id) => ({ id, name: id })),
+            },
+          },
+          storedModePick: "yolo",
+          pickFrames: [
+            outbound("session/set_mode", { sessionId: "agent-session", modeId: "default" }),
+            answer("session/set_mode", {}),
+          ],
+        }).pipe(Effect.provide(layerTest), Effect.scoped),
+    );
+
+    it.effect("resets Kimi's native permission config before using T3 permissions", () => {
+      const modeOption = (currentValue: string) => ({
+        id: "mode",
+        name: "Mode",
+        category: "mode",
+        type: "select",
+        currentValue,
+        options: ["default", "auto", "yolo", "plan"].map((value) => ({ value, name: value })),
+      });
+      return openWithStoredPicks({
+        agentId: "kimi",
+        setup: { configOptions: [modeOption("auto")] },
+        storedModePick: "yolo",
+        storedModeOptionId: "mode",
+        pickFrames: [
+          outbound("session/set_config_option", {
+            sessionId: "agent-session",
+            configId: "mode",
+            value: "default",
+          }),
+          answer("session/set_config_option", { configOptions: [modeOption("default")] }),
+        ],
+      }).pipe(Effect.provide(layerTest), Effect.scoped);
+    });
 
     const modelOption = (id: string, currentValue: string, grouped = false) => ({
       id,

@@ -2407,7 +2407,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
 
         // Choosing the policy's value leaves nothing in the file to outlive the policy.
         yield* service.updateSettings({ defaultRuntimeMode: "approval-required" });
-        assert.notInclude(yield* fs.readFileString(config.settingsPath), "defaultRuntimeMode");
+        assert.notInclude(yield* fs.readFileString(config.settingsPath), '"defaultRuntimeMode":');
       }).pipe(Effect.provide(layerServerSettings(policy))),
     );
 
@@ -2626,8 +2626,9 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
           config.settingsPath,
           JSON.stringify({
             defaultRuntimeMode: "auto",
+            defaultRuntimeModeWithAuto: "full-access",
             projectSettingsOverrides: {
-              [raised]: { defaultRuntimeMode: "full-access" },
+              [raised]: { defaultRuntimeMode: "full-access", defaultRuntimeModeWithAuto: "auto" },
               [supervised]: { defaultRuntimeMode: "approval-required" },
             },
           }),
@@ -2635,6 +2636,11 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
 
         const settings = yield* service.getSettings;
         assert.equal(settings.defaultRuntimeMode, "auto-accept-edits");
+        assert.equal(settings.defaultRuntimeModeWithAuto, "auto-accept-edits");
+        assert.equal(
+          settings.projectSettingsOverrides[raised]?.defaultRuntimeModeWithAuto,
+          "auto-accept-edits",
+        );
         assert.equal(
           settings.projectSettingsOverrides[raised]?.defaultRuntimeMode,
           "auto-accept-edits",
@@ -2647,6 +2653,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
         yield* service.updateSettings({ defaultAutoPull: true });
         const stored = JSON.parse(yield* fs.readFileString(config.settingsPath));
         assert.equal(stored.defaultRuntimeMode, "auto");
+        assert.equal(stored.defaultRuntimeModeWithAuto, "full-access");
         assert.equal(stored.projectSettingsOverrides[raised].defaultRuntimeMode, "full-access");
       }).pipe(
         Effect.provide(

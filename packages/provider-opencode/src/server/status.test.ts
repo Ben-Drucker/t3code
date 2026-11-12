@@ -857,7 +857,6 @@ it.layer(layerTest)("checkOpenCodeProviderStatus", (it) => {
       NodeAssert.deepEqual(snapshot.supportedRuntimeModes, [
         "approval-required",
         "auto-accept-edits",
-        "auto",
         "full-access",
       ]);
       NodeAssert.equal(snapshot.showInteractionModeToggle, true);
@@ -1051,7 +1050,6 @@ it.layer(layerTest)("checkOpenCodeProviderStatus with configured server URL", (i
       NodeAssert.deepEqual(snapshot.supportedRuntimeModes, [
         "approval-required",
         "auto-accept-edits",
-        "auto",
         "full-access",
       ]);
       NodeAssert.equal(runtimeMock.state.sdkClientInputs.length, 0);

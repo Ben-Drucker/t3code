@@ -334,22 +334,31 @@ it.layer(NodeServices.layer)("ManagedPolicy.load", (it) => {
 
   it.effect("refuses a default runtime mode above its own ceiling", () =>
     Effect.gen(function* () {
-      const reasons = yield* Effect.forEach([false, true], (locked) =>
-        loadFrom(
-          JSON.stringify({
-            schemaVersion: 1,
-            organization: "Example Corp",
-            settings: { defaultRuntimeMode: { value: "auto", locked } },
-            limits: { maxRuntimeMode: "auto-accept-edits" },
-          }),
-        ).pipe(
-          Effect.flip,
-          Effect.map((error) => error.reason),
-        ),
+      const reasons = yield* Effect.forEach(
+        [
+          { key: "defaultRuntimeMode", locked: false },
+          { key: "defaultRuntimeMode", locked: true },
+          { key: "defaultRuntimeModeWithAuto", locked: false },
+          { key: "defaultRuntimeModeWithAuto", locked: true },
+        ],
+        ({ key, locked }) =>
+          loadFrom(
+            JSON.stringify({
+              schemaVersion: 1,
+              organization: "Example Corp",
+              settings: { [key]: { value: "auto", locked } },
+              limits: { maxRuntimeMode: "auto-accept-edits" },
+            }),
+          ).pipe(
+            Effect.flip,
+            Effect.map((error) => error.reason),
+          ),
       );
       assert.deepEqual(reasons, [
         '"defaultRuntimeMode" is above "limits.maxRuntimeMode"',
         '"defaultRuntimeMode" is above "limits.maxRuntimeMode"',
+        '"defaultRuntimeModeWithAuto" is above "limits.maxRuntimeMode"',
+        '"defaultRuntimeModeWithAuto" is above "limits.maxRuntimeMode"',
       ]);
     }),
   );

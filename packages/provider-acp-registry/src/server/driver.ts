@@ -66,6 +66,10 @@ import * as AcpRegistryAuth from "./auth.ts";
 import * as AcpRegistryAuthenticationState from "./authenticationState.ts";
 import { withKimiContextControls } from "./kimiCompaction.ts";
 import { isKimiAgent, probeKimiUsage } from "./kimiUsage.ts";
+import { withKimiRuntimeControls } from "./kimiModes.ts";
+
+const withKimiControls = (capabilities: ModelCapabilities) =>
+  withKimiRuntimeControls(withKimiContextControls(capabilities));
 
 const DRIVER_KIND = ProviderDriverKind.make("acpRegistry");
 const decodeSettings = Schema.decodeSync(AcpRegistrySettings);
@@ -220,6 +224,7 @@ function baseSnapshot(
     ...(iconUrl ? { iconUrl } : {}),
     continuation: { groupKey: input.continuationKey },
     supportsTextGeneration: false,
+    supportedRuntimeModes: ["approval-required", "auto-accept-edits", "full-access"],
     enabled: input.settings.enabled,
     installed: input.installed,
     version: input.version,
@@ -241,7 +246,7 @@ function baseSnapshot(
     models: modelsFromDiscovery(
       input.probe?.probe,
       input.settings.customModels,
-      isKimiAgent(input.settings) ? withKimiContextControls : undefined,
+      isKimiAgent(input.settings) ? withKimiControls : undefined,
     ),
     ...(input.probe === undefined
       ? {}
@@ -596,7 +601,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
                     withCommands,
                     liveConfiguration,
                     effectiveConfig.customModels,
-                    isKimiAgent(effectiveConfig) ? withKimiContextControls : undefined,
+                    isKimiAgent(effectiveConfig) ? withKimiControls : undefined,
                   ),
               });
               return applyAcpRegistryUrlAuthAction(withConfiguration, authAction);
@@ -751,7 +756,7 @@ export const AcpRegistryDriver: ProviderDriver<AcpRegistrySettings, AcpRegistryD
                       current,
                       configuration,
                       effectiveConfig.customModels,
-                      isKimiAgent(effectiveConfig) ? withKimiContextControls : undefined,
+                      isKimiAgent(effectiveConfig) ? withKimiControls : undefined,
                     ),
                   ),
                 ),
