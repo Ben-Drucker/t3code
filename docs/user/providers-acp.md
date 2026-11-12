@@ -112,6 +112,13 @@ approval rules. They start in their own default mode, and their mode picker in t
 menu switches it. How far an agent is confined depends on that mode and the agent's own settings,
 so use its sandbox and permission controls when that matters.
 
+Kimi's native `default` mode requests manual approval, `plan` is for planning, and `auto` and `yolo`
+are native automatic approval presets. Their approval and question behavior depends on the Kimi
+version. T3 keeps Kimi in native `default` so the thread's **Permissions** control decides which
+requests to show or approve. The overlapping native mode picker is hidden, and saved native mode
+choices are ignored. Use T3's **Plan** control for planning. Kimi uses the **Permissions without Auto**
+default because it does not provide T3's automatic review mode.
+
 When a registry agent asks for approval, T3 Code answers by the thread's
 [permission mode](./permission-modes.md): **Supervised** shows the request in the conversation,
 **Auto-accept edits** approves edits and shows the rest, and **Auto** and **Full access** approve

@@ -347,6 +347,26 @@ describe("provider enabled defaults", () => {
   });
 });
 
+describe("ServerSettings permission defaults", () => {
+  it("keeps the existing preference until a separate Auto-provider default is stored", () => {
+    const legacy = decodeServerSettings({ defaultRuntimeMode: "approval-required" });
+    expect(legacy.defaultRuntimeMode).toBe("approval-required");
+    expect(legacy.defaultRuntimeModeWithAuto).toBeNull();
+    expect(decodeServerSettingsPatch({ defaultRuntimeModeWithAuto: "auto" })).toEqual({
+      defaultRuntimeModeWithAuto: "auto",
+    });
+    const stored = decodeServerSettings({
+      defaultRuntimeMode: "approval-required",
+      defaultRuntimeModeWithAuto: "auto",
+      projectSettingsOverrides: { project: { defaultRuntimeModeWithAuto: "auto-accept-edits" } },
+    });
+    expect(stored.defaultRuntimeModeWithAuto).toBe("auto");
+    expect(
+      stored.projectSettingsOverrides[ProjectId.make("project")]?.defaultRuntimeModeWithAuto,
+    ).toBe("auto-accept-edits");
+  });
+});
+
 describe("ServerSettings worktree defaults", () => {
   it("defaults the thread env mode to inherit and keeps stored values", () => {
     expect(decodeServerSettings({}).defaultThreadEnvMode).toBeNull();

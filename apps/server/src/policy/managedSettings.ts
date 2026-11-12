@@ -219,10 +219,19 @@ const clampDefaultRuntimeModes = (
 ): ServerSettings => {
   const projectsAbove = Object.entries(settings.projectSettingsOverrides).filter(
     ([, overrides]) =>
-      overrides.defaultRuntimeMode !== undefined &&
-      isRuntimeModeAbove(overrides.defaultRuntimeMode, ceiling),
+      (overrides.defaultRuntimeMode !== undefined &&
+        isRuntimeModeAbove(overrides.defaultRuntimeMode, ceiling)) ||
+      (overrides.defaultRuntimeModeWithAuto != null &&
+        isRuntimeModeAbove(overrides.defaultRuntimeModeWithAuto, ceiling)),
   );
-  if (!isRuntimeModeAbove(settings.defaultRuntimeMode, ceiling) && projectsAbove.length === 0) {
+  const autoAbove =
+    settings.defaultRuntimeModeWithAuto !== null &&
+    isRuntimeModeAbove(settings.defaultRuntimeModeWithAuto, ceiling);
+  if (
+    !isRuntimeModeAbove(settings.defaultRuntimeMode, ceiling) &&
+    !autoAbove &&
+    projectsAbove.length === 0
+  ) {
     return settings;
   }
   return {
@@ -230,12 +239,23 @@ const clampDefaultRuntimeModes = (
     defaultRuntimeMode: isRuntimeModeAbove(settings.defaultRuntimeMode, ceiling)
       ? ceiling
       : settings.defaultRuntimeMode,
+    defaultRuntimeModeWithAuto: autoAbove ? ceiling : settings.defaultRuntimeModeWithAuto,
     projectSettingsOverrides: {
       ...settings.projectSettingsOverrides,
       ...Object.fromEntries(
         projectsAbove.map(([projectId, overrides]) => [
           projectId,
-          { ...overrides, defaultRuntimeMode: ceiling },
+          {
+            ...overrides,
+            ...(overrides.defaultRuntimeMode !== undefined &&
+            isRuntimeModeAbove(overrides.defaultRuntimeMode, ceiling)
+              ? { defaultRuntimeMode: ceiling }
+              : {}),
+            ...(overrides.defaultRuntimeModeWithAuto != null &&
+            isRuntimeModeAbove(overrides.defaultRuntimeModeWithAuto, ceiling)
+              ? { defaultRuntimeModeWithAuto: ceiling }
+              : {}),
+          },
         ]),
       ),
     },
@@ -363,13 +383,16 @@ export function makeManagedSettings(
     };
   }
   // A managed default above the ceiling would start every thread in a mode the policy refuses.
-  if (
-    all.some((entry) => entry.path === "defaultRuntimeMode") &&
-    isRuntimeModeAbove(decoded.value.defaultRuntimeMode, maxRuntimeMode)
-  ) {
+  const defaultAboveCeiling = (["defaultRuntimeMode", "defaultRuntimeModeWithAuto"] as const).find(
+    (key) =>
+      all.some((entry) => entry.path === key) &&
+      decoded.value[key] !== null &&
+      isRuntimeModeAbove(decoded.value[key], maxRuntimeMode),
+  );
+  if (defaultAboveCeiling !== undefined) {
     return {
       _tag: "Invalid",
-      reason: `"defaultRuntimeMode" is above "limits.maxRuntimeMode"`,
+      reason: `"${defaultAboveCeiling}" is above "limits.maxRuntimeMode"`,
     };
   }
 

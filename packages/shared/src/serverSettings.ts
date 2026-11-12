@@ -380,6 +380,10 @@ export function applyServerSettingsPatch(
   rawPatch: ServerSettingsPatch,
 ): ServerSettings {
   const patch = translateLegacyProjectOverridePatch(current, rawPatch);
+  const preserveAutoDefault =
+    patch.defaultRuntimeMode !== undefined &&
+    patch.defaultRuntimeModeWithAuto === undefined &&
+    current.defaultRuntimeModeWithAuto === null;
   const selectionPatch = patch.textGenerationModelSelection;
   const {
     migrateModelPreferences,
@@ -496,6 +500,7 @@ export function applyServerSettingsPatch(
   const next = deepMerge(current, patchForMerge);
   const nextWithReplacementsBase = {
     ...next,
+    ...(preserveAutoDefault ? { defaultRuntimeModeWithAuto: current.defaultRuntimeMode } : {}),
     favorites,
     providerModelPreferences: nextModelPreferences,
     ...(worktreeCleanupPatch === undefined
@@ -580,15 +585,38 @@ export function applyServerSettingsPatch(
           },
         }
       : {}),
-    ...(projectSettingsOverridesPatch !== undefined
+    ...(projectSettingsOverridesPatch !== undefined || preserveAutoDefault
       ? {
           projectSettingsOverrides: Object.fromEntries(
             Object.entries(
               mergeProjectSettingsOverridesPatch(
                 current.projectSettingsOverrides,
-                projectSettingsOverridesPatch,
+                projectSettingsOverridesPatch ?? {},
               ),
-            ).filter(([, entry]) => Object.keys(entry).length > 0),
+            )
+              .filter(([, entry]) => Object.keys(entry).length > 0)
+              .map(([projectId, entry]) => {
+                const id = projectId as ProjectId;
+                const requested = projectSettingsOverridesPatch?.[id];
+                const previous = current.projectSettingsOverrides[id];
+                const previousAuto =
+                  previous?.defaultRuntimeModeWithAuto === undefined
+                    ? current.defaultRuntimeModeWithAuto
+                    : previous.defaultRuntimeModeWithAuto;
+                return [
+                  projectId,
+                  (requested?.defaultRuntimeMode !== undefined ||
+                    (preserveAutoDefault && previous?.defaultRuntimeMode !== undefined)) &&
+                  requested?.defaultRuntimeModeWithAuto === undefined &&
+                  previousAuto === null
+                    ? {
+                        ...entry,
+                        defaultRuntimeModeWithAuto:
+                          previous?.defaultRuntimeMode ?? current.defaultRuntimeMode,
+                      }
+                    : entry,
+                ];
+              }),
           ),
         }
       : {}),

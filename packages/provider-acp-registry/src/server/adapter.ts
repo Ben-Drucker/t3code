@@ -17,6 +17,7 @@ import {
 } from "./kimiCompaction.ts";
 import { makeKimiContextUsageReader, resolveKimiShareDirectory } from "./kimiSession.ts";
 import { isKimiAgent } from "./kimiUsage.ts";
+import { KIMI_NATIVE_MODE_OPTION_IDS } from "./kimiModes.ts";
 import {
   copilotClientCapabilitiesMeta,
   extractCopilotSubagentUpdate,
@@ -269,6 +270,14 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
         }
       : AcpProviderCapabilitiesV2,
     customModels: readCustomModelEntries(options.settings.customModels).map((entry) => entry.slug),
+    ...(isKimiAgent(options.settings)
+      ? {
+          // Native Auto/YOLO skip requests before T3 can apply the thread's permissions.
+          ownedModelOptionIds: KIMI_NATIVE_MODE_OPTION_IDS,
+          sessionModeForPolicy: (_policy, availableModeIds) =>
+            availableModeIds?.includes("default") ? "default" : undefined,
+        }
+      : {}),
     promptFailure: (cause) => acpRegistryPromptFailure(registryAgentId, cause),
     ...(registryAgentId === "factory-droid"
       ? { extractElicitationForm: extractDroidElicitationForm }

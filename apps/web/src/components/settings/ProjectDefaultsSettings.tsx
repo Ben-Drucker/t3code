@@ -6,6 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import { resolveSupportedRuntimeMode } from "@t3tools/shared/runtimeMode";
 import { useNavigate } from "@tanstack/react-router";
 
 import { useClientSettings } from "../../hooks/useSettings";
@@ -99,7 +100,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
     fallbackSelection?.model,
   );
   const mixedPermissions = useScopedSettingsMixed(["defaultRuntimeMode"]);
-  const PermissionIcon = runtimeModeConfig[settings.defaultRuntimeMode].icon;
+  const mixedAutoPermissions = useScopedSettingsMixed(["defaultRuntimeModeWithAuto"]);
   const mixedWorkspace = useScopedSettingsMixed(["defaultThreadEnvMode"]);
   const mixedAutoPull = useScopedSettingsMixed(["defaultAutoPull"]);
   const mixedAgentCredits = useScopedSettingsMixed(["removeAgentCreditsOnMerge"]);
@@ -333,78 +334,89 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
         <>
           {modelRow}
           {fallbackRow}
-          <SettingsRow
-            serverScoped
-            settingKeys={["defaultRuntimeMode"]}
-            mixed={mixedPermissions}
-            {...searchableSetting("default-permissions")}
-            description={
-              isProjectScope
-                ? "Permissions for new threads in this project."
-                : "Default permissions for new threads. Projects can override them."
-            }
-            resetAction={
-              settings.defaultRuntimeMode !== DEFAULT_SERVER_SETTINGS.defaultRuntimeMode ? (
-                <SettingResetButton
-                  label="default permissions"
-                  onClick={() =>
-                    updateSettings({
-                      defaultRuntimeMode: DEFAULT_SERVER_SETTINGS.defaultRuntimeMode,
-                    })
-                  }
-                />
-              ) : null
-            }
-            control={
-              <Select
-                value={mixedPermissions ? null : settings.defaultRuntimeMode}
-                onValueChange={(value) => {
-                  if (value) updateSettings({ defaultRuntimeMode: value });
-                }}
-              >
-                <SelectTrigger size="sm" aria-label="Default permissions">
-                  {!mixedPermissions && (
-                    <PermissionIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                  )}
-                  <SelectValue>
-                    {mixedPermissions
-                      ? "Mixed"
-                      : runtimeModeConfig[settings.defaultRuntimeMode].label}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  {runtimeModeOptions.map((mode) => {
-                    const option = runtimeModeConfig[mode];
-                    const Icon = option.icon;
-                    const managedReason = firstManagedDenial(
-                      connectedEnvironments.map(
-                        (environment) => environment.serverConfig?.managedPolicy,
-                      ),
-                      (policy) => managedRuntimeModeDenial(policy, mode),
-                    );
-                    return (
-                      <SelectItem
-                        key={mode}
-                        value={mode}
-                        disabled={managedReason !== undefined}
-                        className="min-w-64"
-                      >
-                        <div className="grid gap-0.5">
-                          <span className="inline-flex items-center gap-1.5 font-medium">
-                            <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-                            {option.label}
-                          </span>
-                          <span className="text-xs leading-4 text-muted-foreground">
-                            {managedReason ?? option.description}
-                          </span>
-                        </div>
-                      </SelectItem>
-                    );
-                  })}
-                </SelectPopup>
-              </Select>
-            }
-          />
+          {(["defaultRuntimeModeWithAuto", "defaultRuntimeMode"] as const).map((key) => {
+            const withAuto = key === "defaultRuntimeModeWithAuto";
+            const mode = withAuto
+              ? (settings[key] ?? settings.defaultRuntimeMode)
+              : resolveSupportedRuntimeMode(settings.defaultRuntimeMode, undefined);
+            const mixed = withAuto ? mixedAutoPermissions : mixedPermissions;
+            const PermissionIcon = runtimeModeConfig[mode].icon;
+            const label = withAuto ? "Permissions with Auto" : "Permissions without Auto";
+            return (
+              <SettingsRow
+                key={key}
+                serverScoped
+                settingKeys={[key]}
+                mixed={mixed}
+                {...(withAuto ? searchableSetting("default-permissions") : { title: label })}
+                title={label}
+                description={
+                  withAuto
+                    ? "New threads with providers that offer Auto. Unsupported choices use Supervised."
+                    : "New threads with providers that do not offer Auto. Unsupported choices use Supervised."
+                }
+                resetAction={
+                  mode !== DEFAULT_SERVER_SETTINGS.defaultRuntimeMode ? (
+                    <SettingResetButton
+                      label={label.toLowerCase()}
+                      onClick={() =>
+                        updateSettings({
+                          [key]: DEFAULT_SERVER_SETTINGS.defaultRuntimeMode,
+                        })
+                      }
+                    />
+                  ) : null
+                }
+                control={
+                  <Select
+                    value={mixed ? null : mode}
+                    onValueChange={(value) => {
+                      if (value) updateSettings({ [key]: value });
+                    }}
+                  >
+                    <SelectTrigger size="sm" aria-label={label}>
+                      {!mixed && (
+                        <PermissionIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                      )}
+                      <SelectValue>{mixed ? "Mixed" : runtimeModeConfig[mode].label}</SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup align="end" alignItemWithTrigger={false}>
+                      {runtimeModeOptions
+                        .filter((mode) => withAuto || mode !== "auto")
+                        .map((mode) => {
+                          const option = runtimeModeConfig[mode];
+                          const Icon = option.icon;
+                          const managedReason = firstManagedDenial(
+                            connectedEnvironments.map(
+                              (environment) => environment.serverConfig?.managedPolicy,
+                            ),
+                            (policy) => managedRuntimeModeDenial(policy, mode),
+                          );
+                          return (
+                            <SelectItem
+                              key={mode}
+                              value={mode}
+                              disabled={managedReason !== undefined}
+                              className="min-w-64"
+                            >
+                              <div className="grid gap-0.5">
+                                <span className="inline-flex items-center gap-1.5 font-medium">
+                                  <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+                                  {option.label}
+                                </span>
+                                <span className="text-xs leading-4 text-muted-foreground">
+                                  {managedReason ?? option.description}
+                                </span>
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
+                    </SelectPopup>
+                  </Select>
+                }
+              />
+            );
+          })}
           {workspaceRow}
         </>
       ) : (

@@ -91,6 +91,7 @@ function claudeProviderModels(
 }
 
 const CLAUDE_PRESENTATION = {
+  supportedRuntimeModes: ["approval-required", "auto-accept-edits", "auto", "full-access"],
   displayName: "Claude",
   showInteractionModeToggle: true,
   reportsContextWindow: true,

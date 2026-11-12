@@ -4,6 +4,10 @@ import {
   type RuntimeMode,
 } from "@t3tools/contracts";
 import {
+  resolveSupportedRuntimeMode,
+  supportedRuntimeModeChoices,
+} from "@t3tools/shared/runtimeMode";
+import {
   type LucideIcon,
   LockIcon,
   PenLineIcon,
@@ -40,16 +44,14 @@ export const runtimeModeConfig: Record<
 
 export const runtimeModeOptions = Object.keys(runtimeModeConfig) as RuntimeMode[];
 
-/** The modes a provider supports (all when it reports none) and the mode a thread really runs in. */
 export function resolveCompatibleRuntimeMode(
   runtimeMode: RuntimeMode,
   supportedRuntimeModes: ReadonlyArray<RuntimeMode> | undefined,
 ) {
-  const modes =
-    supportedRuntimeModes && supportedRuntimeModes.length > 0
-      ? runtimeModeOptions.filter((mode) => supportedRuntimeModes.includes(mode))
-      : runtimeModeOptions;
-  return { modes, mode: modes.includes(runtimeMode) ? runtimeMode : (modes[0] ?? runtimeMode) };
+  const modes = runtimeModeOptions.filter((mode) =>
+    supportedRuntimeModeChoices(supportedRuntimeModes).includes(mode),
+  );
+  return { modes, mode: resolveSupportedRuntimeMode(runtimeMode, supportedRuntimeModes) };
 }
 
 export function resolveRuntimeModeOptions(

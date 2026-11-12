@@ -626,7 +626,7 @@ export function openCode2CommandsToServerProviderSlashCommands(
 const OPENCODE_2_PRESENTATION = {
   ...OPENCODE_PRESENTATION,
   showInteractionModeToggle: true,
-  supportedRuntimeModes: ["approval-required", "auto-accept-edits", "auto", "full-access"],
+  supportedRuntimeModes: ["approval-required", "auto-accept-edits", "full-access"],
 } as const;
 
 function openCode2ModelCapabilities(model: OpenCode2Model): ModelCapabilities {

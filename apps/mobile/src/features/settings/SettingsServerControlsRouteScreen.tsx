@@ -57,6 +57,7 @@ const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettin
   threads: [
     "defaultThreadEnvMode",
     "defaultRuntimeMode",
+    "defaultRuntimeModeWithAuto",
     "responseStreamingMode",
     "enableAgentBrowserAccess",
     "sidebarAutoSettleOnMerge",
@@ -337,29 +338,46 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                     />
                   ))}
                 </SettingsSection>
-                <SettingsSection
-                  title="Default permissions"
-                  footer={managed("defaultRuntimeMode")}
-                  trailing={
-                    pendingWrites === 0 && uniform("defaultRuntimeMode") === null ? (
-                      <MixedValuesLabel projectSelected={projectSelected} />
-                    ) : null
-                  }
-                >
-                  {runtimeModeChoices.map((choice, index) => (
-                    <SettingsChoiceRow
-                      key={choice.mode}
-                      label={choice.label}
-                      description={choice.disabledReason ?? choice.description}
-                      selected={uniform("defaultRuntimeMode") === choice.mode}
-                      separated={index > 0}
-                      disabled={
-                        disabledFor("defaultRuntimeMode") || choice.disabledReason !== undefined
-                      }
-                      onPress={() => write({ defaultRuntimeMode: choice.mode })}
-                    />
-                  ))}
-                </SettingsSection>
+                {(["defaultRuntimeModeWithAuto", "defaultRuntimeMode"] as const).map((key) => (
+                  <SettingsSection
+                    key={key}
+                    title={
+                      key === "defaultRuntimeModeWithAuto"
+                        ? "Permissions with Auto"
+                        : "Permissions without Auto"
+                    }
+                    footer={
+                      managed(key) ??
+                      "New threads use Supervised when the provider does not support your choice."
+                    }
+                    trailing={
+                      pendingWrites === 0 && isMixed(key) ? (
+                        <MixedValuesLabel projectSelected={projectSelected} />
+                      ) : null
+                    }
+                  >
+                    {runtimeModeChoices
+                      .filter(
+                        (choice) => key === "defaultRuntimeModeWithAuto" || choice.mode !== "auto",
+                      )
+                      .map((choice, index) => (
+                        <SettingsChoiceRow
+                          key={choice.mode}
+                          label={choice.label}
+                          description={choice.disabledReason ?? choice.description}
+                          selected={
+                            !isMixed(key) &&
+                            (key === "defaultRuntimeMode" && uniform(key) === "auto"
+                              ? "approval-required"
+                              : (uniform(key) ?? uniform("defaultRuntimeMode"))) === choice.mode
+                          }
+                          separated={index > 0}
+                          disabled={disabledFor(key) || choice.disabledReason !== undefined}
+                          onPress={() => write({ [key]: choice.mode })}
+                        />
+                      ))}
+                  </SettingsSection>
+                ))}
                 <SettingsSection
                   title="Response streaming"
                   footer={managed("responseStreamingMode")}

@@ -5,10 +5,11 @@ composer; it applies to that thread. A new thread names its mode under the compo
 on your default mode, open the model picker and choose **Permissions** at its bottom, or press
 `mod+shift+a`. A thread on another mode shows the mode next to the model.
 
-Set the default for new threads in **Settings → Threads → New threads → Permissions**.
-Projects can override the environment default. New threads use this setting rather than the
-mode of the thread you were viewing. The initial default is **Full access**; existing threads
-and modes you choose in a draft keep their permissions.
+Set the defaults for new threads in **Settings → Threads → New threads**. **Permissions with Auto**
+applies to providers that offer Auto; **Permissions without Auto** applies to the others.
+Projects can override both environment defaults. An unsupported choice falls back to **Supervised**.
+Existing installations keep their previous default for providers with Auto.
+The initial default is **Full access**. Existing threads keep their chosen permissions.
 
 | Mode                  | Behavior                                                                              |
 | --------------------- | ------------------------------------------------------------------------------------- |
@@ -27,8 +28,9 @@ the parent conversation with the subagent's name, so you can respond without swi
 ## Provider differences
 
 Providers enforce permissions differently. Some read-only actions can proceed in **Supervised**.
-**Auto** uses automatic review on Codex, Claude, Cursor, Grok, and fx; providers without an equivalent,
-including OpenCode and Antigravity, fall back to asking. On Grok, commands its review blocks come
+**Auto** uses automatic review on Codex, Claude, Cursor, Grok, and fx.
+Providers without Auto, including OpenCode, Antigravity, Pi, Kiro, Muse, and
+ACP Registry agents, do not offer it in the picker. On Grok, commands its review blocks come
 to you for approval. On fx, prompts it still sends also come to you.
 
 Muse Code offers only **Supervised** and **Full access**. A Muse thread already set to another mode

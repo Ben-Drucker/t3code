@@ -1,3 +1,7 @@
+import {
+  resolveDefaultRuntimeMode,
+  resolveSupportedRuntimeMode,
+} from "@t3tools/shared/runtimeMode";
 import { ActiveNewTaskContext } from "../../state/active-new-task";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
 import { useNowMinuteMs } from "../../lib/clock";
@@ -421,13 +425,7 @@ export function NewTaskFlowProvider(
   const draftStartFromOrigin = selectedProjectDraft.workspaceSelection?.startFromOrigin;
   const startFromOrigin =
     isGitRepo && (draftStartFromOrigin ?? projectSettings.settings.newWorktreesStartFromOrigin);
-  const defaultRuntimeMode = projectSettings.settings.defaultRuntimeMode;
   const managedPolicy = selectedEnvironmentServerConfig?.managedPolicy;
-  const runtimeMode = resolveNewThreadRuntimeMode(
-    selectedProjectDraft.runtimeMode,
-    defaultRuntimeMode,
-    managedPolicy,
-  );
 
   // Antigravity keeps unavailable selections so sign-out or a catalog change
   // cannot switch the user's model.
@@ -486,6 +484,18 @@ export function NewTaskFlowProvider(
     selectedEnvironmentServerConfig?.providers.find(
       (provider) => provider.instanceId === selectedModel?.instanceId,
     ) ?? null;
+  const defaultRuntimeMode = resolveDefaultRuntimeMode(
+    projectSettings.settings,
+    selectedProviderStatus?.supportedRuntimeModes,
+  );
+  const runtimeMode = resolveSupportedRuntimeMode(
+    resolveNewThreadRuntimeMode(
+      selectedProjectDraft.runtimeMode,
+      defaultRuntimeMode,
+      managedPolicy,
+    ),
+    selectedProviderStatus?.supportedRuntimeModes,
+  );
   const setSelectedModelKey = (
     key: string | null,
     options?: ReadonlyArray<ProviderOptionSelection>,
@@ -731,6 +741,9 @@ export function NewTaskFlowProvider(
     }
     const workspaceSelection = resolveWorkspaceSelection(draft.workspaceSelection);
     const mode = workspaceSelection.mode;
+    const supportedModes = selectedEnvironmentServerConfig?.providers.find(
+      (provider) => provider.instanceId === draftModelSelection.instanceId,
+    )?.supportedRuntimeModes;
     return {
       environmentId: selectedProject.environmentId,
       threadId: ThreadId.make(metadata.threadId),
@@ -740,10 +753,13 @@ export function NewTaskFlowProvider(
       attachments: draft.attachments,
       context: draft.context,
       modelSelection: draftModelSelection,
-      runtimeMode: resolveNewThreadRuntimeMode(
-        draft.runtimeMode,
-        defaultRuntimeMode,
-        managedPolicy,
+      runtimeMode: resolveSupportedRuntimeMode(
+        resolveNewThreadRuntimeMode(
+          draft.runtimeMode,
+          resolveDefaultRuntimeMode(projectSettings.settings, supportedModes),
+          managedPolicy,
+        ),
+        supportedModes,
       ),
       interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
       creation: {

@@ -41,6 +41,12 @@ import {
   startFanoutThread,
 } from "./chatViewSend";
 import type { useLocalDispatchState } from "./useLocalDispatchState";
+import { environmentServerConfigsAtom } from "../../state/server";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import {
+  resolveDefaultRuntimeMode,
+  resolveSupportedRuntimeMode,
+} from "@t3tools/shared/runtimeMode";
 
 interface MultipleModelSendInput {
   readonly environmentId: EnvironmentId;
@@ -115,6 +121,10 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
     readonly isCurrentSend: () => boolean;
   }) => {
     const { attachments: attachmentsSnapshot, messageText } = sendSnapshot;
+    const explicitRuntimeMode = useComposerDraftStore
+      .getState()
+      .getComposerDraft(composerDraftTarget)?.runtimeMode;
+    const serverConfig = appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId);
     const failedSelections: ModelSelection[] = [];
     let clearedDraft = false;
     let releasedComposer = false;
@@ -150,6 +160,19 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
       setThreadError(threadId, null);
       const starts = Promise.all(
         targets.map(async (target) => {
+          const supported = serverConfig?.providers.find(
+            (provider) => provider.instanceId === target.selection.instanceId,
+          )?.supportedRuntimeModes;
+          const targetRuntimeMode = resolveSupportedRuntimeMode(
+            explicitRuntimeMode ??
+              (serverConfig
+                ? resolveDefaultRuntimeMode(
+                    resolveProjectSettings(serverConfig.settings, project.id, project).settings,
+                    supported,
+                  )
+                : runtimeMode),
+            supported,
+          );
           const started = await startFanoutThread({
             retryKey: JSON.stringify([
               routeThreadKey,
@@ -174,14 +197,14 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
                   },
                   modelSelection: target.selection,
                   titleSeed: title,
-                  runtimeMode,
+                  runtimeMode: targetRuntimeMode,
                   interactionMode: DEFAULT_INTERACTION_MODE,
                   bootstrap: {
                     createThread: {
                       projectId: project.id,
                       title,
                       modelSelection: target.selection,
-                      runtimeMode,
+                      runtimeMode: targetRuntimeMode,
                       interactionMode: DEFAULT_INTERACTION_MODE,
                       branch,
                       worktreePath: null,

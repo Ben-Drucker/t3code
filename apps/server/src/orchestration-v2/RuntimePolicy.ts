@@ -18,6 +18,7 @@ import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProjectStore from "./ProjectStore.ts";
+import { resolveSupportedRuntimeMode } from "@t3tools/shared/runtimeMode";
 
 export class RuntimePolicyResolveError extends Schema.TaggedError<RuntimePolicyResolveError>()(
   "RuntimePolicyResolveError",
@@ -87,17 +88,6 @@ export const layer: Layer.Layer<RuntimePolicyV2> = Layer.succeed(RuntimePolicyV2
     });
   }),
 });
-
-function providerRuntimeMode(
-  runtimeMode: RuntimeMode,
-  supportedRuntimeModes: ReadonlyArray<RuntimeMode> | undefined,
-): RuntimeMode {
-  return supportedRuntimeModes === undefined ||
-    supportedRuntimeModes.length === 0 ||
-    supportedRuntimeModes.includes(runtimeMode)
-    ? runtimeMode
-    : "approval-required";
-}
 
 const refuseAboveCeiling = (
   managedPolicy: ServerSettings.ServerSettingsService["Service"]["managedPolicy"],
@@ -185,7 +175,7 @@ export const layerFromProjectStore: Layer.Layer<
             ),
           ));
         return ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
-          runtimeMode: providerRuntimeMode(input.thread.runtimeMode, supportedRuntimeModes),
+          runtimeMode: resolveSupportedRuntimeMode(input.thread.runtimeMode, supportedRuntimeModes),
           interactionMode: input.thread.interactionMode,
           cwd,
           ...(maxRuntimeMode === undefined ? {} : { maxRuntimeMode }),

@@ -1,3 +1,7 @@
+import {
+  resolveDefaultRuntimeMode,
+  resolveSupportedRuntimeMode,
+} from "@t3tools/shared/runtimeMode";
 import { AgentConfigCatalogContext } from "./chat/AgentConfigChip";
 import { ChildThreadApprovals } from "./chat/ChildThreadApprovals";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
@@ -970,12 +974,6 @@ export default function ChatView(props: ChatViewProps) {
   const [, setThreadErrorBannerDismissTick] = useState(0);
   const threadErrorIsServerRuntimeError =
     localServerError === null && visibleThreadError === serverRuntime?.lastError;
-  const defaultRuntimeMode = resolveProjectSettings(settings, activeThread?.projectId ?? null)
-    .settings.defaultRuntimeMode;
-  const runtimeMode =
-    composerRuntimeMode ??
-    (isServerThread ? activeThread?.runtimeMode : undefined) ??
-    defaultRuntimeMode;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = canWriteSourceControl && isLocalDraftThread;
   const activeThreadId = activeThread?.id ?? null;
@@ -1346,6 +1344,18 @@ export default function ChatView(props: ChatViewProps) {
   const selectedProvider = selectedProviderEntry?.driverKind ?? requestedDriverKind;
   const activeProviderInstanceId = selectedProviderEntry?.instanceId ?? null;
   const activeProviderStatus = selectedProviderEntry?.snapshot ?? null;
+  const defaultRuntimeMode = resolveDefaultRuntimeMode(
+    resolveProjectSettings(settings, activeThread?.projectId ?? null).settings,
+    activeProviderStatus?.supportedRuntimeModes,
+  );
+  const chosenRuntimeMode =
+    composerRuntimeMode ?? (isServerThread ? activeThread?.runtimeMode : undefined);
+  const runtimeMode = isServerThread
+    ? (chosenRuntimeMode ?? defaultRuntimeMode)
+    : resolveSupportedRuntimeMode(
+        chosenRuntimeMode ?? defaultRuntimeMode,
+        activeProviderStatus?.supportedRuntimeModes,
+      );
   const conversationProviderStatus =
     providerStatuses.find((status) => status.instanceId === activeRuntime?.providerInstanceId) ??
     activeProviderStatus;

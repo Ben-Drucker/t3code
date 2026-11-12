@@ -122,6 +122,7 @@ const CODEX_DISCOVERY_MARGIN_MS = 250;
 const CODEX_CLI_VERSION_PATTERN = /(?:^|\s)v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?=\s|$)/u;
 
 const CODEX_PRESENTATION = {
+  supportedRuntimeModes: ["approval-required", "auto-accept-edits", "auto", "full-access"],
   displayName: "Codex",
   showInteractionModeToggle: true,
   reportsContextWindow: true,
