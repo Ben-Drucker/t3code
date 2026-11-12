@@ -17,7 +17,7 @@ class ClassifyStatus(unittest.TestCase):
 
     def test_ignorable_paths(self):
         ignorable, blocking = self.classify("?? .fork-out/deploy.log", "?? task-history-handoffs/a.md", "?? scripts/__pycache__/update.cpython-310.pyc")
-        self.assertEqual(len(ignorable), 2)
+        self.assertEqual(len(ignorable), 3)
         self.assertEqual(blocking, [])
 
     def test_blocking_paths(self):
