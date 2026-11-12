@@ -10,3 +10,4 @@
   - Estimate: MVP 3-4 days, polished 7-10 days.
 - Render `%[model: …]` and `%[tool: …]` chips in assistant messages too. Today they only render in the composer and in sent user messages; assistant output shows the raw text.
 - `%` menu: when it opens, put the cursor in the search box at once, and do not type the search text back into the composer (it does that now).
+- Cites (quoting assistant text with a comment): write the comment in the real composer so it has rich text. Show both the quoted material and the comment before sending, laid out the same way they look after sending.
