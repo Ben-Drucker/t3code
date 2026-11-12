@@ -19,4 +19,19 @@ describe("resolveComposerMenuActiveItemId", () => {
       }),
     ).toBe("new-result");
   });
+
+  it("skips agent-section headers when preferActionableItem is set", () => {
+    expect(
+      resolveComposerMenuActiveItemId({
+        items: [
+          { id: 'agent-section:"T3"', type: "agent-section" },
+          { id: 'agent-tool:["T3","delegate_task"]', type: "agent-tool" },
+        ],
+        highlightedItemId: null,
+        currentSearchKey: "s:agent-config:t3 delegate",
+        highlightedSearchKey: null,
+        preferActionableItem: true,
+      }),
+    ).toBe('agent-tool:["T3","delegate_task"]');
+  });
 });

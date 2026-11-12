@@ -19,8 +19,14 @@ export function agentToolSectionId(source: string): string {
   return `agent-section:${JSON.stringify(source)}`;
 }
 
-function matchScore(value: string, needle: string): number | null {
-  return scoreQueryMatch({
+function normalizeLabelWords(value: string): string {
+  return normalizeSearchQuery(
+    value.replace(/([a-z0-9])([A-Z])/gu, "$1 $2").replace(/[_>./-]+/gu, " "),
+  );
+}
+
+function singleQueryScore(value: string, needle: string): number | null {
+  const raw = scoreQueryMatch({
     value: normalizeSearchQuery(value),
     query: needle,
     exactBase: 0,
@@ -30,6 +36,45 @@ function matchScore(value: string, needle: string): number | null {
     ...(needle.length >= 3 ? { fuzzyBase: 100 } : {}),
     ignorePosition: true,
   });
+  const wordNormalized = normalizeLabelWords(value);
+  const wordScore =
+    wordNormalized === normalizeSearchQuery(value)
+      ? null
+      : scoreQueryMatch({
+          value: wordNormalized,
+          query: needle,
+          exactBase: 0,
+          prefixBase: 2,
+          boundaryBase: 4,
+          includesBase: 6,
+          ...(needle.length >= 3 ? { fuzzyBase: 100 } : {}),
+          ignorePosition: true,
+        });
+  if (raw === null) return wordScore;
+  return wordScore === null ? raw : Math.min(raw, wordScore);
+}
+
+function matchScore(value: string, needle: string): number | null {
+  const direct = singleQueryScore(value, needle);
+  const terms = needle.split(" ").filter(Boolean);
+  if (terms.length <= 1) return direct;
+  let total = 0;
+  for (const term of terms) {
+    const score = singleQueryScore(value, term);
+    if (score === null) return direct;
+    total += score;
+  }
+  const multiScore = Math.round(total / terms.length) + 1;
+  return direct === null ? multiScore : Math.min(direct, multiScore);
+}
+
+export function matchesAgentModelRow(query: string): boolean {
+  const needle = normalizeSearchQuery(query);
+  if (needle === "") return true;
+  return (
+    matchScore("Model", needle) !== null ||
+    matchScore("Agent configuration Model Choose a model and its options", needle) !== null
+  );
 }
 
 function toolScore(
@@ -37,11 +82,39 @@ function toolScore(
   tool: ComposerToolEntry,
   needle: string,
 ): number | null {
-  const label = matchScore(`${group.source} > ${tool.name}`, needle);
+  const labelText = `${group.source} > ${tool.name}`;
+  const label = matchScore(labelText, needle);
   const description = tool.description === null ? null : matchScore(tool.description, needle);
   const descriptionScore = description === null ? null : description + DESCRIPTION_MATCH_PENALTY;
-  if (label === null) return descriptionScore;
-  return descriptionScore === null ? label : Math.min(label, descriptionScore);
+  const bestSingleField =
+    label === null
+      ? descriptionScore
+      : descriptionScore === null
+        ? label
+        : Math.min(label, descriptionScore);
+
+  const terms = needle.split(" ").filter(Boolean);
+  if (terms.length <= 1 || tool.description === null) {
+    return bestSingleField;
+  }
+  let total = 0;
+  let usedDescription = false;
+  for (const term of terms) {
+    const termLabel = singleQueryScore(labelText, term);
+    if (termLabel !== null) {
+      total += termLabel;
+      continue;
+    }
+    const termDesc = singleQueryScore(tool.description, term);
+    if (termDesc === null) {
+      return bestSingleField;
+    }
+    usedDescription = true;
+    total += termDesc;
+  }
+  const crossFieldScore =
+    Math.round(total / terms.length) + 1 + (usedDescription ? DESCRIPTION_MATCH_PENALTY : 0);
+  return bestSingleField === null ? crossFieldScore : Math.min(bestSingleField, crossFieldScore);
 }
 
 const SECTION_KIND_ORDER: Record<ComposerToolGroup["kind"], number> = {

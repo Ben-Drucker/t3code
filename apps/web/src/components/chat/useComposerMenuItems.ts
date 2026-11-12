@@ -53,7 +53,7 @@ import {
   rankPullRequestMatches,
 } from "../pullRequest/pullRequestList.logic";
 import type { ComposerCommandItem } from "./ComposerCommandMenu";
-import { buildAgentToolSections } from "./agentToolMenu";
+import { buildAgentToolSections, matchesAgentModelRow } from "./agentToolMenu";
 import { filesystemPathDirectoryPrefix, isFilesystemPathQuery } from "./composerFilesystemPath";
 import { matchComposerModelItems } from "./composerModelMentions";
 import type { ModelEsque } from "./providerIconUtils";
@@ -85,14 +85,16 @@ function agentConfigMenuItems(
   query: string,
   overrides: ReadonlyMap<string, boolean>,
 ): ComposerCommandItem[] {
-  const items: ComposerCommandItem[] = [
-    {
-      id: "agent-model",
-      type: "agent-model",
-      label: "Model",
-      description: "Choose a model and its options",
-    },
-  ];
+  const items: ComposerCommandItem[] = matchesAgentModelRow(query)
+    ? [
+        {
+          id: "agent-model",
+          type: "agent-model",
+          label: "Model",
+          description: "Choose a model and its options",
+        },
+      ]
+    : [];
   for (const section of buildAgentToolSections(groups, query, overrides)) {
     const { group } = section;
     items.push({
