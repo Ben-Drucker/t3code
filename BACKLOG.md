@@ -8,3 +8,5 @@
   - Riskiest part, test first: taking keyboard focus over a full-screen app without switching Spaces (non-activating panel window). opt+opt needs Accessibility permission and goes dead during macOS secure input (password fields), so keep the chord as the fallback.
   - Other pitfalls: the two windows share draft storage and would overwrite each other (use a separate key), and keep a warm provider session so the first answer is not slow.
   - Estimate: MVP 3-4 days, polished 7-10 days.
+- Render `%[model: …]` and `%[tool: …]` chips in assistant messages too. Today they only render in the composer and in sent user messages; assistant output shows the raw text.
+- `%` menu: when it opens, put the cursor in the search box at once, and do not type the search text back into the composer (it does that now).
