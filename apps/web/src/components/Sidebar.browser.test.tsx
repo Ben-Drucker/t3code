@@ -3,6 +3,7 @@ import {
   DEFAULT_CLIENT_SETTINGS,
   EnvironmentId,
   ProjectId,
+  RunId,
   ThreadId,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
@@ -188,5 +189,119 @@ describe("sidebar render isolation", () => {
     await userEvent.keyboard(`{/${modifier}}`);
     expect(rowRenders()).toBeGreaterThan(beforeRelease);
     expect(jumpLabelsSince(beforeRelease)).toEqual([]);
+  });
+});
+
+describe("sidebar thread attention dots", () => {
+  it("renders one solid blue (Done) or orange (Needs you) dot per row, prioritizes orange over blue, and clears on open", async () => {
+    const activeProject = project("active");
+    const doneThread = makeThreadFixture({
+      environmentId: activeProject.environmentId,
+      id: ThreadId.make("thread-done"),
+      projectId: activeProject.id,
+      title: "Finished turn",
+      runtime: null,
+      lastVisitedAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:05:00.000Z",
+      latestRun: {
+        runId: RunId.make("run-1"),
+        status: "completed",
+        requestedAt: "2026-01-01T00:01:00.000Z",
+        startedAt: "2026-01-01T00:01:00.000Z",
+        completedAt: "2026-01-01T00:05:00.000Z",
+        assistantMessageId: null,
+      },
+    });
+    const needsYouAndDoneThread = makeThreadFixture({
+      environmentId: activeProject.environmentId,
+      id: ThreadId.make("thread-needs-you"),
+      projectId: activeProject.id,
+      title: "Awaiting approval",
+      runtime: null,
+      hasPendingApprovals: true,
+      pendingRequestAt: "2026-01-01T00:06:00.000Z",
+      lastVisitedAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:06:00.000Z",
+      latestRun: {
+        runId: RunId.make("run-2"),
+        status: "completed",
+        requestedAt: "2026-01-01T00:01:00.000Z",
+        startedAt: "2026-01-01T00:01:00.000Z",
+        completedAt: "2026-01-01T00:05:00.000Z",
+        assistantMessageId: null,
+      },
+    });
+
+    vi.mocked(useProjects).mockReturnValue([activeProject]);
+    vi.mocked(useQuietThreadShells).mockReturnValue([needsYouAndDoneThread, doneThread]);
+    vi.mocked(useThreadRouteTarget).mockReturnValue(null);
+    vi.mocked(useHandleNewThread).mockReturnValue({
+      activeDraftThread: null,
+      activeThread: null,
+      defaultProjectRef: {
+        environmentId: activeProject.environmentId,
+        projectId: activeProject.id,
+      },
+      defaultProjectFallbackReady: true,
+      handleNewThread: vi.fn().mockResolvedValue(null),
+      routeDraftId: null,
+      routeThreadRef: null,
+    });
+
+    await using screen = await render(
+      <SidebarProvider>
+        <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+      </SidebarProvider>,
+    );
+
+    const doneButton = screen.getByRole("button", { name: "Finished turn, Done, active" });
+    const approvalButton = screen.getByRole("button", {
+      name: "Awaiting approval, Needs you, active",
+    });
+    await expect.element(doneButton).toBeInTheDocument();
+    await expect.element(approvalButton).toBeInTheDocument();
+
+    const dots = document.querySelectorAll("[data-testid='sidebar-thread-attention-dot']");
+    expect(dots).toHaveLength(2);
+
+    const approvalRow = approvalButton.element().closest("[data-thread-item]");
+    const doneRow = doneButton.element().closest("[data-thread-item]");
+    expect(approvalRow).not.toBeNull();
+    expect(doneRow).not.toBeNull();
+
+    const approvalDots = approvalRow!.querySelectorAll(
+      "[data-testid='sidebar-thread-attention-dot']",
+    );
+    expect(approvalDots).toHaveLength(1);
+    expect(approvalDots[0]!.getAttribute("data-attention-dot")).toBe("orange");
+    expect(approvalDots[0]!.className).not.toContain("animate-");
+
+    const doneDots = doneRow!.querySelectorAll("[data-testid='sidebar-thread-attention-dot']");
+    expect(doneDots).toHaveLength(1);
+    expect(doneDots[0]!.getAttribute("data-attention-dot")).toBe("blue");
+    expect(doneDots[0]!.className).not.toContain("animate-");
+
+    const openRef: ScopedThreadRef = {
+      environmentId: activeProject.environmentId,
+      threadId: needsYouAndDoneThread.id,
+    };
+    vi.mocked(useThreadRouteTarget).mockReturnValue({ kind: "server", threadRef: openRef });
+    await screen.rerender(
+      <SidebarProvider>
+        <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+      </SidebarProvider>,
+    );
+
+    const openedApprovalButton = screen.getByRole("button", { name: "Awaiting approval, active" });
+    await expect.element(openedApprovalButton).toBeInTheDocument();
+    expect(
+      openedApprovalButton
+        .element()
+        .closest("[data-thread-item]")!
+        .querySelectorAll("[data-testid='sidebar-thread-attention-dot']"),
+    ).toHaveLength(0);
+    expect(doneRow!.querySelectorAll("[data-testid='sidebar-thread-attention-dot']")).toHaveLength(
+      1,
+    );
   });
 });

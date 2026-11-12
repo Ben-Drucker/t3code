@@ -15,6 +15,7 @@ interface Shell {
   readonly lastVisitedAt?: string | null;
   readonly latestRun: { readonly completedAt: string | null } | null;
   readonly wokeAt?: string | null;
+  readonly pendingRequestAt?: string | null;
 }
 
 function at(seconds: number) {
@@ -190,4 +191,11 @@ it("advances the watermark to a wake without waiting for the throttle", () => {
   vi.advanceTimersByTime(1_000);
   t.update({ updatedAt: at(16) });
   expect(t.visits).toHaveLength(2);
+});
+
+it("advances the watermark to a pending user request without waiting for the throttle", () => {
+  using t = setup("thread-request", { updatedAt: at(10), lastVisitedAt: at(0), latestRun: null });
+  t.mount();
+  t.update({ pendingRequestAt: at(18) });
+  expect(t.visits.slice(1)).toEqual([{ threadId: t.ref.threadId, visitedAt: at(18) }]);
 });

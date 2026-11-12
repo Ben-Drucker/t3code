@@ -82,15 +82,18 @@ import { textDirection } from "~/textDirection";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import {
   animateSidebarLayoutChanges,
-  hasUnseenCompletion,
   resolveSidebarRowAccessibility,
   type SidebarDropVerb,
   resolveSidebarThreadStatus,
   rollUpSidebarThreadStatus,
   type SidebarThreadStatus,
+  resolveThreadAttentionDot,
   resolveThreadLastVisitedAt,
   shouldRecedeSidebarThread,
   resolveWorkingStartedAt,
+  THREAD_ATTENTION_DOT_CLASS_NAME,
+  THREAD_ATTENTION_LABEL,
+  THREAD_ATTENTION_TEXT_CLASS_NAME,
   useRetainedValue,
   useSidebarRowSubscriptionLease,
   setFileDragActive,
@@ -736,7 +739,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     ? resolveThreadCurrentPullRequestLink(thread.pullRequests)
     : null;
 
-  const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
+  const attentionDot = resolveThreadAttentionDot({
+    thread: { ...thread, lastVisitedAt },
+    descendantStatus: props.descendantStatus,
+    isOpen: props.isActive,
+  });
+  const isUnread = attentionDot !== null;
   const status = rollUpSidebarThreadStatus(
     resolveSidebarThreadStatus(thread),
     props.descendantStatus == null ? [] : [props.descendantStatus],
@@ -762,41 +770,41 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     isActive: props.isActive,
     isSelected,
   });
-  const topStatus =
-    status === "preparing" || status === "working"
+  const topStatus: {
+    label: string;
+    icon: keyof typeof TOP_STATUS_ICONS | null;
+    className: string;
+  } | null =
+    attentionDot === "orange"
       ? {
-          label:
-            status === "preparing"
-              ? "Setting up"
-              : thread.goal?.status === "active"
-                ? "Goal"
-                : "Working",
-          icon: "working" as const,
-          className: "text-info-foreground",
+          label: THREAD_ATTENTION_LABEL.orange,
+          icon: null,
+          className: THREAD_ATTENTION_TEXT_CLASS_NAME.orange,
         }
-      : status === "waiting"
-        ? {
-            label: "Waiting",
-            icon: "waiting" as const,
-            className: "text-muted-foreground",
-          }
-        : status === "approval"
+      : status === "approval" || status === "input"
+        ? null
+        : status === "request"
           ? {
-              label: "Approval",
-              icon: "approval" as const,
-              className: "text-warning-foreground",
+              label: "Request",
+              icon: "request" as const,
+              className: "text-guest-foreground",
             }
-          : status === "input"
+          : status === "preparing" || status === "working"
             ? {
-                label: "Input",
-                icon: "input" as const,
-                className: "text-indigo-600 dark:text-indigo-300",
+                label:
+                  status === "preparing"
+                    ? "Setting up"
+                    : thread.goal?.status === "active"
+                      ? "Goal"
+                      : "Working",
+                icon: "working" as const,
+                className: "text-info-foreground",
               }
-            : status === "request"
+            : status === "waiting"
               ? {
-                  label: "Request",
-                  icon: "request" as const,
-                  className: "text-guest-foreground",
+                  label: "Waiting",
+                  icon: "waiting" as const,
+                  className: "text-muted-foreground",
                 }
               : status === "limited"
                 ? {
@@ -816,11 +824,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                         icon: "woke" as const,
                         className: "text-warning-foreground",
                       }
-                    : isUnread
+                    : attentionDot === "blue"
                       ? {
-                          label: "Done",
-                          icon: "done" as const,
-                          className: "text-success-foreground",
+                          label: THREAD_ATTENTION_LABEL.blue,
+                          icon: null,
+                          className: THREAD_ATTENTION_TEXT_CLASS_NAME.blue,
                         }
                       : null;
   const isWokeStatus = topStatus?.icon === "woke";
@@ -1076,11 +1084,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               "truncate group-focus-within/sidebar-row:text-foreground group-hover/sidebar-row:text-foreground",
               shouldRecede
                 ? "text-secondary-label"
-                : props.isActive || isWoke || status === "input" || status === "request"
+                : props.isActive || isWoke || attentionDot !== null || status === "request"
                   ? "text-foreground"
-                  : isUnread
-                    ? "text-muted-foreground"
-                    : "text-secondary-label/70",
+                  : "text-secondary-label/70",
             ),
         isRegeneratingTitle && "opacity-55",
       )}
@@ -1090,6 +1096,17 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     </span>
   );
   const accessibleTitle = isRenaming ? null : <span className="sr-only">{thread.title}</span>;
+  const attentionDotIndicator = attentionDot ? (
+    <span
+      aria-hidden
+      data-testid="sidebar-thread-attention-dot"
+      data-attention-dot={attentionDot}
+      className={cn(
+        "size-[9px] shrink-0 rounded-full",
+        THREAD_ATTENTION_DOT_CLASS_NAME[attentionDot],
+      )}
+    />
+  ) : null;
 
   const prBadgeShape = supportsMultiplePullRequests
     ? resolveThreadPullRequestBadge(thread.pullRequests)
@@ -1295,6 +1312,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               )}
               {childToggle}
               {draftIndicator}
+              {attentionDotIndicator}
               {title}
               {multiline ? titleLineIcons : null}
               {pinIndicator}
@@ -1351,7 +1369,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                           topStatus.className,
                         )}
                       >
-                        <TopStatusIcon icon={topStatus.icon} className="size-3" />
+                        {topStatus.icon ? (
+                          <TopStatusIcon icon={topStatus.icon} className="size-3" />
+                        ) : null}
                         {topStatus.label}
                       </span>
                     ) : (
@@ -1539,7 +1559,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                             topStatus.className,
                           )}
                         >
-                          <TopStatusIcon icon={topStatus.icon} className="size-4" />
+                          {topStatus.icon ? (
+                            <TopStatusIcon icon={topStatus.icon} className="size-4" />
+                          ) : null}
                           {/* Not a live region: a collapsed sidebar is inert, so
                             BackgroundThreadAnnouncer and the open thread's
                             timeline speak status changes instead. */}
@@ -1620,7 +1642,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               )}
               {props.sweepAction !== null ? dragDestination : null}
             </div>
-            <div className="mt-1 flex min-w-0 items-center gap-1.5">
+            <div className="mt-1 flex min-w-0 items-center gap-2">
+              {attentionDotIndicator}
               {title}
               {isRegeneratingTitle ? (
                 <span role="status" className="sr-only">
@@ -1673,16 +1696,23 @@ export const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props
 }) {
   const thread =
     useThreadShell(scopeThreadRef(props.thread.environmentId, props.thread.id)) ?? props.thread;
+  const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+  const threadKey = scopedThreadKey(threadRef);
+  const localLastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[threadKey]);
+  const lastVisitedAt = resolveThreadLastVisitedAt(thread.lastVisitedAt, localLastVisitedAt);
+  const attentionDot = resolveThreadAttentionDot({
+    thread: { ...thread, lastVisitedAt },
+    isOpen: props.isRouteActive,
+  });
   const accessibility = resolveSidebarRowAccessibility({
     title: thread.title,
-    statusLabel: null,
+    statusLabel: attentionDot ? THREAD_ATTENTION_LABEL[attentionDot] : null,
     projectDisplayName: props.projectDisplayName,
     isActive: props.isRouteActive,
   });
-  const threadRef = scopeThreadRef(thread.environmentId, thread.id);
   // Results only drag out as chat context; the row keeps its own listbox attributes.
   const { listeners: dragListeners, setNodeRef: setDragNodeRef } = useDraggable({
-    id: scopedThreadKey(threadRef),
+    id: threadKey,
   });
   const { leaseLiveStatus, rowRef: leaseRowRef } = useSidebarRowSubscriptionLease(
     props.isHighlighted || props.isRouteActive,
@@ -1787,11 +1817,22 @@ export const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props
             />
           ) : null}
           <span className="flex min-w-0 flex-1 flex-col">
-            <span className="flex min-w-0 items-center gap-2.5">
+            <span className="flex min-w-0 items-center gap-2">
+              {attentionDot ? (
+                <span
+                  aria-hidden
+                  data-testid="sidebar-thread-attention-dot"
+                  data-attention-dot={attentionDot}
+                  className={cn(
+                    "size-[9px] shrink-0 rounded-full",
+                    THREAD_ATTENTION_DOT_CLASS_NAME[attentionDot],
+                  )}
+                />
+              ) : null}
               <span
                 className={cn(
                   "min-w-0 flex-1 truncate",
-                  props.isSettled
+                  props.isSettled && attentionDot === null
                     ? "font-normal text-secondary-label/70 group-hover/sidebar-row:text-foreground"
                     : "font-medium text-foreground",
                   (props.isHighlighted || props.isRouteActive) && "text-foreground",

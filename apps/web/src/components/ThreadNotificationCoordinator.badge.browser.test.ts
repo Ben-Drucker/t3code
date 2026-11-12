@@ -241,13 +241,15 @@ function setup() {
 }
 
 it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
-  "badges %s and clears when notifications are disabled",
+  "badges %s with orange Needs you and clears when notifications are disabled",
   async (flag) => {
     await using app = setup();
     app.start();
     state.shells.set("one", shell({ [flag]: true }));
-    expect(state.badge).toHaveBeenLastCalledWith(1);
+    expect(state.badge).toHaveBeenLastCalledWith(1, "orange");
     const notification = TestNotification.sent[0]!;
+    expect(notification.title).toBe("Needs you");
+    expect(notification.options.icon).toContain("f97316");
     notification.dispatchEvent(new Event("click"));
     expect(state.navigate).toHaveBeenCalledWith({
       to: "/$environmentId/$threadId",
@@ -274,23 +276,42 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
     state.shells.set("one", waiting("turn-1", "request-1"));
     state.shells.set("one", waiting("turn-2", "request-1"));
     state.shells.set("one", waiting("turn-2", "request-2"));
-    const title = flag === "hasPendingApprovals" ? "Approval needed" : "Input needed";
-    expect(TestNotification.sent.map(({ title }) => title)).toEqual([title, title]);
+    expect(TestNotification.sent.map(({ title }) => title)).toEqual(["Needs you", "Needs you"]);
   },
 );
 
-it("presents completion notifications and sound as soon as the shell completes", async () => {
+it("presents Done completion notifications in blue, lets orange win badge tone, and clears on open", async () => {
   await using app = setup();
   state.mode = "notifications-and-sound";
+  state.shells.set("one", shell({}, { id: "other" }));
   app.start();
   state.shells.set(
     "one",
-    shell({
-      latestTurn: { turnId: "turn", state: "completed", completedAt: "2026-09-13T07:00:01.000Z" },
-    }),
+    shell(
+      {
+        latestTurn: { turnId: "turn", state: "completed", completedAt: "2026-09-13T07:00:01.000Z" },
+      },
+      { id: "other" },
+    ),
   );
-  expect(TestNotification.sent.map((sent) => sent.title)).toEqual(["Thread completed"]);
+  expect(TestNotification.sent.map((sent) => sent.title)).toEqual(["Done"]);
+  expect(TestNotification.sent[0]?.options.icon).toContain("3b82f6");
+  expect(state.badge).toHaveBeenLastCalledWith(1, "blue");
   expect(state.sound).toHaveBeenCalledWith("completion", expect.any(Function));
+
+  state.shells.set(
+    "one",
+    shell(
+      {
+        latestTurn: { turnId: "turn", state: "completed", completedAt: "2026-09-13T07:00:01.000Z" },
+      },
+      { id: "other", hasPendingUserInput: true },
+    ),
+  );
+  expect(state.badge).toHaveBeenLastCalledWith(2, "orange");
+
+  app.openThread("one", "other");
+  expect(state.badge).toHaveBeenLastCalledWith(1, "blue");
 });
 
 it.each([false, true])(
@@ -327,31 +348,31 @@ it.each([false, true])(
       "one",
       watching("turn", "completed", "2026-09-13T07:00:01.000Z", false, monitor),
     );
-    expect(titles()).toEqual(["Thread completed"]);
+    expect(titles()).toEqual(["Done"]);
 
     state.shells.set("one", watching("wake", "running", null, true, monitor));
     state.shells.set(
       "one",
       watching("wake", "completed", "2026-09-13T07:00:09.000Z", true, monitor),
     );
-    expect(titles()).toEqual(["Thread completed"]);
+    expect(titles()).toEqual(["Done"]);
 
     // The adapter drains the roster before the final wake starts.
     state.shells.set("one", watching("wake", "completed", "2026-09-13T07:00:09.000Z", true, []));
-    expect(titles()).toEqual(["Thread completed"]);
+    expect(titles()).toEqual(["Done"]);
     if (disconnect) {
       state.shells.set("one", {
         ...watching("wake", "completed", "2026-09-13T07:00:09.000Z", true, []),
         status: "cached",
       });
       vi.advanceTimersByTime(RELEASED_COMPLETION_GRACE_MS);
-      expect(titles()).toEqual(["Thread completed"]);
+      expect(titles()).toEqual(["Done"]);
     }
 
     state.shells.set("one", watching("final", "running", null, false, []));
     vi.advanceTimersByTime(RELEASED_COMPLETION_GRACE_MS);
     state.shells.set("one", watching("final", "completed", "2026-09-13T07:00:11.000Z", false, []));
-    expect(titles()).toEqual(["Thread completed", "Thread completed"]);
+    expect(titles()).toEqual(["Done", "Done"]);
     expect(state.sound).toHaveBeenCalledTimes(2);
   },
 );
@@ -389,16 +410,16 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
     state.shells.set("one", shell(completed, asking, offline, done));
 
     expect(TestNotification.sent.map(({ title }) => title)).toEqual([
-      "Approval needed",
-      "Thread completed",
-      flag === "hasPendingApprovals" ? "Approval needed" : "Input needed",
+      "Needs you",
+      "Done",
+      "Needs you",
     ]);
     state.shells.set("one", { ...shell(completed, asking, offline, done), status: "cached" });
     state.shells.set("one", shell(completed, asking, offline, done));
     expect(TestNotification.sent.map(({ title }) => title)).toEqual([
-      "Approval needed",
-      "Thread completed",
-      flag === "hasPendingApprovals" ? "Approval needed" : "Input needed",
+      "Needs you",
+      "Done",
+      "Needs you",
     ]);
   },
 );
@@ -413,9 +434,9 @@ it.each([false, true])(
     });
     state.shells.set("one", completed);
     state.shells.set("one", { ...completed, status: "cached" });
-    expect(TestNotification.sent.map(({ title }) => title)).toEqual(["Thread completed"]);
+    expect(TestNotification.sent.map(({ title }) => title)).toEqual(["Done"]);
     state.shells.set("one", continued ? shell() : completed);
-    expect(TestNotification.sent.map(({ title }) => title)).toEqual(["Thread completed"]);
+    expect(TestNotification.sent.map(({ title }) => title)).toEqual(["Done"]);
   },
 );
 

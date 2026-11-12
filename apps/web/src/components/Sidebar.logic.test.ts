@@ -20,6 +20,7 @@ import {
   pinOrderKeyBetween,
   resolveSidebarSweepKeys,
   resolveSidebarThreadStatus,
+  resolveThreadAttentionDot,
   resolveThreadStatusPill,
   resolveWorkingStartedAt,
   searchSidebarThreads,
@@ -601,7 +602,7 @@ describe("resolveThreadStatusPill", () => {
     ).toBeNull();
   });
 
-  it("shows completed when there is an unseen completion and no active blocker", () => {
+  it("shows Done in blue when there is an unseen completion and no active blocker", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
@@ -616,7 +617,31 @@ describe("resolveThreadStatusPill", () => {
           },
         },
       }),
-    ).toMatchObject({ label: "Completed", pulse: false });
+    ).toMatchObject({
+      label: "Done",
+      dotClass: "bg-blue-500 dark:bg-blue-400",
+      pulse: false,
+    });
+  });
+
+  it("shows Needs you in orange for pending approvals and user input and clears when open or seen", () => {
+    const approvalThread = {
+      ...baseThread,
+      hasPendingApprovals: true,
+      pendingRequestAt: "2026-03-09T10:06:00.000Z",
+      lastVisitedAt: "2026-03-09T10:04:00.000Z",
+    };
+    expect(resolveThreadStatusPill({ thread: approvalThread })).toMatchObject({
+      label: "Needs you",
+      dotClass: "bg-orange-500 dark:bg-orange-400",
+      pulse: false,
+    });
+    expect(resolveThreadStatusPill({ thread: approvalThread, isOpen: true })).toBeNull();
+    expect(
+      resolveThreadStatusPill({
+        thread: { ...approvalThread, lastVisitedAt: "2026-03-09T10:06:00.000Z" },
+      }),
+    ).toBeNull();
   });
 
   it("shows failed, not completed, when the unseen run failed", () => {
@@ -664,6 +689,156 @@ describe("resolveThreadStatusPill", () => {
         },
       }),
     ).toBeNull();
+  });
+});
+
+describe("resolveThreadAttentionDot", () => {
+  const baseIdleThread = {
+    hasActionableProposedPlan: false,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    interactionMode: "default" as const,
+    latestRun: makeLatestRun(), // completedAt: 2026-03-09T10:05:00.000Z
+    lastVisitedAt: "2026-03-09T10:06:00.000Z",
+    runtime: {
+      status: "completed" as const,
+      providerName: "Codex",
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      activeRunId: null,
+      lastError: null,
+      updatedAt: "2026-03-09T10:05:00.000Z",
+    },
+  };
+
+  it("returns blue when a turn finished and the user has not looked at it yet, and null otherwise", () => {
+    expect(
+      resolveThreadAttentionDot({
+        thread: { ...baseIdleThread, lastVisitedAt: "2026-03-09T10:04:00.000Z" },
+      }),
+    ).toBe("blue");
+
+    // Missing visit marker does not manufacture unread blue state.
+    expect(
+      resolveThreadAttentionDot({
+        thread: { ...baseIdleThread, lastVisitedAt: undefined },
+      }),
+    ).toBeNull();
+
+    // Seen idle, actively working, failed, and cancelled runs do not show a blue dot.
+    expect(resolveThreadAttentionDot({ thread: baseIdleThread })).toBeNull();
+    expect(
+      resolveThreadAttentionDot({
+        thread: {
+          ...baseIdleThread,
+          lastVisitedAt: "2026-03-09T10:04:00.000Z",
+          runtime: { ...baseIdleThread.runtime, status: "running", activeRunId: "turn-2" as never },
+        },
+      }),
+    ).toBeNull();
+    expect(
+      resolveThreadAttentionDot({
+        thread: {
+          ...baseIdleThread,
+          lastVisitedAt: "2026-03-09T10:04:00.000Z",
+          latestRun: { ...makeLatestRun(), status: "failed" },
+          runtime: { ...baseIdleThread.runtime, status: "failed", lastError: "Boom" },
+        },
+      }),
+    ).toBeNull();
+    expect(
+      resolveThreadAttentionDot({
+        thread: {
+          ...baseIdleThread,
+          lastVisitedAt: "2026-03-09T10:04:00.000Z",
+          latestRun: { ...makeLatestRun(), status: "cancelled" },
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("returns orange for pending approval, pending user input, or rolled-up subagent requests", () => {
+    expect(
+      resolveThreadAttentionDot({
+        thread: {
+          ...baseIdleThread,
+          hasPendingApprovals: true,
+          pendingRequestAt: "2026-03-09T10:07:00.000Z",
+        },
+      }),
+    ).toBe("orange");
+
+    expect(
+      resolveThreadAttentionDot({
+        thread: {
+          ...baseIdleThread,
+          hasPendingUserInput: true,
+          pendingUserInputAt: "2026-03-09T10:07:00.000Z",
+        },
+      }),
+    ).toBe("orange");
+
+    expect(
+      resolveThreadAttentionDot({
+        thread: baseIdleThread,
+        descendantStatus: "approval",
+      }),
+    ).toBe("orange");
+  });
+
+  it("prefers orange over blue when both an unseen completion and a pending user request exist", () => {
+    const bothThread = {
+      ...baseIdleThread,
+      lastVisitedAt: "2026-03-09T10:04:00.000Z",
+      hasPendingApprovals: true,
+      pendingRequestAt: "2026-03-09T10:07:00.000Z",
+    };
+    expect(resolveThreadAttentionDot({ thread: bothThread })).toBe("orange");
+    expect(resolveThreadStatusPill({ thread: bothThread })).toMatchObject({
+      label: "Needs you",
+      dotClass: "bg-orange-500 dark:bg-orange-400",
+    });
+    expect(
+      resolveSidebarFolderDot([
+        { ...baseIdleThread, lastVisitedAt: "2026-03-09T10:04:00.000Z" },
+        bothThread,
+      ]),
+    ).toBe("attention");
+  });
+
+  it("clears both blue and orange dots when the thread is open or once visited after the event", () => {
+    const unreadDone = {
+      ...baseIdleThread,
+      lastVisitedAt: "2026-03-09T10:04:00.000Z",
+    };
+    expect(resolveThreadAttentionDot({ thread: unreadDone, isOpen: true })).toBeNull();
+    expect(
+      resolveThreadAttentionDot({
+        thread: { ...unreadDone, lastVisitedAt: "2026-03-09T10:05:00.000Z" },
+      }),
+    ).toBeNull();
+
+    const pendingQuestion = {
+      ...baseIdleThread,
+      hasPendingUserInput: true,
+      pendingRequestAt: "2026-03-09T10:07:00.000Z",
+      lastVisitedAt: "2026-03-09T10:06:00.000Z",
+    };
+    expect(resolveThreadAttentionDot({ thread: pendingQuestion, isOpen: true })).toBeNull();
+    expect(
+      resolveThreadAttentionDot({
+        thread: { ...pendingQuestion, lastVisitedAt: "2026-03-09T10:07:00.000Z" },
+      }),
+    ).toBeNull();
+    // A subsequent request after the visit lights the orange dot back up.
+    expect(
+      resolveThreadAttentionDot({
+        thread: {
+          ...pendingQuestion,
+          lastVisitedAt: "2026-03-09T10:07:00.000Z",
+          pendingRequestAt: "2026-03-09T10:08:00.000Z",
+        },
+      }),
+    ).toBe("orange");
   });
 });
 
@@ -1046,14 +1221,14 @@ describe("unseen completion with background work", () => {
       task: { kind: "command" },
       status: "ready",
       receded: false,
-      pill: "Completed",
+      pill: "Done",
     },
     {
       roster: "dev server watchdog",
       task: { kind: "monitor" },
       status: "ready",
       receded: false,
-      pill: "Completed",
+      pill: "Done",
     },
     {
       roster: "awaited command",

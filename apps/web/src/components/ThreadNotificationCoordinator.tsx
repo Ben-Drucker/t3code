@@ -11,28 +11,30 @@ import { monitorHoldsWakeCompletion } from "@t3tools/shared/orchestrationV2Pendi
 import type { ClientSettings } from "@t3tools/contracts/settings";
 import * as Option from "effect/Option";
 import type { AtomRegistry } from "effect/reactivity";
-import {
-  CircleAlertIcon,
-  CircleCheckIcon,
-  MessageCircleQuestionIcon,
-  ShieldQuestionIcon,
-} from "lucide-react";
+import { CircleAlertIcon, MessageCircleQuestionIcon } from "lucide-react";
 
 import { getClientSettings, subscribeClientSettings } from "../hooks/useSettings";
-import { isWindowsPlatform } from "../lib/utils";
+import { cn, isWindowsPlatform } from "../lib/utils";
 import { environmentSummaries } from "../state/presentation";
 import { environmentShell } from "../state/shell";
 import { environmentThreadShells } from "../state/threads";
 import {
   hasDesktopNotifications,
   hasNotificationSound,
+  NOTIFICATION_DOT_ICON,
+  type NotificationAttentionTone,
   playNotificationSound,
   setNotificationBadge,
   threadNotificationTag,
   unlockNotificationAudio,
 } from "../threadNotifications";
 import { resolveBackgroundThreadRequest } from "./backgroundThreadAnnouncement";
-import { resolveSidebarThreadStatus, type SidebarThreadStatus } from "./Sidebar.logic";
+import {
+  resolveSidebarThreadStatus,
+  type SidebarThreadStatus,
+  THREAD_ATTENTION_DOT_CLASS_NAME,
+  THREAD_ATTENTION_LABEL,
+} from "./Sidebar.logic";
 import {
   createThreadNotificationGate,
   type ThreadNotificationKind,
@@ -66,18 +68,40 @@ export function startThreadNotifications(
 ): () => void {
   const pending = new Map<
     string,
-    { environmentId: EnvironmentId; threadId: ThreadId; notification: Notification }
+    {
+      environmentId: EnvironmentId;
+      threadId: ThreadId;
+      notification: Notification;
+      tone: NotificationAttentionTone;
+    }
   >();
   const watched = new Map<EnvironmentId, WatchedEnvironment>();
+
+  const syncBadge = () => {
+    if (pending.size === 0) {
+      setNotificationBadge(0);
+      return;
+    }
+    let hasRed = false;
+    for (const entry of pending.values()) {
+      if (entry.tone === "orange") {
+        setNotificationBadge(pending.size, "orange");
+        return;
+      }
+      if (entry.tone === "red") hasRed = true;
+    }
+    setNotificationBadge(pending.size, hasRed ? "red" : "blue");
+  };
 
   const trackNotification = (
     environmentId: EnvironmentId,
     threadId: ThreadId,
     notification: Notification,
+    tone: NotificationAttentionTone,
   ) => {
     pending.get(notification.tag)?.notification.close();
-    pending.set(notification.tag, { environmentId, threadId, notification });
-    setNotificationBadge(pending.size);
+    pending.set(notification.tag, { environmentId, threadId, notification, tone });
+    syncBadge();
   };
   // Toast ids by thread key, so hiding or opening a thread can close its open toasts.
   const openToasts = new Map<string, Array<ToastId>>();
@@ -103,6 +127,13 @@ export function startThreadNotifications(
     if (environmentId === undefined || threadId === undefined) return;
     const opened = threadKey({ environmentId, threadId });
     closeToasts((key) => key === opened);
+    const count = pending.size;
+    for (const [tag, entry] of pending) {
+      if (threadKey(entry) !== opened) continue;
+      entry.notification.close();
+      pending.delete(tag);
+    }
+    if (count !== pending.size) syncBadge();
   };
   // A notification shown before the tag filter turned on must not stay on screen. While hiding,
   // one whose thread left the live list (archived) cannot be judged, so it closes too.
@@ -119,7 +150,7 @@ export function startThreadNotifications(
       entry.notification.close();
       pending.delete(tag);
     }
-    if (count !== pending.size) setNotificationBadge(pending.size);
+    if (count !== pending.size) syncBadge();
   };
   const clearPending = () => {
     for (const { notification } of pending.values()) notification.close();
@@ -141,18 +172,25 @@ export function startThreadNotifications(
       return;
     const { notificationMode: mode, inAppNotificationsEnabled } = getClientSettings();
     const active = activeThread();
+    const isNeedsYou = kind !== "completion" && (status === "approval" || status === "input");
     const title =
       kind === "completion"
-        ? "Thread completed"
-        : status === "approval"
-          ? "Approval needed"
+        ? THREAD_ATTENTION_LABEL.blue
+        : isNeedsYou
+          ? THREAD_ATTENTION_LABEL.orange
           : status === "limited"
             ? "Usage limit reached"
             : status === "failed"
               ? "Thread failed"
-              : status === "request"
-                ? "Guest request"
-                : "Input needed";
+              : "Guest request";
+    const tone: NotificationAttentionTone =
+      kind === "completion" ? "blue" : status === "failed" ? "red" : "orange";
+    const notificationIcon =
+      kind === "completion"
+        ? NOTIFICATION_DOT_ICON.blue
+        : isNeedsYou
+          ? NOTIFICATION_DOT_ICON.orange
+          : undefined;
     if (hasNotificationSound(mode)) {
       void playNotificationSound(kind, () =>
         hasNotificationSound(getClientSettings().notificationMode),
@@ -167,22 +205,34 @@ export function startThreadNotifications(
       const toastKey = threadKey({ environmentId, threadId: thread.id });
       const toastId: ToastId = toastManager.add({
         onRemove: (): void => forgetToast(toastKey, toastId),
-        type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
+        type: kind === "completion" ? "info" : status === "failed" ? "error" : "warning",
         title,
         description: thread.title,
         data: {
           hideCopyButton: true,
           leadingIcon:
             kind === "completion" ? (
-              <CircleCheckIcon aria-hidden className="size-4 text-success-foreground" />
-            ) : status === "approval" ? (
-              <ShieldQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
+              <span
+                aria-hidden
+                className={cn(
+                  "size-2.5 shrink-0 rounded-full",
+                  THREAD_ATTENTION_DOT_CLASS_NAME.blue,
+                )}
+              />
+            ) : isNeedsYou ? (
+              <span
+                aria-hidden
+                className={cn(
+                  "size-2.5 shrink-0 rounded-full",
+                  THREAD_ATTENTION_DOT_CLASS_NAME.orange,
+                )}
+              />
             ) : status === "limited" ? (
               <CircleAlertIcon aria-hidden className="size-4 text-warning-foreground" />
             ) : status === "failed" ? (
               <CircleAlertIcon aria-hidden className="size-4 text-destructive-foreground" />
             ) : (
-              <MessageCircleQuestionIcon aria-hidden className="size-4 text-info-foreground" />
+              <MessageCircleQuestionIcon aria-hidden className="size-4 text-guest-foreground" />
             ),
         },
         actionProps: {
@@ -209,12 +259,13 @@ export function startThreadNotifications(
     try {
       const notification = new Notification(title, {
         body: thread.title,
+        ...(notificationIcon ? { icon: notificationIcon } : {}),
         tag: threadNotificationTag(environmentId, thread.id),
         silent: true,
         // Windows drops clicks after a toast moves into Notification Center.
         requireInteraction: kind === "completion" && isWindowsPlatform(navigator.platform),
       });
-      trackNotification(environmentId, thread.id, notification);
+      trackNotification(environmentId, thread.id, notification, tone);
       notification.addEventListener("click", () => {
         notification.close();
         window.focus();
