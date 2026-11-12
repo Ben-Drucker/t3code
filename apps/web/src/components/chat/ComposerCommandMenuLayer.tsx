@@ -20,13 +20,15 @@ function composerCommandMenuPositionsEqual(
 
 export function ComposerCommandMenuLayer(props: {
   anchor: HTMLElement | null;
+  onReadCaretPosition?: (() => { left: number; top: number } | null) | undefined;
+  compact?: boolean;
   children: ReactNode;
 }) {
   const [position, setPosition] = useState<ComposerCommandMenuPosition | null>(null);
+  const { anchor, compact, onReadCaretPosition } = props;
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- positions the menu from the composer's DOM rect, tracking window resize, scroll and ancestor resizes
   useLayoutEffect(() => {
-    const anchor = props.anchor;
     if (!anchor) return;
 
     const updatePosition = () => {
@@ -41,6 +43,31 @@ export function ComposerCommandMenuLayer(props: {
         window.getComputedStyle(form ?? anchor).getPropertyValue("--chat-composer-drawer-inset"),
       );
       const drawerInset = drawerInsetRem * rootFontSizePx;
+      if (compact) {
+        const compactWidth = Math.min(248, Math.max(176, rect.width - drawerInset * 2));
+        if (compactWidth <= 0) {
+          setPosition(null);
+          return;
+        }
+        const caretPosition = onReadCaretPosition?.() ?? null;
+        const anchorTop = caretPosition?.top ?? rect.top;
+        const rawLeft = caretPosition !== null ? caretPosition.left - 12 : rect.left + drawerInset;
+        const minLeft = Math.max(8, rect.left);
+        const maxLeft = Math.max(
+          minLeft,
+          Math.min(window.innerWidth - compactWidth - 8, rect.right - compactWidth),
+        );
+        const next = {
+          bottom: Math.max(8, window.innerHeight - anchorTop + 6),
+          left: Math.min(maxLeft, Math.max(minLeft, rawLeft)),
+          maxHeight: Math.max(96, anchorTop - 16),
+          width: compactWidth,
+        };
+        setPosition((current) =>
+          current && composerCommandMenuPositionsEqual(current, next) ? current : next,
+        );
+        return;
+      }
       const width = rect.width - drawerInset * 2;
       if (width <= 0) {
         setPosition(null);
@@ -73,7 +100,7 @@ export function ComposerCommandMenuLayer(props: {
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
     };
-  }, [props.anchor]);
+  }, [anchor, compact, onReadCaretPosition]);
 
   if (!props.anchor || !position) return null;
 
@@ -81,6 +108,7 @@ export function ComposerCommandMenuLayer(props: {
     <div
       className="pointer-events-auto fixed z-40 flex flex-col"
       data-composer-drawer-layer="true"
+      data-composer-drawer-compact={props.compact ? "true" : undefined}
       style={{
         bottom: position.bottom,
         left: position.left,

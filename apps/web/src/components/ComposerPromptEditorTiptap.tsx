@@ -143,6 +143,7 @@ export interface ComposerPromptEditorHandle {
     expandedCursor: number;
     contextIds: string[];
   };
+  readCaretCoords: () => { left: number; top: number; bottom: number } | null;
   isCaretOnVisualEdge: (edge: "start" | "end") => boolean;
 }
 
@@ -1026,9 +1027,13 @@ function ComposerPromptEditorTiptapInner(
       contextIds,
     };
     const inCodeBlock = updated.state.selection.$from.parent.type.spec.code === true;
+    const inInlineCode = updated.state.selection.$from
+      .marks()
+      .some((mark) => mark.type.spec.code === true);
     const suppressTrigger =
       literalText ||
       inCodeBlock ||
+      inInlineCode ||
       [updated.state.selection.$from.nodeBefore, updated.state.selection.$from.nodeAfter].some(
         (node) => node?.isInline && node.isAtom && !node.isText && node.type.name !== "hardBreak",
       );
@@ -1698,6 +1703,15 @@ function ComposerPromptEditorTiptapInner(
         }
       },
       readSnapshot,
+      readCaretCoords: () => {
+        if (!editor) return null;
+        try {
+          const coords = editor.view.coordsAtPos(editor.state.selection.from);
+          return { left: coords.left, top: coords.top, bottom: coords.bottom };
+        } catch {
+          return null;
+        }
+      },
       isCaretOnVisualEdge: (edge) => {
         const snapshot = readSnapshot();
         if (snapshot.value.length === 0) return true;

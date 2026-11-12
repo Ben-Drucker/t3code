@@ -125,6 +125,14 @@ export type ComposerCommandItem =
       deferred: boolean;
       label: string;
       description: string;
+    }
+  | {
+      id: string;
+      type: "emoji";
+      emoji: string;
+      shortcode: string;
+      label: string;
+      description: string;
     };
 
 /** Rows of one tool source, shown under its header while the header is open. */
@@ -169,6 +177,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
   onSelect: (item: ComposerCommandItem) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
+  const isEmojiMenu = props.triggerKind === "emoji";
   const firstSectionId = props.items.find((item) => item.type === "agent-section")?.id;
   const renderItem = (item: ComposerCommandItem) => (
     <Fragment key={item.id}>
@@ -209,7 +218,11 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
     >
       <ComposerBanner.Surface
         ref={listRef}
-        className="flex min-h-0 w-full flex-col overflow-hidden pb-(--chat-composer-attachment-overlap) **:data-[slot=command-item]:rounded-lg **:data-[slot=scroll-area-scrollbar]:data-[orientation=vertical]:my-4"
+        detached={isEmojiMenu}
+        className={cn(
+          "flex min-h-0 w-full flex-col overflow-hidden **:data-[slot=command-item]:rounded-lg **:data-[slot=scroll-area-scrollbar]:data-[orientation=vertical]:my-4",
+          isEmojiMenu ? "pb-0" : "pb-(--chat-composer-attachment-overlap)",
+        )}
         data-composer-command-drawer="true"
       >
         {props.agentToolQuery !== null ? (
@@ -231,7 +244,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
           <CommandList
             id={props.listId}
             aria-label={props.triggerKind ? LISTBOX_LABEL_BY_TRIGGER[props.triggerKind] : undefined}
-            className="max-h-72 min-h-0 scroll-pb-6"
+            className={cn("min-h-0 scroll-pb-6", isEmojiMenu ? "max-h-56" : "max-h-72")}
           >
             <CommandGroup>
               {menuBlocks(props.items).map((block) =>
@@ -249,20 +262,24 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
             </CommandGroup>
           </CommandList>
         ) : (
-          <div className="px-5 pt-3.5 pb-7">
+          <div className={cn("px-5 pt-3.5", isEmojiMenu ? "pb-3.5" : "pb-7")}>
             <p className="text-secondary-label text-xs">
               {props.isLoading
-                ? props.triggerKind === "skill" || props.triggerKind === "slash-command"
-                  ? "Searching workspace skills..."
-                  : props.triggerKind === "pull-request"
-                    ? "Finding pull request..."
-                    : "Searching workspace files..."
+                ? props.triggerKind === "emoji"
+                  ? "Loading emoji..."
+                  : props.triggerKind === "skill" || props.triggerKind === "slash-command"
+                    ? "Searching workspace skills..."
+                    : props.triggerKind === "pull-request"
+                      ? "Finding pull request..."
+                      : "Searching workspace files..."
                 : (props.emptyStateText ??
-                  (props.triggerKind === "skill"
-                    ? "No skills found. Try / to browse provider commands."
-                    : props.triggerKind === "path"
-                      ? "No matching files or folders."
-                      : "No matching command."))}
+                  (props.triggerKind === "emoji"
+                    ? "No matching emoji."
+                    : props.triggerKind === "skill"
+                      ? "No skills found. Try / to browse provider commands."
+                      : props.triggerKind === "path"
+                        ? "No matching files or folders."
+                        : "No matching command."))}
             </p>
           </div>
         )}
@@ -304,6 +321,11 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
         props.onSelect(props.item);
       }}
     >
+      {props.item.type === "emoji" ? (
+        <span aria-hidden="true" className="shrink-0 text-base leading-none">
+          {props.item.emoji}
+        </span>
+      ) : null}
       {props.item.type === "path" ? (
         <PierreEntryIcon
           pathValue={props.item.path}
@@ -353,7 +375,12 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
         />
       ) : null}
       <span className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="min-w-0 max-w-[45%] shrink-0 truncate font-sans text-xs font-medium">
+        <span
+          className={cn(
+            "min-w-0 shrink-0 truncate text-xs font-medium",
+            props.item.type === "emoji" ? "max-w-full font-mono" : "max-w-[45%] font-sans",
+          )}
+        >
           {isSlashSkill ? (
             <>
               <span className="text-secondary-label">/skill:</span>
@@ -363,9 +390,11 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
             props.item.label
           )}
         </span>
-        <span className="min-w-0 flex-1 truncate text-left text-secondary-label text-xs">
-          {props.item.description}
-        </span>
+        {props.item.description ? (
+          <span className="min-w-0 flex-1 truncate text-left text-secondary-label text-xs">
+            {props.item.description}
+          </span>
+        ) : null}
         {skillSourceKind ? (
           <SkillSourceBadge
             kind={skillSourceKind}
@@ -414,6 +443,7 @@ export function composerSuggestionOptionId(listId: string, itemId: string): stri
 
 const LISTBOX_LABEL_BY_TRIGGER: Record<ComposerTriggerKind, string> = {
   "agent-config": "Agent configuration",
+  emoji: "Emoji",
   path: "Files and folders",
   "pull-request": "Pull requests",
   "slash-command": "Commands",

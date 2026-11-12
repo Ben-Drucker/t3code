@@ -3,7 +3,13 @@ import {
   matchComposerThreadItems,
 } from "@t3tools/client-runtime/composerThreadItems";
 import { useAtomValue } from "@effect/atom-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import {
+  getCachedEmojiShortcodeEntries,
+  loadEmojiShortcodeEntries,
+  rankEmojiShortcodes,
+  type EmojiShortcodeEntry,
+} from "./composerEmojiMenu";
 import type {
   ComposerToolGroup,
   EnvironmentId,
@@ -170,6 +176,20 @@ export function useComposerMenuItems({
   // Thread mentions rank by recency as of when the composer mounted.
   const [now] = useState(() => Date.now());
   const composerTriggerKind = composerTrigger?.kind ?? null;
+  const [emojiEntries, setEmojiEntries] = useState<ReadonlyArray<EmojiShortcodeEntry> | null>(() =>
+    getCachedEmojiShortcodeEntries(),
+  );
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- lazily loads the emoji shortcode dataset on first open of the `:` picker
+  useEffect(() => {
+    if (composerTriggerKind !== "emoji" || emojiEntries !== null) return;
+    let cancelled = false;
+    void loadEmojiShortcodeEntries().then((loaded) => {
+      if (!cancelled) setEmojiEntries(loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [composerTriggerKind, emojiEntries]);
   // Open or closed choices for tool sections, kept for the `%` query that made them.
   const [agentSectionState, setAgentSectionState] = useState<{
     readonly rangeStart: number;
@@ -530,9 +550,21 @@ export function useComposerMenuItems({
             : `${pullRequest.repository} · ${pullRequest.title}`,
       }));
     }
+    if (composerTrigger.kind === "emoji") {
+      if (emojiEntries === null) return [];
+      return rankEmojiShortcodes(emojiEntries, composerTrigger.query).map((entry) => ({
+        id: `emoji:${entry.name}`,
+        type: "emoji" as const,
+        emoji: entry.emoji,
+        shortcode: entry.name,
+        label: `:${entry.name}:`,
+        description: "",
+      }));
+    }
     return [];
   })();
   const isLoading =
+    (composerTriggerKind === "emoji" && emojiEntries === null) ||
     (composerTriggerKind === "path" &&
       !diskPathQuery &&
       pathTriggerQuery.length > 0 &&
@@ -551,6 +583,9 @@ export function useComposerMenuItems({
         pullRequestTriggerNumber !== debouncedPullRequestNumber ||
         exactPullRequestLookup.isPending));
   const emptyState = (() => {
+    if (composerTriggerKind === "emoji") {
+      return "No matching emoji.";
+    }
     if (composerTriggerKind === "skill") {
       return "No skills found. Try / to browse provider commands.";
     }

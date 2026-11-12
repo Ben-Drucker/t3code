@@ -2017,6 +2017,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       toggleAgentToolSection(item.id, item.expanded);
       return;
     }
+    if (item.type === "emoji") {
+      const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, item.emoji, {
+        expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+      });
+      if (applied) {
+        setComposerHighlightedItemId(null);
+      }
+      return;
+    }
     if (item.type === "agent-model") {
       setAgentConfigPickState({
         rangeStart: trigger.rangeStart,
@@ -2217,6 +2226,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
   };
   const onSelectComposerItemStable = useStableCallback(onSelectComposerItem);
+  const readComposerCaretPosition = useStableCallback(
+    () => composerEditorRef.current?.readCaretCoords() ?? null,
+  );
 
   const onComposerMenuItemHighlighted = (itemId: string | null) => {
     setComposerHighlightedItemId(itemId);
@@ -3641,17 +3653,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   <div role="status" aria-atomic="true" className="sr-only">
                     {composerSuggestionsVisible && composerMenuItems.length === 0
                       ? isComposerMenuLoading
-                        ? composerTriggerKind === "pull-request"
-                          ? "Finding pull request..."
-                          : composerTriggerKind === "skill" ||
-                              composerTriggerKind === "slash-command"
-                            ? "Searching workspace skills..."
-                            : "Searching workspace files..."
+                        ? composerTriggerKind === "emoji"
+                          ? "Loading emoji..."
+                          : composerTriggerKind === "pull-request"
+                            ? "Finding pull request..."
+                            : composerTriggerKind === "skill" ||
+                                composerTriggerKind === "slash-command"
+                              ? "Searching workspace skills..."
+                              : "Searching workspace files..."
                         : composerMenuEmptyState
                       : ""}
                   </div>
                   {composerSuggestionsVisible && (
-                    <ComposerCommandMenuLayer anchor={composerMenuAnchor}>
+                    <ComposerCommandMenuLayer
+                      anchor={composerMenuAnchor}
+                      compact={composerTriggerKind === "emoji"}
+                      onReadCaretPosition={
+                        composerTriggerKind === "emoji" ? readComposerCaretPosition : undefined
+                      }
+                    >
                       <ComposerCommandMenu
                         listId={composerSuggestionListId}
                         items={composerMenuItems}

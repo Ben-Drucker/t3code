@@ -19,6 +19,7 @@ import { resolveShortcutCommand, type ShortcutEventLike } from "./keybindings";
 
 export type ComposerTriggerKind =
   | "agent-config"
+  | "emoji"
   | "path"
   | "pull-request"
   | "slash-command"
@@ -280,6 +281,15 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
     return {
       kind: "agent-config",
       query: agentConfigMatch[1] ?? "",
+      rangeStart: tokenStart,
+      rangeEnd: cursor,
+    };
+  }
+  const emojiMatch = /^:([a-z][a-z0-9_+-]*)$/.exec(token);
+  if (emojiMatch) {
+    return {
+      kind: "emoji",
+      query: emojiMatch[1] ?? "",
       rangeStart: tokenStart,
       rangeEnd: cursor,
     };
