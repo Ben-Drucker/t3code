@@ -49,7 +49,73 @@ export function isPathSuggestionCurrent(
 }
 
 export function formatAssistantCitationForComposer(citation: AssistantCitation, comment = "") {
-  return `${serializeAssistantCitation(withAssistantCitationComment(citation, comment))} `;
+  return `${serializeAssistantCitation(withAssistantCitationComment(citation, comment))}\n`;
+}
+
+export function insertAssistantCitationIntoPrompt(
+  prompt: string,
+  cursorInput: number,
+  citation: AssistantCitation,
+): { text: string; cursor: number } {
+  const cursor = clampCursor(prompt, cursorInput);
+  const serialized = serializeAssistantCitation(
+    withAssistantCitationComment(citation, citation.comment ?? ""),
+  );
+  const leadingNewline = cursor > 0 && prompt[cursor - 1] !== "\n" ? "\n" : "";
+  const skipSpacesEnd =
+    prompt[cursor] === " " && (cursor === 0 || prompt[cursor - 1] === "\n") ? cursor + 1 : cursor;
+  const hasTrailingNewline = prompt[skipSpacesEnd] === "\n";
+  const trailingNewline = hasTrailingNewline ? "" : "\n";
+  const inserted = `${leadingNewline}${serialized}${trailingNewline}`;
+  const text = `${prompt.slice(0, cursor)}${inserted}${prompt.slice(skipSpacesEnd)}`;
+  const nextCursor =
+    cursor +
+    leadingNewline.length +
+    serialized.length +
+    (hasTrailingNewline ? 1 : trailingNewline.length);
+  return { text, cursor: nextCursor };
+}
+
+export function removeAssistantCitationRange(
+  prompt: string,
+  startInput: number,
+  endInput: number,
+): { text: string; cursor: number } {
+  const start = clampCursor(prompt, startInput);
+  const end = Math.max(start, clampCursor(prompt, endInput));
+  const atLineStart = start === 0 || prompt[start - 1] === "\n";
+  const hasTrailingNewline = prompt[end] === "\n";
+  if (atLineStart && hasTrailingNewline) {
+    if (end + 1 === prompt.length && start > 0) {
+      const from = start - 1;
+      return { text: prompt.slice(0, from), cursor: from };
+    }
+    return {
+      text: `${prompt.slice(0, start)}${prompt.slice(end + 1)}`,
+      cursor: start,
+    };
+  }
+  if (atLineStart && end === prompt.length && start > 0) {
+    const from = start - 1;
+    return { text: prompt.slice(0, from), cursor: from };
+  }
+  const removeAfter = prompt[end] === " " ? end + 1 : end;
+  const removeBefore =
+    removeAfter === end && start > 0 && prompt[start - 1] === " " ? start - 1 : start;
+  return {
+    text: `${prompt.slice(0, removeBefore)}${prompt.slice(removeAfter)}`,
+    cursor: removeBefore,
+  };
+}
+
+export function resolveComposerCitationEdges(input: { beforeText: string; afterText: string }): {
+  leading: boolean;
+  trailing: boolean;
+} {
+  return {
+    leading: input.beforeText.trim().length === 0 && !input.beforeText.includes("\n"),
+    trailing: input.afterText.trim().length === 0 && !input.afterText.includes("\n"),
+  };
 }
 
 export function composerRequiresModifier(

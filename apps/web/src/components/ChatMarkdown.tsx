@@ -1056,6 +1056,24 @@ const CHAT_MARKDOWN_COMPONENTS = {
       </p>
     );
   },
+  br: function MarkdownBreak({ node, ...props }) {
+    const text = use(ChatMarkdownTextContext);
+    const start = node?.position?.start?.offset;
+    const end = node?.position?.end?.offset;
+    if (
+      (start !== undefined &&
+        /\[[^\]]*\]\((?:t3-citation:\/\/|t3-context:\/\/v1\/response\/)[^)\s]+\)[ \t]*$/.test(
+          text.slice(0, start),
+        )) ||
+      (end !== undefined &&
+        /^[ \t]*\[[^\]]*\]\((?:t3-citation:\/\/|t3-context:\/\/v1\/response\/)[^)\s]+\)/.test(
+          text.slice(end),
+        ))
+    ) {
+      return null;
+    }
+    return <br {...props} />;
+  },
   blockquote: function MarkdownBlockquote({ node: _node, children, ...props }) {
     const alert =
       GITHUB_ALERT_PRESENTATIONS[String((props as Record<string, unknown>)["data-alert"] ?? "")];

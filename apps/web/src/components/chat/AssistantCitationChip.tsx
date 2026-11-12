@@ -5,7 +5,7 @@ import {
   serializeAssistantCitation,
 } from "@t3tools/shared/assistantCitations";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { PencilIcon, QuoteIcon } from "lucide-react";
+import { PencilIcon, QuoteIcon, XIcon } from "lucide-react";
 import {
   useEffect,
   useEffectEvent,
@@ -66,6 +66,7 @@ function ResponseCard({
   comment,
   leading,
   trailing,
+  onRemove,
 }: {
   citation: AssistantCitation;
   copyMarkdown: string;
@@ -76,33 +77,58 @@ function ResponseCard({
   comment?: string | undefined;
   leading: boolean;
   trailing: boolean;
+  onRemove?: (() => void) | undefined;
 }) {
   const linkProps = useCitationSourceLinkProps(citation);
   return (
     // One copy boundary for the card and its comment, so a copied card carries the comment once.
     <span
       data-markdown-copy={copyMarkdown}
+      data-assistant-citation-card="true"
       className={cn("block", !leading && "mt-[0.65rem]", !trailing && "mb-[0.65rem]")}
     >
-      <Link
-        {...linkProps}
-        // A selection inside the card's boundary copies the card here and the comment as text.
-        data-markdown-copy={cardCopyMarkdown}
-        // The response is findable in its own message; here it is clamped and mostly hidden.
-        data-thread-find-ignore
-        aria-label={label}
-        // The message's markdown styles colour and underline links; a card is neither.
-        className="block min-w-0 rounded-lg bg-black/10 px-2.5 py-1.5 text-start text-sm text-muted-foreground! no-underline! wrap-break-word hover:bg-black/14 focus-visible:outline-2 focus-visible:outline-ring dark:bg-black/35 dark:hover:bg-black/50"
-      >
-        {title ? (
-          <span className="block truncate text-xs font-medium text-foreground/80" dir="auto">
-            {title}
+      <span className="relative block">
+        <Link
+          {...linkProps}
+          // A selection inside the card's boundary copies the card here and the comment as text.
+          data-markdown-copy={cardCopyMarkdown}
+          // The response is findable in its own message; here it is clamped and mostly hidden.
+          data-thread-find-ignore
+          aria-label={label}
+          // The message's markdown styles colour and underline links; a card is neither.
+          className={cn(
+            "block min-w-0 rounded-lg bg-black/10 px-2.5 py-1.5 text-start text-sm text-muted-foreground! no-underline! wrap-break-word hover:bg-black/14 focus-visible:outline-2 focus-visible:outline-ring dark:bg-black/35 dark:hover:bg-black/50",
+            onRemove && "pe-7",
+          )}
+        >
+          {title ? (
+            <span className="block truncate text-xs font-medium text-foreground/80" dir="auto">
+              {title}
+            </span>
+          ) : null}
+          <span className="line-clamp-2" dir={textDirection(citation.text)}>
+            {preview}
           </span>
+        </Link>
+        {onRemove ? (
+          <button
+            type="button"
+            aria-label={`Remove quoted response: ${assistantCitationLabel({ ...citation, comment: undefined })}`}
+            className="absolute end-1.5 top-1.5 inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onRemove();
+            }}
+          >
+            <XIcon aria-hidden="true" className="size-3.5" />
+          </button>
         ) : null}
-        <span className="line-clamp-2" dir={textDirection(citation.text)}>
-          {preview}
-        </span>
-      </Link>
+      </span>
       {comment ? (
         <span className="mt-1.5 block whitespace-pre-wrap" dir={textDirection(comment)}>
           {comment}
@@ -117,10 +143,12 @@ export function AssistantCitationEmbed({
   citation,
   leading,
   trailing,
+  onRemove,
 }: {
   citation: AssistantCitation;
   leading: boolean;
   trailing: boolean;
+  onRemove?: (() => void) | undefined;
 }) {
   const wholeResponse = citation.prefix === "" && citation.suffix === "";
   const { comment, ...quoted } = citation;
@@ -133,6 +161,7 @@ export function AssistantCitationEmbed({
       comment={comment}
       leading={leading}
       trailing={trailing}
+      onRemove={onRemove}
       preview={
         wholeResponse ? (
           flat(citation.text)
