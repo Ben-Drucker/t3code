@@ -1,7 +1,12 @@
-import { ChevronRightIcon, PlugIcon } from "lucide-react";
-import { createContext, use, type SVGProps } from "react";
+import { useAtomValue } from "@effect/atom-react";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { parseAgentConfigChip, parseAgentToolChip } from "@t3tools/shared/composerInlineTokens";
+import { Atom } from "effect/reactivity";
+import { ChevronRightIcon, PlugIcon } from "lucide-react";
+import { createContext, memo, use, type SVGProps } from "react";
 
+import { brandProviderInstanceEntries, deriveProviderInstanceEntries } from "~/providerInstances";
+import { serverEnvironment } from "~/state/server";
 import { ContextChip, ContextChipLabel } from "../ContextChip";
 import { Badge } from "../ui/badge";
 import {
@@ -15,22 +20,49 @@ import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 /** The provider catalog the `%` chips resolve model names, icons, and badges from. */
 export const AgentConfigCatalogContext = createContext<ReadonlyArray<ChipCatalogEntry>>([]);
 
+const EMPTY_CATALOG: ReadonlyArray<ChipCatalogEntry> = [];
+
+const environmentChipCatalogAtom = Atom.family((environmentId: string) =>
+  Atom.make((get): ReadonlyArray<ChipCatalogEntry> => {
+    if (!environmentId) return EMPTY_CATALOG;
+    const config = get(serverEnvironment.configValueAtom(environmentId as EnvironmentId));
+    if (!config) return EMPTY_CATALOG;
+    return brandProviderInstanceEntries(
+      deriveProviderInstanceEntries(config.providers),
+      config.settings,
+    );
+  }).pipe(Atom.withLabel("agent-config-chip-catalog")),
+);
+
 /** One `%[model: ...]` or `%[tool: ...]` chip. `raw` is the serialized text, copied as-is. */
-export function AgentConfigChip(props: { readonly raw: string }) {
+export const AgentConfigChip = memo(function AgentConfigChip(props: {
+  readonly raw: string;
+  readonly environmentId?: EnvironmentId | null | undefined;
+}) {
   const inner = props.raw.slice(2, -1);
   const tool = parseAgentToolChip(inner);
   if (tool) return <AgentToolChip raw={props.raw} source={tool.source} tool={tool.tool} />;
   const model = parseAgentConfigChip(inner);
-  if (model) return <AgentModelChip raw={props.raw} chip={model} />;
+  if (model) {
+    return <AgentModelChip raw={props.raw} chip={model} environmentId={props.environmentId} />;
+  }
   return (
     <ContextChip kind="neutral" data-markdown-copy={props.raw}>
       <ContextChipLabel>{props.raw}</ContextChipLabel>
     </ContextChip>
   );
-}
+});
 
-function AgentModelChip(props: { readonly raw: string; readonly chip: ParsedAgentModelChip }) {
-  const entries = use(AgentConfigCatalogContext);
+function AgentModelChip(props: {
+  readonly raw: string;
+  readonly chip: ParsedAgentModelChip;
+  readonly environmentId?: EnvironmentId | null | undefined;
+}) {
+  const contextEntries = use(AgentConfigCatalogContext);
+  const fallbackEntries = useAtomValue(
+    environmentChipCatalogAtom(contextEntries.length === 0 ? (props.environmentId ?? "") : ""),
+  );
+  const entries = contextEntries.length > 0 ? contextEntries : fallbackEntries;
   const view = modelChipView(props.chip, entries);
   return (
     <ContextChip kind="neutral" data-markdown-copy={props.raw}>

@@ -1,7 +1,7 @@
 import { collectComposerModelMentions } from "@t3tools/client-runtime/composer-model-mentions";
 import type { EnvironmentId, ScopedThreadRef, ServerProviderSkill } from "@t3tools/contracts";
 import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
-import { Children, cloneElement, isValidElement, type ReactNode } from "react";
+import { Children, cloneElement, isValidElement, memo, type ReactNode } from "react";
 import { matchInlineSkills } from "@t3tools/shared/inlineSkills";
 
 import { useRightPanelStore } from "~/rightPanelStore";
@@ -79,12 +79,23 @@ function keyedSegments(text: string) {
   });
 }
 
-function InlineChipText(props: {
+const InlineChipText = memo(function InlineChipText(props: {
   text: string;
   skills: ReadonlyArray<ServerProviderSkill>;
   threadRef: ScopedThreadRef | undefined;
   environmentId: EnvironmentId | null;
 }) {
+  if (!props.text.includes("%[")) {
+    return (
+      <SkillInlineText
+        text={props.text}
+        skills={props.skills}
+        threadRef={props.threadRef}
+        environmentId={props.environmentId}
+      />
+    );
+  }
+  const resolvedEnvironmentId = props.environmentId ?? props.threadRef?.environmentId ?? null;
   return (
     <>
       {keyedSegments(props.text).map(({ key, segment }) =>
@@ -97,12 +108,12 @@ function InlineChipText(props: {
             environmentId={props.environmentId}
           />
         ) : (
-          <AgentConfigChip key={key} raw={segment.raw} />
+          <AgentConfigChip key={key} raw={segment.raw} environmentId={resolvedEnvironmentId} />
         ),
       )}
     </>
   );
-}
+});
 
 /** Turns `$skill` and `%[...]` chips in markdown text into their chips; other nodes pass through. */
 export function renderInlineChipMarkdownChildren(
@@ -127,7 +138,7 @@ export function renderInlineChipMarkdownChildren(
     }
     // Custom markdown components replace intrinsic types; check their hast tags.
     const markdownTagName = typeof child.type === "string" ? child.type : child.props.node?.tagName;
-    if (markdownTagName === "code" || markdownTagName === "a") {
+    if (markdownTagName === "code" || markdownTagName === "pre" || markdownTagName === "a") {
       return child;
     }
     if (!("children" in child.props)) {

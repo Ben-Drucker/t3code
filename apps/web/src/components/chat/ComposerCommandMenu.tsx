@@ -186,11 +186,15 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
   agentToolQuery: string | null;
   onAgentToolQueryChange: (query: string) => void;
   onAgentToolQueryKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
+  onDismissAgentToolMenu?: (options: { readonly restoreFocus: boolean }) => void;
   activeItemId: string | null;
   onHighlightedItemChange: (itemId: string | null) => void;
   onSelect: (item: ComposerCommandItem) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const onDismissRef = useRef(props.onDismissAgentToolMenu);
+  const isAgentToolMenu = props.agentToolQuery !== null;
   const isEmojiMenu = props.triggerKind === "emoji";
   const firstSectionId = props.items.find((item) => item.type === "agent-section")?.id;
   const renderItem = (item: ComposerCommandItem) => (
@@ -210,6 +214,36 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
       />
     </Fragment>
   );
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps capture-phase Escape/outside listeners pointed at the latest dismiss callback without re-focusing the search input
+  useLayoutEffect(() => {
+    onDismissRef.current = props.onDismissAgentToolMenu;
+  });
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- focuses the portaled `%` search input on open and closes on Escape or outside pointerdown
+  useLayoutEffect(() => {
+    if (!isAgentToolMenu) return;
+    searchInputRef.current?.focus({ preventScroll: true });
+
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing || event.keyCode === 229) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onDismissRef.current?.({ restoreFocus: true });
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      const surface = listRef.current;
+      if (!surface || event.composedPath().includes(surface)) return;
+      onDismissRef.current?.({ restoreFocus: false });
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  }, [isAgentToolMenu]);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- scrolls the highlighted menu item's DOM node into view
   useLayoutEffect(() => {
@@ -242,6 +276,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
         {props.agentToolQuery !== null ? (
           <div className="px-3 pt-3">
             <Input
+              ref={searchInputRef}
               type="search"
               size="sm"
               aria-label="Search tools"

@@ -13,6 +13,7 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  canOpenAgentConfigTrigger,
   clampCollapsedComposerCursor,
   collapseExpandedComposerCursor,
   composerSubmissionIntentForKey,
@@ -259,19 +260,18 @@ describe("detectComposerTrigger", () => {
     (text) => expect(detectComposerTrigger(text, text.length)).toBeNull(),
   );
 
-  it("opens the agent configuration trigger for % without taking # or @", () => {
-    expect(detectComposerTrigger("Use %", 5)).toEqual({
-      kind: "agent-config",
-      query: "",
-      rangeStart: 4,
-      rangeEnd: 5,
-    });
-    expect(detectComposerTrigger("Use %mo", 7)).toEqual({
-      kind: "agent-config",
-      query: "mo",
-      rangeStart: 4,
-      rangeEnd: 7,
-    });
+  it("checks whether % can open the detached agent configuration popover without matching % in text", () => {
+    expect(canOpenAgentConfigTrigger("", 0)).toBe(true);
+    expect(canOpenAgentConfigTrigger("Use ", 4)).toBe(true);
+    expect(canOpenAgentConfigTrigger("Use\n", 4)).toBe(true);
+    expect(canOpenAgentConfigTrigger("Use\t", 4)).toBe(true);
+    expect(canOpenAgentConfigTrigger("Use 50", 6)).toBe(false);
+    expect(canOpenAgentConfigTrigger("foo", 3)).toBe(false);
+    expect(canOpenAgentConfigTrigger("Use %[model: x/y]", 17)).toBe(false);
+    expect(canOpenAgentConfigTrigger("Use %[model: x/y] ", 18)).toBe(true);
+
+    expect(detectComposerTrigger("Use %", 5)).toBeNull();
+    expect(detectComposerTrigger("Use %mo", 7)).toBeNull();
     expect(detectComposerTrigger("Use #12", 7)?.kind).toBe("pull-request");
     expect(detectComposerTrigger("Use 50%", 7)).toBeNull();
     expect(detectComposerTrigger("Use %[model: x/y]", 17)).toBeNull();

@@ -1,7 +1,11 @@
 import type { ComposerToolGroup } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { agentToolSectionId, buildAgentToolSections } from "./agentToolMenu.ts";
+import {
+  agentToolSectionId,
+  buildAgentToolSections,
+  matchesAgentModelRow,
+} from "./agentToolMenu.ts";
 
 const groups: ReadonlyArray<ComposerToolGroup> = [
   {
@@ -71,18 +75,15 @@ describe("buildAgentToolSections", () => {
     ]);
   });
 
-  it("applies the user's open and closed choices by section id", () => {
-    const sections = buildAgentToolSections(
-      groups,
-      "",
-      new Map([
-        [agentToolSectionId("Claude"), true],
-        [agentToolSectionId("T3"), false],
-      ]),
-    );
+  it("applies section open and closed overrides when unfiltered", () => {
+    const overrides = new Map([
+      [agentToolSectionId("T3"), false],
+      [agentToolSectionId("Claude"), true],
+    ]);
 
-    expect(sections.find((section) => section.group.source === "Claude")?.expanded).toBe(true);
-    expect(sections.find((section) => section.group.source === "T3")?.expanded).toBe(false);
+    const sections = buildAgentToolSections(groups, "", overrides);
+
+    expect(sections.slice(0, 2).map((section) => section.expanded)).toEqual([false, true]);
   });
 
   it("hides sections without a match and opens the ones that match", () => {
@@ -101,12 +102,31 @@ describe("buildAgentToolSections", () => {
     expect(sourcesOf(sections)).toEqual(["playwright"]);
   });
 
-  it("keeps a server with no tools when its own name matches", () => {
+  it("matches source > tool names before descriptions", () => {
+    const sections = buildAgentToolSections(
+      [
+        {
+          source: "T3",
+          kind: "t3",
+          status: "ready",
+          tools: [
+            { name: "other", description: "open a preview tab" },
+            { name: "preview_open", description: null },
+          ],
+        },
+      ],
+      "preview",
+      new Map(),
+    );
+
+    expect(sections[0]?.tools.map((tool) => tool.name)).toEqual(["preview_open", "other"]);
+  });
+
+  it("keeps empty status sections that match by source name while opening all matches", () => {
     const sections = buildAgentToolSections(groups, "alpha", new Map());
 
     expect(sections).toEqual([
       expect.objectContaining({
-        tools: [],
         expanded: true,
         group: expect.objectContaining({ source: "alpha" }),
       }),
@@ -117,5 +137,50 @@ describe("buildAgentToolSections", () => {
     const sections = buildAgentToolSections(groups, "task", new Map());
 
     expect(sourcesOf(sections)).toEqual(["tasks", "T3"]);
+  });
+
+  it("matches multi-word queries across source, tool name words, and description", () => {
+    expect(
+      buildAgentToolSections(groups, "t3 status", new Map()).map((section) => [
+        section.group.source,
+        section.tools.map((tool) => tool.name),
+      ]),
+    ).toEqual([["T3", ["task_status"]]]);
+
+    expect(
+      buildAgentToolSections(groups, "preview open", new Map()).map((section) => [
+        section.group.source,
+        section.tools.map((tool) => tool.name),
+      ]),
+    ).toEqual([["T3", ["preview_open"]]]);
+
+    expect(
+      buildAgentToolSections(groups, "cron create", new Map()).map((section) => [
+        section.group.source,
+        section.tools.map((tool) => tool.name),
+      ]),
+    ).toEqual([["Claude", ["CronCreate"]]]);
+
+    expect(
+      buildAgentToolSections(groups, "playwright element", new Map()).map((section) => [
+        section.group.source,
+        section.tools.map((tool) => tool.name),
+      ]),
+    ).toEqual([["playwright", ["browser_click"]]]);
+
+    expect(
+      buildAgentToolSections(groups, "alpha beta", new Map()).map((section) => [
+        section.group.source,
+        section.tools.map((tool) => tool.name),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("matches the Model row for empty or model-related queries", () => {
+    expect(matchesAgentModelRow("")).toBe(true);
+    expect(matchesAgentModelRow("   ")).toBe(true);
+    expect(matchesAgentModelRow("model")).toBe(true);
+    expect(matchesAgentModelRow("choose options")).toBe(true);
+    expect(matchesAgentModelRow("playwright")).toBe(false);
   });
 });

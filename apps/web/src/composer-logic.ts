@@ -254,6 +254,11 @@ export function collapseExpandedComposerCursor(
   return collapsedCursor;
 }
 
+export function canOpenAgentConfigTrigger(text: string, cursorInput: number): boolean {
+  const cursor = clampCursor(text, cursorInput);
+  return cursor === 0 || isWhitespace(text[cursor - 1] ?? "");
+}
+
 export function detectComposerTrigger(text: string, cursorInput: number): ComposerTrigger | null {
   const cursor = clampCursor(text, cursorInput);
   const tokenStart = tokenStartForCursor(text, cursor);
@@ -272,15 +277,6 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
     return {
       kind: "pull-request",
       query: pullRequestMatch[1] ?? "",
-      rangeStart: tokenStart,
-      rangeEnd: cursor,
-    };
-  }
-  const agentConfigMatch = /^%([^[\]\s]*)$/u.exec(token);
-  if (agentConfigMatch) {
-    return {
-      kind: "agent-config",
-      query: agentConfigMatch[1] ?? "",
       rangeStart: tokenStart,
       rangeEnd: cursor,
     };

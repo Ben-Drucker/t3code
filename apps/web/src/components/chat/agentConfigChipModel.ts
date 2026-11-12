@@ -1,9 +1,5 @@
 import { ProviderDriverKind, type ServerProviderModel } from "@t3tools/contracts";
-import {
-  collectComposerInlineTokens,
-  parseAgentConfigChip,
-  parseAgentToolChip,
-} from "@t3tools/shared/composerInlineTokens";
+import { parseAgentConfigChip, parseAgentToolChip } from "@t3tools/shared/composerInlineTokens";
 import { getProviderOptionDescriptors } from "@t3tools/shared/model";
 
 import { formatContextWindowTokens } from "../../lib/contextWindow";
@@ -31,22 +27,81 @@ export type AgentConfigSegment =
   | { readonly type: "model"; readonly raw: string; readonly chip: ParsedAgentModelChip }
   | { readonly type: "tool"; readonly raw: string; readonly chip: ParsedAgentToolChip };
 
-/** Plain runs and well-formed `%[...]` chips in order. A malformed `%[` stays plain text. */
-export function splitAgentConfigText(text: string): AgentConfigSegment[] {
+const SPLIT_CACHE_LIMIT = 256;
+const SPLIT_CACHE_MAX_TEXT_LENGTH = 16_384;
+const splitCache = new Map<string, ReadonlyArray<AgentConfigSegment>>();
+
+function scanAgentConfigText(text: string): AgentConfigSegment[] {
+  if (text.length === 0) return [];
+  let searchFrom = text.indexOf("%[");
+  if (searchFrom === -1) return [{ type: "text", text }];
+
   const segments: AgentConfigSegment[] = [];
   let cursor = 0;
-  for (const token of collectComposerInlineTokens(text, { agentConfigs: true })) {
-    if (token.type !== "agent-config") continue;
-    const tool = parseAgentToolChip(token.value);
-    const model = tool ? null : parseAgentConfigChip(token.value);
-    if (!tool && !model) continue;
-    if (token.start > cursor)
-      segments.push({ type: "text", text: text.slice(cursor, token.start) });
-    if (tool) segments.push({ type: "tool", raw: token.source, chip: tool });
-    else if (model) segments.push({ type: "model", raw: token.source, chip: model });
-    cursor = token.end;
+
+  while (searchFrom !== -1) {
+    const innerStart = searchFrom + 2;
+    const isTool = text.startsWith("tool: ", innerStart);
+    const isModel = !isTool && text.startsWith("model: ", innerStart);
+    if (!isTool && !isModel) {
+      searchFrom = text.indexOf("%[", innerStart);
+      continue;
+    }
+
+    const closeIndex = text.indexOf("]", innerStart);
+    if (closeIndex === -1) break;
+
+    const inner = text.slice(innerStart, closeIndex);
+    if (inner.includes("\n") || inner.includes("\r") || inner.includes("[")) {
+      searchFrom = text.indexOf("%[", innerStart);
+      continue;
+    }
+
+    const tool = isTool ? parseAgentToolChip(inner) : null;
+    const model = isModel ? parseAgentConfigChip(inner) : null;
+    if (!tool && !model) {
+      searchFrom = text.indexOf("%[", closeIndex + 1);
+      continue;
+    }
+
+    if (searchFrom > cursor) {
+      segments.push({ type: "text", text: text.slice(cursor, searchFrom) });
+    }
+    const raw = text.slice(searchFrom, closeIndex + 1);
+    if (tool) {
+      segments.push({ type: "tool", raw, chip: tool });
+    } else if (model) {
+      segments.push({ type: "model", raw, chip: model });
+    }
+    cursor = closeIndex + 1;
+    searchFrom = text.indexOf("%[", cursor);
   }
-  if (cursor < text.length) segments.push({ type: "text", text: text.slice(cursor) });
+
+  if (cursor < text.length) {
+    segments.push({ type: "text", text: text.slice(cursor) });
+  }
+  return segments;
+}
+
+/** Plain runs and well-formed `%[...]` chips in order. A malformed `%[` stays plain text. */
+export function splitAgentConfigText(text: string): ReadonlyArray<AgentConfigSegment> {
+  if (text.length === 0) return [];
+  if (!text.includes("%[")) return [{ type: "text", text }];
+  if (text.length > SPLIT_CACHE_MAX_TEXT_LENGTH) return scanAgentConfigText(text);
+
+  const cached = splitCache.get(text);
+  if (cached !== undefined) {
+    splitCache.delete(text);
+    splitCache.set(text, cached);
+    return cached;
+  }
+
+  const segments = scanAgentConfigText(text);
+  splitCache.set(text, segments);
+  if (splitCache.size > SPLIT_CACHE_LIMIT) {
+    const oldest = splitCache.keys().next().value;
+    if (oldest !== undefined) splitCache.delete(oldest);
+  }
   return segments;
 }
 

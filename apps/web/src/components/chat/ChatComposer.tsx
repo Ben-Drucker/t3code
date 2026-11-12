@@ -72,6 +72,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import {
+  canOpenAgentConfigTrigger,
   clampCollapsedComposerCursor,
   type ComposerTrigger,
   type ComposerSubmissionIntent,
@@ -525,9 +526,19 @@ export interface ChatComposerProps {
   onFileOpen: (attachment: ChatFileAttachment) => void;
 }
 
+/** Detached `%` popover state; `%` is not inserted into the composer prompt. */
+interface AgentConfigMenuState {
+  readonly targetKey: string;
+  readonly rangeStart: number;
+  readonly collapsedCursor: number;
+  readonly query: string;
+}
+
 /** A model and options picked in the `%` picker, before they are inserted as a chip. */
 interface AgentConfigPick {
+  readonly targetKey: string;
   readonly rangeStart: number;
+  readonly collapsedCursor: number;
   readonly instanceId: ProviderInstanceId;
   readonly model: string;
   readonly options: ReadonlyArray<ProviderOptionSelection>;
@@ -1050,7 +1061,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return collapseExpandedComposerCursor(value, value.length, isLiteralPendingAnswer);
   });
   const {
-    trigger: composerTrigger,
+    trigger: textComposerTrigger,
     setTrigger: setComposerTrigger,
     resolveTrigger: resolveComposerTrigger,
     dismissTrigger: dismissComposerTrigger,
@@ -1072,7 +1083,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
   const [isComposerModelPickerOpen, setIsComposerModelPickerOpen] = useState(false);
+  const [agentConfigMenuState, setAgentConfigMenuState] = useState<AgentConfigMenuState | null>(
+    null,
+  );
   const [agentConfigPickState, setAgentConfigPickState] = useState<AgentConfigPick | null>(null);
+  const activeAgentConfigMenu =
+    agentConfigMenuState?.targetKey === composerDraftTargetKey && !isLiteralPendingAnswer
+      ? agentConfigMenuState
+      : null;
+  const agentConfigDraft: AgentConfigPick | null =
+    agentConfigPickState?.targetKey === composerDraftTargetKey && !isLiteralPendingAnswer
+      ? agentConfigPickState
+      : null;
+  const composerTrigger: ComposerTrigger | null = activeAgentConfigMenu
+    ? {
+        kind: "agent-config",
+        query: activeAgentConfigMenu.query,
+        rangeStart: Math.min(activeAgentConfigMenu.rangeStart, prompt.length),
+        rangeEnd: Math.min(activeAgentConfigMenu.rangeStart, prompt.length),
+      }
+    : textComposerTrigger;
   const isMobileViewport = useMediaQuery("max-sm");
   const isSoftwareKeyboardOpen = useSoftwareKeyboardOpen();
   const [isComposerFocused, setIsComposerFocused] = useState(false);
@@ -1089,6 +1119,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isMobileViewport &&
     !forceExpandedOnMobile &&
     !isComposerFocused &&
+    !activeAgentConfigMenu &&
+    !agentConfigDraft &&
     !hasMultilinePrompt &&
     pendingUserInputs.length === 0;
 
@@ -1208,11 +1240,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   });
 
   // The `%` menu's model row opens the picker that builds an agent-config chip; its picks never reach the thread.
-  const agentConfigTrigger = composerTrigger?.kind === "agent-config" ? composerTrigger : null;
-  const agentConfigDraft: AgentConfigPick | null =
-    agentConfigTrigger && agentConfigPickState?.rangeStart === agentConfigTrigger.rangeStart
-      ? agentConfigPickState
-      : null;
   const agentConfigEntry =
     providerInstanceEntries.find((entry) => entry.instanceId === agentConfigDraft?.instanceId) ??
     null;
@@ -1239,6 +1266,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     highlightedItemId: composerHighlightedItemId,
     currentSearchKey: composerMenuSearchKey,
     highlightedSearchKey: composerHighlightedSearchKey,
+    preferActionableItem:
+      composerTrigger?.kind === "agent-config" && composerTrigger.query.trim() !== "",
   });
   const activeComposerMenuItem =
     composerMenuItems.find((item) => item.id === activeComposerMenuItemId) ?? null;
@@ -1965,19 +1994,62 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     trigger: ComposerTrigger | null;
   } => {
     const snapshot = readComposerSnapshot();
+    if (isLiteralPendingAnswer) {
+      return { snapshot, trigger: null };
+    }
+    if (activeAgentConfigMenu) {
+      const insertAt = Math.min(activeAgentConfigMenu.rangeStart, snapshot.value.length);
+      return {
+        snapshot,
+        trigger: {
+          kind: "agent-config",
+          query: activeAgentConfigMenu.query,
+          rangeStart: insertAt,
+          rangeEnd: insertAt,
+        },
+      };
+    }
     return {
       snapshot,
-      trigger: isLiteralPendingAnswer
-        ? null
-        : resolveComposerTrigger(detectComposerTrigger(snapshot.value, snapshot.expandedCursor)),
+      trigger: resolveComposerTrigger(
+        detectComposerTrigger(snapshot.value, snapshot.expandedCursor),
+      ),
     };
   };
+
+  const onOpenAgentConfigMenu = (): boolean => {
+    if (isLiteralPendingAnswer) return false;
+    const snapshot = readComposerSnapshot();
+    if (!canOpenAgentConfigTrigger(snapshot.value, snapshot.expandedCursor)) {
+      return false;
+    }
+    setAgentConfigPickState(null);
+    setComposerHighlightedItemId(null);
+    setAgentConfigMenuState({
+      targetKey: composerDraftTargetKey,
+      rangeStart: snapshot.expandedCursor,
+      collapsedCursor: snapshot.cursor,
+      query: "",
+    });
+    return true;
+  };
+  const onOpenAgentConfigMenuStable = useStableCallback(onOpenAgentConfigMenu);
+
+  const onDismissAgentToolMenu = (options: { readonly restoreFocus: boolean }) => {
+    const dismissed = activeAgentConfigMenu;
+    setAgentConfigMenuState(null);
+    setComposerHighlightedItemId(null);
+    if (options.restoreFocus && dismissed) {
+      composerEditorRef.current?.focusAt(dismissed.collapsedCursor);
+    }
+  };
+  const onDismissAgentToolMenuStable = useStableCallback(onDismissAgentToolMenu);
 
   const { onUsageLimitsCommand } = props;
   const insertAgentConfigChip = () => {
     if (!agentConfigDraft || !agentConfigEntry) return;
-    const { snapshot, trigger } = resolveActiveComposerTrigger();
-    if (trigger?.kind !== "agent-config") return;
+    const snapshot = readComposerSnapshot();
+    const insertAt = Math.min(agentConfigDraft.rangeStart, snapshot.value.length);
     const options =
       getComposerProviderState({
         provider: agentConfigEntry.driverKind,
@@ -1992,21 +2064,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     })} `;
     const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
       snapshot.value,
-      trigger.rangeEnd,
+      insertAt,
       replacement,
     );
-    const applied = applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
-      expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
+    const applied = applyPromptReplacement(insertAt, replacementRangeEnd, replacement, {
+      expectedText: snapshot.value.slice(insertAt, replacementRangeEnd),
     });
-    if (applied) setAgentConfigPickState(null);
+    if (applied) {
+      setAgentConfigPickState(null);
+      setAgentConfigMenuState(null);
+    }
   };
-  // Closing the picker without inserting removes its `%`, so a stray trigger never lingers.
   const dismissAgentConfigPicker = () => {
-    const { snapshot, trigger } = resolveActiveComposerTrigger();
-    if (trigger?.kind !== "agent-config") return;
-    applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
-      expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
-      focusEditorAfterReplace: false,
+    const dismissed = agentConfigDraft;
+    setAgentConfigPickState(null);
+    if (!dismissed) return;
+    window.requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body || active === document.documentElement) {
+        composerEditorRef.current?.focusAt(dismissed.collapsedCursor);
+      }
     });
   };
 
@@ -2033,11 +2110,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     if (item.type === "agent-model") {
       setAgentConfigPickState({
+        targetKey: composerDraftTargetKey,
         rangeStart: trigger.rangeStart,
+        collapsedCursor: activeAgentConfigMenu?.collapsedCursor ?? snapshot.cursor,
         instanceId: selectedInstanceId,
         model: selectedModel,
         options: composerModelOptions?.[selectedInstanceId] ?? [],
       });
+      setAgentConfigMenuState(null);
+      setComposerHighlightedItemId(null);
       return;
     }
     if (item.type === "agent-tool") {
@@ -2048,9 +2129,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         trigger.rangeEnd,
         replacement,
       );
-      applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+      const applied = applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
         expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
       });
+      if (applied) {
+        setAgentConfigMenuState(null);
+        setComposerHighlightedItemId(null);
+      }
       return;
     }
     if (item.type === "path") {
@@ -2251,34 +2336,38 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const nudgeComposerMenuHighlight = (key: "ArrowDown" | "ArrowUp") => {
     if (composerMenuItems.length === 0) return;
-    const highlightedIndex = composerMenuItems.findIndex(
-      (item) => item.id === composerHighlightedItemId,
-    );
+    const currentId = activeComposerMenuItemId ?? composerHighlightedItemId;
+    const highlightedIndex = composerMenuItems.findIndex((item) => item.id === currentId);
     const normalizedIndex = highlightedIndex >= 0 ? highlightedIndex : key === "ArrowDown" ? -1 : 0;
     const offset = key === "ArrowDown" ? 1 : -1;
     const nextIndex =
       (normalizedIndex + offset + composerMenuItems.length) % composerMenuItems.length;
     const nextItem = composerMenuItems[nextIndex];
     setComposerHighlightedItemId(nextItem?.id ?? null);
+    setComposerHighlightedSearchKey(composerMenuSearchKey);
   };
 
-  // The `%` menu's search field edits the `%` query in the composer, so both show the same text.
   const onAgentToolQueryChange = (query: string) => {
-    const { snapshot, trigger } = resolveActiveComposerTrigger();
-    if (trigger?.kind !== "agent-config") return;
-    // The trigger ends at whitespace, so spaces are dropped rather than closing the menu.
-    const replacement = `%${query.replace(/\s/gu, "")}`;
-    applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, replacement, {
-      expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
-    });
+    setComposerHighlightedItemId(null);
+    setAgentConfigMenuState((prev) =>
+      prev && prev.targetKey === composerDraftTargetKey ? { ...prev, query } : prev,
+    );
   };
   const onAgentToolQueryKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       nudgeComposerMenuHighlight(event.key);
-    } else if (event.key === "Enter" && activeComposerMenuItem) {
+    } else if (
+      (event.key === "Enter" || (event.key === "Tab" && !event.shiftKey)) &&
+      activeComposerMenuItem
+    ) {
       event.preventDefault();
       onSelectComposerItemStable(activeComposerMenuItem);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      onDismissAgentToolMenuStable({ restoreFocus: true });
     }
   };
 
@@ -3709,7 +3798,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       }}
                       onInstanceModelChange={(instanceId, model) =>
                         setAgentConfigPickState({
+                          targetKey: agentConfigDraft.targetKey,
                           rangeStart: agentConfigDraft.rangeStart,
+                          collapsedCursor: agentConfigDraft.collapsedCursor,
                           instanceId,
                           model,
                           options: [],
@@ -3780,6 +3871,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         }
                         onAgentToolQueryChange={onAgentToolQueryChange}
                         onAgentToolQueryKeyDown={onAgentToolQueryKeyDown}
+                        onDismissAgentToolMenu={onDismissAgentToolMenuStable}
                       />
                     </ComposerCommandMenuLayer>
                   )}
@@ -3833,6 +3925,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         className={cn(showMobilePendingAnswerActions && "max-sm:pb-12")}
                         onChange={onPromptChangeStable}
                         onCommandKeyDown={onComposerCommandKeyStable}
+                        onOpenAgentConfigMenu={onOpenAgentConfigMenuStable}
                         onPageScrollKeyDown={onPageScrollKeyDown}
                         onPageScrollKeyUp={onPageScrollKeyUp}
                         onPageScrollRelease={onPageScrollRelease}

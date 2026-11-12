@@ -188,6 +188,7 @@ export interface ComposerPromptEditorProps {
   ) => void;
   onVisibleSelectionChange?: () => void;
   onCommandKeyDown?: (key: string, event: KeyboardEvent, isTaskItem?: boolean) => boolean;
+  onOpenAgentConfigMenu?: () => boolean;
   onPageScrollKeyDown?: (key: "PageUp" | "PageDown") => void;
   onPageScrollKeyUp?: (key: string) => void;
   onPageScrollRelease?: () => void;
@@ -974,6 +975,7 @@ function ComposerPromptEditorTiptapInner(
     onChange,
     onVisibleSelectionChange,
     onCommandKeyDown,
+    onOpenAgentConfigMenu,
     onPageScrollKeyDown,
     onPageScrollKeyUp,
     onPageScrollRelease,
@@ -1000,6 +1002,7 @@ function ComposerPromptEditorTiptapInner(
     onChange,
     onVisibleSelectionChange,
     onCommandKeyDown,
+    onOpenAgentConfigMenu,
     isPathQueryActive,
     importContextFragment,
   }));
@@ -1327,6 +1330,24 @@ function ComposerPromptEditorTiptapInner(
               return true;
             }
           }
+          if (
+            !literalText &&
+            !view.composing &&
+            !event.isComposing &&
+            event.keyCode !== 229 &&
+            event.key === "%" &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.altKey &&
+            view.state.selection.empty &&
+            !isInCodeBlock(view) &&
+            !view.state.schema.marks.code?.isInSet(view.state.selection.$from.marks()) &&
+            readCallbacks().onOpenAgentConfigMenu?.()
+          ) {
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+          }
           const handler = readCallbacks().onCommandKeyDown;
           if (event.key === "Enter") {
             const instance = (view.dom as TiptapEditorHTMLElement).editor;
@@ -1378,6 +1399,15 @@ function ComposerPromptEditorTiptapInner(
         },
         handleTextInput: (view, from, to, text) => {
           if (literalText || view.composing || text.length !== 1) return false;
+          if (
+            text === "%" &&
+            from === to &&
+            !isInCodeBlock(view) &&
+            !view.state.schema.marks.code?.isInSet(view.state.selection.$from.marks()) &&
+            readCallbacks().onOpenAgentConfigMenu?.()
+          ) {
+            return true;
+          }
           const closer = SURROUND_CLOSE[text];
           const { selection } = view.state;
           // Compose preedit updates replace a range even without a user selection.
