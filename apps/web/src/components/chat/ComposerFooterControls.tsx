@@ -1,5 +1,4 @@
 import type {
-  EnvironmentId,
   ModelSelection,
   ProviderInstanceId,
   ProviderInteractionMode,
@@ -17,7 +16,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
 import { focusRequestedPermission, useComposerMenuProps } from "./composerEventScope";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
-import { LiveStreamingToggle } from "./LiveStreamingToggle";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { ProviderModelPicker } from "./ProviderModelPicker";
@@ -249,10 +247,11 @@ export function ComposerPermissionsSection(props: {
 }
 
 export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(props: {
-  environmentId: EnvironmentId;
   children?: React.ReactNode;
   compact: boolean;
   canOperateThread: boolean;
+  qqDisabled: boolean;
+  onInsertQq: () => void;
   activeContextWindow: ContextWindowSnapshot | null;
   contextBreakdown: ContextBreakdown | null;
   reserveContextWindowMeter: boolean;
@@ -294,7 +293,26 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
 }) {
   return (
     <>
-      <LiveStreamingToggle environmentId={props.environmentId} />
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <ComposerControl
+              size="xs"
+              disabled={props.qqDisabled}
+              aria-label="Insert /qq quick question chip"
+              data-testid="composer-qq-button"
+              className="px-1.5 font-extrabold tracking-tight"
+              onClick={() => {
+                if (props.qqDisabled) return;
+                props.onInsertQq();
+              }}
+            />
+          }
+        >
+          QQ
+        </TooltipTrigger>
+        <TooltipPopup side="top">Insert /qq quick question chip</TooltipPopup>
+      </Tooltip>
       {props.activeContextWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}

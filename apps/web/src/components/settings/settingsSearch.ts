@@ -653,6 +653,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["timestamp clock locale system browser os 12 hour 24 hour"],
   },
   {
+    id: "live-streaming",
+    title: "Live streaming",
+    to: "/settings/threads",
+    searchTerms: ["stream reasoning responses paragraphs live output tokens"],
+  },
+  {
     id: "response-streaming",
     title: "Response streaming",
     to: "/settings/threads",

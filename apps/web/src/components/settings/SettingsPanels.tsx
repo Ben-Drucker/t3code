@@ -1863,10 +1863,41 @@ export function ThreadsSettingsPanel() {
         <AdvancedSettings
           targetIds={[
             searchableSetting("thread-title-instructions").id,
+            searchableSetting("live-streaming").id,
             searchableSetting("response-streaming").id,
           ]}
         >
           <ThreadTitleInstructionsSettings />
+          <SettingsRow
+            serverScoped
+            settingKeys={["liveStreaming"]}
+            {...searchableSetting("live-streaming")}
+            description={
+              settings.liveStreaming
+                ? "Live streaming is on. Click to show text only when paragraphs finish."
+                : "Live streaming is off. Click to stream reasoning and responses as they arrive."
+            }
+            resetAction={
+              settings.liveStreaming !== DEFAULT_UNIFIED_SETTINGS.liveStreaming ? (
+                <SettingResetButton
+                  label="live streaming"
+                  onClick={() =>
+                    updateSettings({
+                      liveStreaming: DEFAULT_UNIFIED_SETTINGS.liveStreaming,
+                    })
+                  }
+                />
+              ) : null
+            }
+            control={
+              <ScopedSwitch
+                settingKeys={["liveStreaming"]}
+                checked={settings.liveStreaming}
+                onCheckedChange={(checked) => updateSettings({ liveStreaming: Boolean(checked) })}
+                aria-label="Live streaming"
+              />
+            }
+          />
           <SettingsRow
             serverScoped
             settingKeys={["responseStreamingMode"]}

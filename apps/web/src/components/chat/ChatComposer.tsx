@@ -51,6 +51,7 @@ import * as Schema from "effect/Schema";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { formatAgentConfigChip, formatAgentToolChip } from "@t3tools/shared/composerInlineTokens";
+import { isProviderSkillUserInvocable } from "@t3tools/client-runtime/providerSkills";
 import { folderDropTarget, resolveDroppedFolderPath } from "./folderDrop";
 import { splitTransferredFiles } from "./workspaceFileDrop";
 import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
@@ -3829,9 +3830,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         {composerControls}
                       </div>
                       <ComposerFooterPrimaryActions
-                        environmentId={environmentId}
                         compact={isComposerPrimaryActionsCompact}
                         canOperateThread={canOperateThread}
+                        qqDisabled={
+                          !canOperateThread ||
+                          environmentUnavailable !== null ||
+                          noProviderAvailable ||
+                          projectSelectionRequired ||
+                          isChoiceOnlyPendingQuestion ||
+                          activePendingIsResponding ||
+                          speechInput.freezesEditor ||
+                          (pendingUserInputs.length > 0 && !activePendingProgress?.activeQuestion)
+                        }
+                        onInsertQq={() => {
+                          const hasKnownQqSkill = selectedProviderSkills.some(
+                            (skill) => skill.name === "qq" && isProviderSkillUserInvocable(skill),
+                          );
+                          insertComposerTextStable(hasKnownQqSkill ? "$qq " : "/qq ", "cursor", {
+                            ensureLeadingBoundary: true,
+                          });
+                        }}
                         activeContextWindow={
                           settings.contextWindowMeterEnabled ? activeContextWindow : null
                         }

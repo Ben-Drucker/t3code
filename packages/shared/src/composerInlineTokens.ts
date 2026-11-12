@@ -201,6 +201,8 @@ export function composerMathRanges(
   }));
 }
 
+const SLASH_QQ_TOKEN_REGEX = /(^|\s)\/(qq)(?=\s)/g;
+
 export function collectComposerInlineTokens(
   text: string,
   options: CollectComposerInlineTokensOptions = {},
@@ -208,6 +210,24 @@ export function collectComposerInlineTokens(
   const matches = collectMentionTokens(text);
 
   for (const match of text.matchAll(SKILL_TOKEN_REGEX)) {
+    const fullMatch = match[0];
+    const prefix = match[1] ?? "";
+    const value = match[2] ?? "";
+    if (!value) {
+      continue;
+    }
+    const start = (match.index ?? 0) + prefix.length;
+    const end = start + fullMatch.length - prefix.length;
+    matches.push({
+      type: "skill",
+      value,
+      source: text.slice(start, end),
+      start,
+      end,
+    });
+  }
+
+  for (const match of text.matchAll(SLASH_QQ_TOKEN_REGEX)) {
     const fullMatch = match[0];
     const prefix = match[1] ?? "";
     const value = match[2] ?? "";

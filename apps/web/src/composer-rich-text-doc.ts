@@ -629,7 +629,9 @@ function atomJsonForSegment(
     };
   }
   if (segment.type === "skill") {
-    const meta = skillLabelFor(segment.name);
+    const meta =
+      skillLabelFor(segment.name) ??
+      (segment.source === "/qq" ? { label: "qq", description: "Quick question" } : null);
     if (!meta) return null;
     return {
       type: "composer-skill",
@@ -637,6 +639,7 @@ function atomJsonForSegment(
         skillName: segment.name,
         skillLabel: meta.label,
         skillDescription: meta.description,
+        source: segment.source,
       },
     };
   }
@@ -997,6 +1000,9 @@ function readAtomSource(node: ProseMirrorNode): string {
     case "composer-agent-config":
       return typeof attrs.source === "string" ? attrs.source : "";
     case "composer-skill": {
+      if (typeof attrs.source === "string" && attrs.source.length > 0) {
+        return attrs.source;
+      }
       const name = typeof attrs.skillName === "string" ? attrs.skillName : "";
       return name ? `$${name}` : "";
     }
@@ -1558,7 +1564,8 @@ export function skillChipReplacements(
   doc.descendants((node, pos) => {
     if (node.type !== skillType) return;
     const name = typeof node.attrs.skillName === "string" ? node.attrs.skillName : "";
-    if (name && !skillLabelFor(name)) {
+    const source = typeof node.attrs.source === "string" ? node.attrs.source : "";
+    if (name && source !== "/qq" && !skillLabelFor(name)) {
       replacements.push({
         from: pos,
         to: pos + node.nodeSize,
@@ -1572,7 +1579,9 @@ export function skillChipReplacements(
     const start = end;
     end += segment.type === "text" ? segment.text.length : segment.source.length;
     if (segment.type !== "skill") continue;
-    const meta = skillLabelFor(segment.name);
+    const meta =
+      skillLabelFor(segment.name) ??
+      (segment.source === "/qq" ? { label: "qq", description: "Quick question" } : null);
     if (!meta) continue;
     // Only text needs converting; an existing chip is a token run.
     const run = map.runs.find(
@@ -1588,7 +1597,12 @@ export function skillChipReplacements(
       from,
       to: from + segment.source.length,
       node: skillType.create(
-        { skillName: segment.name, skillLabel: meta.label, skillDescription: meta.description },
+        {
+          skillName: segment.name,
+          skillLabel: meta.label,
+          skillDescription: meta.description,
+          source: segment.source,
+        },
         null,
         doc.nodeAt(from)?.marks,
       ),

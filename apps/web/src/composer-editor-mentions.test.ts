@@ -207,6 +207,10 @@ describe("splitPromptIntoComposerSegments", () => {
       { type: "skill", name: "review-follow-up", source: "$review-follow-up" },
       { type: "text", text: " please" },
     ]);
+    expect(splitPromptIntoComposerSegments("/qq quick question about /qq/path")).toEqual([
+      { type: "skill", name: "qq", source: "/qq" },
+      { type: "text", text: " quick question about /qq/path" },
+    ]);
   });
 
   it("splits digit-leading skill tokens into skill segments", () => {

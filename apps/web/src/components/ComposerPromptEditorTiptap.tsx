@@ -312,6 +312,7 @@ const ComposerSkillExtension = Node.create({
       skillName: { default: "" },
       skillLabel: { default: "" },
       skillDescription: { default: null },
+      source: { default: "" },
     };
   },
   parseHTML() {
