@@ -1,6 +1,7 @@
 import { InlineAudioPreview } from "../files/InlineAudioPreview";
 import { filePreviewKind } from "@t3tools/shared/filePreview";
 import { remarkEnableOrderedListNumbers } from "@t3tools/shared/markdownPipeline";
+import { remarkUserMessageMentions } from "./userMessageMentions";
 import { findRevealRef } from "./markdownFindContext";
 import {
   type EnvironmentId,
@@ -1188,7 +1189,7 @@ const CollapsibleUserMessageBody = memo(function CollapsibleUserMessageBody(prop
   );
 });
 
-const USER_MESSAGE_REMARK_PLUGINS = [remarkEnableOrderedListNumbers];
+const USER_MESSAGE_REMARK_PLUGINS = [remarkEnableOrderedListNumbers, remarkUserMessageMentions];
 
 const UserMessageBody = memo(function UserMessageBody(props: {
   text: string;

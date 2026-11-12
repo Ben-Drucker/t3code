@@ -115,7 +115,6 @@ import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { isRichTextFormattingShortcut } from "~/keybindings";
 import { cn, isMacPlatform } from "~/lib/utils";
 import { hasCommandForKeyDown } from "~/shortcuts/dispatcher";
-import { basenameOfPath } from "~/pierre-icons";
 import { WorkspaceEntryTooltip } from "./chat/WorkspaceEntryIcon";
 import { FileTagChipContent } from "./chat/FileTagChip";
 import { SkillChipPopover, skillPopoverDescription } from "./chat/SkillInlineText";
@@ -280,8 +279,12 @@ function ComposerMentionNodeView({ node }: NodeViewProps) {
     <ContextChip
       kind={documentChipKindForFileName(path) ?? "mention"}
       dir="ltr"
-      render={<button type="button" />}
-      onClick={() => actions.openMention(path)}
+      render={<a href={encodeURI(path)} />}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        actions.openMention(path);
+      }}
       aria-label={`Preview ${path}`}
       contentEditable={false}
       spellCheck={false}
@@ -291,7 +294,7 @@ function ComposerMentionNodeView({ node }: NodeViewProps) {
         path={path}
         environmentId={actions.environmentId}
         cwd={actions.cwd}
-        label={basenameOfPath(path)}
+        label={path}
         theme={resolvedThemeFromDocument()}
       />
     </ContextChip>

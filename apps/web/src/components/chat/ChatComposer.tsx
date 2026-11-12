@@ -2140,7 +2140,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     if (item.type === "path") {
       if (!isPathSuggestionCurrent(item.searchTarget, trigger, environmentId, gitCwd)) return;
-      const replacement = `${serializeComposerFileLink(item.path)} `;
+      const replacement = `${serializeComposerFileLink(item.path, item.pathKind)} `;
       const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
         snapshot.value,
         trigger.rangeEnd,

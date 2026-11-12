@@ -121,6 +121,7 @@ vi.mock(import("../hooks/useSettings"), async (original) => {
 
 import ChatMarkdown from "./ChatMarkdown";
 import { AudioPreview } from "./files/AudioPreview";
+import { remarkUserMessageMentions } from "./chat/userMessageMentions";
 
 it("keeps compact audio playback loaded across signed URL renewals", async () => {
   const original =
@@ -627,6 +628,27 @@ describe("ChatMarkdown inline code selection", () => {
 });
 
 describe("ChatMarkdown file chip tooltips", () => {
+  it.each(['@"src/main.ts"', '@"src/components"', "[components](src/components)"])(
+    "opens user path mentions in the existing file viewer: %s",
+    async (text) => {
+      setup();
+      const threadRef = {
+        environmentId: EnvironmentId.make("local"),
+        threadId: ThreadId.make("thread"),
+      };
+      await using screen = await renderText(text, {
+        threadRef,
+        extraRemarkPlugins: [remarkUserMessageMentions],
+      });
+      using open = vi.spyOn(useRightPanelStore.getState(), "openFile").mockImplementation(() => {});
+      const path = text.includes("main.ts") ? "src/main.ts" : "src/components";
+      const link = screen.getByRole("link");
+      await expect.element(link).toHaveTextContent(path);
+      await userEvent.click(link);
+      await vi.waitFor(() => expect(open).toHaveBeenCalledWith(threadRef, path, undefined));
+    },
+  );
+
   it("wraps a long path so its file name stays inside the tooltip", async () => {
     setup();
     const path =

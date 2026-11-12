@@ -1,5 +1,9 @@
 import { clientHostEnvironmentAtom } from "../state/clientHostEnvironment";
-import { buildFileLinkParentSuffixByPath, fileLinkLabel } from "@t3tools/shared/fileLinks";
+import {
+  buildFileLinkParentSuffixByPath,
+  fileLinkLabel,
+  formatFilePathPosition,
+} from "@t3tools/shared/fileLinks";
 import {
   isWindowsDrivePathHref,
   normalizeMarkdownLinkDestination,
@@ -824,6 +828,7 @@ function useChatMarkdownState({
     fileLinkMeta: MarkdownFileLinkMeta,
     copyMarkdown: string,
     mediaSource?: string,
+    mentionPath?: string,
   ) => {
     const resolveHostPath = () =>
       resolveMarkdownFileHostPath({
@@ -861,15 +866,18 @@ function useChatMarkdownState({
         workspaceRelativePath={fileLinkMeta.workspaceRelativePath}
         panelPath={isAppBundle ? null : panelPath}
         line={fileLinkMeta.line}
-        label={fileLinkLabel(
-          {
-            path: fileLinkMeta.filePath,
-            ...(fileLinkMeta.line !== undefined ? { line: fileLinkMeta.line } : {}),
-            ...(fileLinkMeta.column !== undefined ? { column: fileLinkMeta.column } : {}),
-            ...(fileLinkMeta.endLine !== undefined ? { endLine: fileLinkMeta.endLine } : {}),
-          },
-          fileLinkParentSuffixByPath,
-        )}
+        label={
+          mentionPath ??
+          fileLinkLabel(
+            {
+              path: fileLinkMeta.filePath,
+              ...(fileLinkMeta.line !== undefined ? { line: fileLinkMeta.line } : {}),
+              ...(fileLinkMeta.column !== undefined ? { column: fileLinkMeta.column } : {}),
+              ...(fileLinkMeta.endLine !== undefined ? { endLine: fileLinkMeta.endLine } : {}),
+            },
+            fileLinkParentSuffixByPath,
+          )
+        }
         copyMarkdown={copyMarkdown}
         theme={resolvedTheme}
         threadRef={threadRef}
@@ -1418,7 +1426,17 @@ const CHAT_MARKDOWN_COMPONENTS = {
       source.startsWith("[") && source.includes("](")
         ? source
         : `[${(label || fileLinkMeta.basename).replace(/[\\[\]]/g, "\\$&")}](${normalizedHref})`;
-    const chip = fileLinkChip(fileLinkMeta, copyMarkdown, normalizedHref);
+    const chip = fileLinkChip(
+      fileLinkMeta,
+      copyMarkdown,
+      normalizedHref,
+      isMarkdownFileLinkLabel(label, normalizedHref)
+        ? formatFilePathPosition({
+            ...fileLinkMeta,
+            path: fileLinkMeta.workspaceRelativePath ?? fileLinkMeta.filePath,
+          })
+        : undefined,
+    );
     return isMarkdownFileLinkLabel(label, normalizedHref) ? (
       chip
     ) : (

@@ -20,6 +20,7 @@ import { act, fakeTimers, render } from "../../test/render";
 import { flatToMarkdown, pmToFlat, serializeEditorDoc } from "~/composer-rich-text-doc";
 import { isMacPlatform } from "~/lib/utils";
 import { registerCommands } from "~/shortcuts/dispatcher";
+import { ComposerContextActionsContext } from "./composerContextActions";
 import {
   ComposerPromptEditorTiptap as ComposerPromptEditor,
   type ComposerPromptEditorHandle,
@@ -89,6 +90,32 @@ function editorIn(container: HTMLElement) {
   if (!element) throw new Error("Composer did not mount");
   return element.editor;
 }
+
+it.each(["src/main.ts", "src/components", "My Folder"])(
+  "opens a composer mention through the existing path action: %s",
+  async (path) => {
+    const openMention = vi.fn();
+    await using screen = await render(
+      <ComposerContextActionsContext
+        value={{
+          environmentId: null,
+          expandImage: vi.fn(),
+          expandVideo: vi.fn(),
+          openFile: vi.fn(),
+          openPullRequest: vi.fn(),
+          openMention,
+        }}
+      >
+        {composer(`@"${path}" `)}
+      </ComposerContextActionsContext>,
+    );
+    const link = screen.getByRole("link", { name: `Preview ${path}` });
+    await expect.element(link).toHaveAttribute("href", encodeURI(path));
+    await expect.element(link).toHaveTextContent(path);
+    await userEvent.click(link);
+    expect(openMention).toHaveBeenCalledWith(path);
+  },
+);
 
 async function mountEditor(...props: Parameters<typeof composer>) {
   await using stack = new AsyncDisposableStack();
