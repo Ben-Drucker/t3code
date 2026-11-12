@@ -84,6 +84,7 @@ export interface CreateThreadInput extends CommandMetadata {
   readonly interactionMode: ProviderInteractionMode;
   readonly branch: string | null;
   readonly worktreePath: string | null;
+  readonly quickQuestion?: boolean;
 }
 
 export interface ThreadCommandInput extends CommandMetadata {
@@ -141,6 +142,7 @@ export interface UpdateThreadMetadataInput extends ThreadCommandInput {
   readonly regenerateTitle?: boolean;
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
   readonly expectedEmpty?: boolean;
+  readonly quickQuestion?: boolean;
 }
 
 export interface SetThreadRuntimeModeInput extends ThreadCommandInput {
@@ -161,6 +163,7 @@ interface StartThreadBootstrap {
     readonly branch: string | null;
     readonly worktreePath: string | null;
     readonly createdAt: string;
+    readonly quickQuestion?: boolean;
   };
   readonly prepareWorktree?: {
     readonly requireWorktree?: boolean;
@@ -459,6 +462,7 @@ export const createThread = Effect.fn("EnvironmentCommands.createThread")(functi
     interactionMode: input.interactionMode,
     branch: input.branch,
     worktreePath: input.worktreePath,
+    ...(input.quickQuestion === true ? { quickQuestion: true } : {}),
   });
 });
 
@@ -666,7 +670,8 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
       input.worktreePath !== undefined ||
       input.regenerateTitle !== undefined ||
       input.linkedPullRequest !== undefined ||
-      input.limitRecovery !== undefined
+      input.limitRecovery !== undefined ||
+      input.quickQuestion !== undefined
     ) {
       result = yield* dispatch({
         type: "thread.metadata.update",
@@ -681,6 +686,7 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
         ...(input.linkedPullRequest === undefined
           ? {}
           : { linkedPullRequest: input.linkedPullRequest }),
+        ...(input.quickQuestion === undefined ? {} : { quickQuestion: input.quickQuestion }),
       });
     }
     if (input.modelSelection !== undefined) {
@@ -764,6 +770,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
       creationSource: input.creationSource ?? "web",
       threadId: input.threadId,
       ...(bootstrap === undefined ? { reuseExistingThread: true } : {}),
+      ...(bootstrap?.quickQuestion === true ? { quickQuestion: true } : {}),
       projectId: thread.projectId,
       title: input.titleSeed ?? thread.title,
       generateTitle: input.titleSeed !== undefined,

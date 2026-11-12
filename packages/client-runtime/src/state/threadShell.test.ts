@@ -633,4 +633,57 @@ describe("v2 thread shell lists", () => {
       harness.registry.dispose();
     }
   });
+
+  it("hides quickQuestion threads from listed navigation until promoted to quickQuestion: false", () => {
+    const { registry, threads, snapshotAtom } = makeHarness();
+    const root = v2ThreadShell;
+    const qqId = ThreadId.make("mini-qq-thread");
+    const qqThread: OrchestrationV2ThreadShell = {
+      ...root,
+      id: qqId,
+      lineage: {
+        parentThreadId: null,
+        relationshipToParent: null,
+        rootThreadId: qqId,
+        quickQuestion: true,
+      },
+    };
+    const qqRef = { environmentId, threadId: qqId };
+    const disposeNav = registry.mount(threads.navigationThreadShellsAtom);
+    const disposeQuiet = registry.mount(threads.quietThreadShellAtom(qqRef));
+    try {
+      registry.set(snapshotAtom(environmentId), {
+        ...v2ShellSnapshot,
+        threads: [root, qqThread],
+      });
+      expect(registry.get(threads.navigationThreadShellsAtom).map((thread) => thread.id)).toEqual([
+        root.id,
+      ]);
+      expect(registry.get(threads.quietThreadShellAtom(qqRef))?.id).toBe(qqId);
+
+      registry.set(snapshotAtom(environmentId), {
+        ...v2ShellSnapshot,
+        snapshotSequence: 2,
+        threads: [
+          root,
+          {
+            ...qqThread,
+            lineage: {
+              parentThreadId: null,
+              relationshipToParent: null,
+              rootThreadId: qqId,
+            },
+          },
+        ],
+      });
+      expect(registry.get(threads.navigationThreadShellsAtom).map((thread) => thread.id)).toEqual([
+        root.id,
+        qqId,
+      ]);
+    } finally {
+      disposeQuiet();
+      disposeNav();
+      registry.dispose();
+    }
+  });
 });

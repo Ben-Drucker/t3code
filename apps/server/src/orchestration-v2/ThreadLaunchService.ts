@@ -81,6 +81,7 @@ export interface ThreadLaunchInput {
   readonly commandId: CommandId;
   readonly threadId?: ThreadId;
   readonly reuseExistingThread?: boolean;
+  readonly quickQuestion?: boolean;
   readonly projectId: ProjectId;
   readonly title: string;
   readonly generateTitle?: boolean;
@@ -1020,6 +1021,7 @@ const make = Effect.gen(function* () {
                   ? {}
                   : { delegatedFrom: input.delegatedFrom }),
                 ...(input.launchedBy === undefined ? {} : { launchedBy: input.launchedBy }),
+                ...(input.quickQuestion === true ? { quickQuestion: true } : {}),
                 createdBy: input.createdBy,
                 creationSource: input.creationSource,
               });

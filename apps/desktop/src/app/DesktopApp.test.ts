@@ -49,6 +49,7 @@ import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts"
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
 import * as DesktopApplicationMenu from "../window/DesktopApplicationMenu.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
+import * as MiniQqWindow from "../window/MiniQqWindow.ts";
 import * as DesktopWslBackend from "../wsl/DesktopWslBackend.ts";
 
 import * as BrowserImport from "../preview/BrowserImport/BrowserImport.ts";
@@ -236,6 +237,9 @@ it.effect.each([false, true])(
             Layer.mock(ElectronTheme.ElectronTheme, {}),
             Layer.mock(ElectronWindow.ElectronWindow, {}),
             Layer.mock(MacPermissions.MacPermissions, {}),
+            Layer.mock(MiniQqWindow.MiniQqWindow, {
+              registerShortcut: Effect.void,
+            }),
             Layer.mock(PreviewManager.PreviewManager, {
               isBrowserPartition: () => {
                 throw new Error("unexpected browser partition lookup");

@@ -43,6 +43,7 @@ import * as DesktopConnectionCatalogStore from "./app/DesktopConnectionCatalogSt
 import * as DesktopClerk from "./app/DesktopClerk.ts";
 import * as DesktopCliCommand from "./app/DesktopCliCommand.ts";
 import * as DesktopApplicationMenu from "./window/DesktopApplicationMenu.ts";
+import * as MiniQqWindow from "./window/MiniQqWindow.ts";
 import * as DesktopAssets from "./app/DesktopAssets.ts";
 import * as DesktopPrimaryPaste from "./app/DesktopPrimaryPaste.ts";
 import * as DesktopBackendConfiguration from "./backend/DesktopBackendConfiguration.ts";
@@ -210,6 +211,11 @@ const layerDesktopLocalEnvironmentAuth = DesktopLocalEnvironmentAuth.layer.pipe(
   Layer.provideMerge(layerDesktopBackend),
 );
 
+const layerMiniQqWindow = MiniQqWindow.layer.pipe(
+  Layer.provideMerge(layerDesktopWindow),
+  Layer.provideMerge(layerDesktopFoundation),
+);
+
 const layerDesktopApplication = Layer.mergeAll(
   DesktopLifecycle.layer,
   layerDesktopAppActivation,
@@ -219,6 +225,7 @@ const layerDesktopApplication = Layer.mergeAll(
   DesktopCliCommand.layer,
   layerDesktopSsh,
 ).pipe(
+  Layer.provideMerge(layerMiniQqWindow),
   Layer.provideMerge(layerDesktopSnapShot),
   Layer.provideMerge(
     DesktopUpdates.layer.pipe(

@@ -113,8 +113,12 @@ export class ElectronWindow extends Context.Service<
     /** Auxiliary windows are never returned as the main-or-first fallback. */
     readonly create: (
       options: Electron.BrowserWindowConstructorOptions,
-      behavior?: { readonly auxiliary?: boolean },
+      behavior?: { readonly auxiliary?: boolean; readonly trustedIpc?: boolean },
     ) => Effect.Effect<Electron.BrowserWindow, ElectronWindowCreateError>;
+    readonly isTrustedSender: (event: {
+      readonly sender: { readonly id: number };
+      readonly senderFrame?: unknown;
+    }) => Effect.Effect<boolean>;
     readonly main: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly currentMainOrFirst: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly focusedMainOrFirst: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
@@ -145,6 +149,7 @@ export const make = Effect.gen(function* () {
   yield* Effect.addFinalizer(() => Effect.sync(() => windowsForegroundFocus?.close()));
   const mainWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
   const auxiliaryWindows = new WeakSet<Electron.BrowserWindow>();
+  const trustedAuxiliaryWindows = new Set<Electron.BrowserWindow>();
 
   const listWindows = Effect.try({
     try: () => Electron.BrowserWindow.getAllWindows(),
@@ -206,11 +211,21 @@ export const make = Effect.gen(function* () {
           cause,
         }),
     }).pipe(Effect.orDie);
-    if (Option.isSome(focused) && !(yield* isWindowDestroyed(focused.value))) {
+    if (
+      Option.isSome(focused) &&
+      !auxiliaryWindows.has(focused.value) &&
+      !(yield* isWindowDestroyed(focused.value))
+    ) {
       return focused;
     }
     return yield* currentMainOrFirst;
   });
+
+  const matchesWindowMainFrame = (
+    window: Electron.BrowserWindow,
+    event: { readonly sender: { readonly id: number }; readonly senderFrame?: unknown },
+  ) =>
+    window.webContents.id === event.sender.id && window.webContents.mainFrame === event.senderFrame;
 
   return ElectronWindow.of({
     create: Effect.fn("ElectronWindow.create")(function (options, behavior) {
@@ -241,10 +256,32 @@ export const make = Effect.gen(function* () {
         try: () => {
           const window = new Electron.BrowserWindow(options);
           if (behavior?.auxiliary === true) auxiliaryWindows.add(window);
+          if (behavior?.trustedIpc === true) {
+            trustedAuxiliaryWindows.add(window);
+            window.once("closed", () => {
+              trustedAuxiliaryWindows.delete(window);
+            });
+          }
           return window;
         },
         catch: (cause) => new ElectronWindowCreateError({ options: diagnosticOptions, cause }),
       });
+    }),
+    isTrustedSender: Effect.fnUntraced(function* (event) {
+      const main = yield* liveMain;
+      if (Option.isSome(main) && matchesWindowMainFrame(main.value, event)) {
+        return true;
+      }
+      for (const window of trustedAuxiliaryWindows) {
+        if (yield* isWindowDestroyed(window)) {
+          trustedAuxiliaryWindows.delete(window);
+          continue;
+        }
+        if (matchesWindowMainFrame(window, event)) {
+          return true;
+        }
+      }
+      return false;
     }),
     main: liveMain,
     currentMainOrFirst,

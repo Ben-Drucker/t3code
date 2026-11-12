@@ -28,7 +28,9 @@ import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstall
 import { SshPasswordPromptDialog } from "../components/desktop/SshPasswordPromptDialog";
 import { SnapShotCoordinator } from "../components/desktop/SnapShotCoordinator";
 import { DesktopAppActivationCoordinator } from "../components/desktop/DesktopAppActivationCoordinator";
+import { DesktopMiniQqMainCoordinator } from "../components/desktop/DesktopMiniQqMainCoordinator";
 import { DesktopWebLinkCoordinator } from "../components/desktop/DesktopWebLinkCoordinator";
+import { MiniQqView } from "../components/desktop/MiniQqView";
 import { RunningThreadKeepAlive } from "../components/desktop/RunningThreadKeepAlive";
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
 import { ProjectCloneToastCoordinator } from "../components/ProjectCloneToastCoordinator";
@@ -96,7 +98,8 @@ export const Route = createRootRoute({
       authGateState.status === "authenticated" &&
       getDesktopSnapShotBridge() &&
       shouldResumeSnapShotSetupOnStartup() &&
-      location.pathname !== "/settings/snap-shot"
+      location.pathname !== "/settings/snap-shot" &&
+      location.pathname !== "/__mini-qq"
     ) {
       throw redirect({ to: "/settings/snap-shot", replace: true });
     }
@@ -113,6 +116,10 @@ export const Route = createRootRoute({
 });
 
 function RootRouteNotFoundView() {
+  const pathname = useLocation({ select: (location) => location.pathname });
+  if (pathname === "/__mini-qq") {
+    return null;
+  }
   return (
     <main className="flex min-h-0 min-w-0 flex-1 items-center justify-center p-6">
       <div className="flex max-w-sm flex-col items-center gap-4 text-center">
@@ -173,13 +180,20 @@ function RootRouteBranch() {
     return <Outlet />;
   }
 
+  if (pathname === "/__mini-qq") {
+    return <MiniQqView />;
+  }
+
   // Settings can reopen /welcome mid-session, so it mounts everything the app does except the
   // first-run gate and the event router, whose first navigation would leave the page.
   const appHosts = (
     <>
       {primaryEnvironmentAuthenticated ? <DesktopAppActivationCoordinator /> : null}
       {primaryEnvironmentAuthenticated || localEnvironmentDisabled ? (
-        <DesktopWebLinkCoordinator />
+        <>
+          <DesktopWebLinkCoordinator />
+          <DesktopMiniQqMainCoordinator />
+        </>
       ) : null}
       {isElectron ? <RunningThreadKeepAlive /> : null}
       <RelayClientInstallDialog />

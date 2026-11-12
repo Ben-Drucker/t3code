@@ -354,7 +354,11 @@ function syncWindowAppearance(
     window.setBackgroundColor(getInitialWindowBackgroundColor(shouldUseDarkColors));
     const { titleBarOverlay } = getWindowTitleBarOptions(shouldUseDarkColors, platform);
     if (typeof titleBarOverlay === "object") {
-      window.setTitleBarOverlay(titleBarOverlay);
+      try {
+        window.setTitleBarOverlay(titleBarOverlay);
+      } catch {
+        // Frameless auxiliary windows do not configure a title bar overlay.
+      }
     }
   });
 }

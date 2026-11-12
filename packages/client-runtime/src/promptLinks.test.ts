@@ -68,17 +68,22 @@ describe("findPromptLinkPullRequestThread", () => {
       snapshot: null,
       stack: null,
     };
-    const thread = (id: string, updatedAt: string, sideChat?: boolean) => ({
+    const thread = (
+      id: string,
+      updatedAt: string,
+      lineage?: { readonly sideChat?: boolean; readonly quickQuestion?: boolean },
+    ) => ({
       id,
       updatedAt,
       pullRequests: [link],
-      ...(sideChat === undefined ? {} : { lineage: { sideChat } }),
+      ...(lineage === undefined ? {} : { lineage }),
     });
     const found = findPromptLinkPullRequestThread(
       [
         thread("old", "2026-01-01T00:00:00.000Z"),
-        thread("parent", "2026-01-02T00:00:00.000Z", false),
-        thread("side-chat", "2026-01-03T00:00:00.000Z", true),
+        thread("parent", "2026-01-02T00:00:00.000Z", { sideChat: false, quickQuestion: false }),
+        thread("side-chat", "2026-01-03T00:00:00.000Z", { sideChat: true }),
+        thread("quick-question", "2026-01-04T00:00:00.000Z", { quickQuestion: true }),
       ],
       { owner: "acme", name: "web", number: 7 },
     );

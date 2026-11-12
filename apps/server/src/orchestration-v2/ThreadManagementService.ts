@@ -815,7 +815,7 @@ const make = Effect.gen(function* () {
           snapshot.threads
             .filter((thread) =>
               input.includeSubagents
-                ? thread.lineage.sideChat !== true
+                ? thread.lineage.sideChat !== true && thread.lineage.quickQuestion !== true
                 : isListedThreadLineage(thread.lineage),
             )
             .toSorted(

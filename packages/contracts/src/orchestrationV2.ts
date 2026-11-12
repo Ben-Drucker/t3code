@@ -156,12 +156,15 @@ export const OrchestrationV2AppThreadLineage = Schema.Struct({
   relationshipToParent: Schema.NullOr(Schema.Literals(["fork", "subagent"])),
   rootThreadId: ThreadId,
   sideChat: Schema.optional(Schema.Boolean),
+  quickQuestion: Schema.optional(Schema.Boolean),
 });
 export type OrchestrationV2AppThreadLineage = typeof OrchestrationV2AppThreadLineage.Type;
 
-/** Subagents and side chats live inside their parent's view, never in thread lists. */
+/** Subagents, side chats, and unpromoted quick questions stay out of main thread lists. */
 export const isListedThreadLineage = (lineage: OrchestrationV2AppThreadLineage): boolean =>
-  lineage.relationshipToParent !== "subagent" && lineage.sideChat !== true;
+  lineage.relationshipToParent !== "subagent" &&
+  lineage.sideChat !== true &&
+  lineage.quickQuestion !== true;
 
 export const OrchestrationV2ContextTransferType = Schema.Literals([
   "fork",
@@ -2984,6 +2987,8 @@ export const OrchestrationV2Command = Schema.Union([
     delegatedFrom: Schema.optional(OrchestrationV2DelegatedFrom),
     /** Only an agent's MCP tool sets this; other creators' values are dropped. */
     launchedBy: Schema.optional(ThreadId),
+    /** Marks an unpromoted Mini QQ quick-question thread so main thread lists hide it until promoted. */
+    quickQuestion: Schema.optional(Schema.Boolean),
     importedNativeThread: Schema.optional(
       Schema.Struct({
         ref: Schema.Struct({
@@ -3122,6 +3127,8 @@ export const OrchestrationV2Command = Schema.Union([
     limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecoveryUpdate)),
     /** Link (object) or unlink (null) a pull request; absent leaves it unchanged. */
     linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
+    /** Set false to promote a Mini QQ quick-question thread into listed threads. */
+    quickQuestion: Schema.optional(Schema.Boolean),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pull-request.link"),
@@ -3719,6 +3726,7 @@ export const OrchestrationV2ThreadLaunchInput = Schema.Struct({
   creationSource: Schema.optional(OrchestrationV2CreationSource),
   threadId: Schema.optional(ThreadId),
   reuseExistingThread: Schema.optional(Schema.Boolean),
+  quickQuestion: Schema.optional(Schema.Boolean),
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
   generateTitle: Schema.optional(Schema.Boolean),
