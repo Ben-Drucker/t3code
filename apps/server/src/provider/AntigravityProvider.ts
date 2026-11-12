@@ -39,6 +39,7 @@ import { resolveUsageLimitsAfterProbe } from "@t3tools/provider-core/server/usag
 
 import { antigravityThinkingConfig } from "./acp/AntigravityAcpSupport.ts";
 import { withAntigravityContextControls } from "./antigravityCompaction.ts";
+import { retainProviderCapabilityCacheKey } from "./providerStatusCache.ts";
 
 const EMPTY_MODEL_CAPABILITIES = createModelCapabilities({ optionDescriptors: [] });
 const MAX_WORKSPACE_SNAPSHOTS = 32;
@@ -159,6 +160,7 @@ interface AntigravityProviderState {
 
 interface AntigravityProviderOptions {
   readonly stampIdentity: (snapshot: ServerProviderDraft) => Effect.Effect<ServerProvider>;
+  readonly capabilityCacheKey?: Effect.Effect<string | undefined>;
   readonly probe: Effect.Effect<
     EffectAcpSchema.InitializeResponse,
     EffectAcpErrors.AcpError | ProviderSetupError
@@ -183,7 +185,11 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     ? `Antigravity is installed. Connect with ${options.auth.label} to load models.`
     : AUTH_UNCHECKED_MESSAGE;
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
+  const capabilityCacheKey = settings.enabled
+    ? yield* options.capabilityCacheKey ?? Effect.undefined
+    : undefined;
   const initialDraft = {
+    ...(capabilityCacheKey === undefined ? {} : { capabilityCacheKey }),
     ...buildServerProvider({
       presentation: {
         displayName: "Antigravity",
@@ -295,11 +301,22 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
               : `Antigravity did not respond to its local health check within ${HEALTH_CHECK_TIMEOUT}.`;
     const supportsTextGeneration =
       initialized !== undefined ? yield* options.supportsTextGeneration : false;
+    const probedCacheKey =
+      initialized !== undefined ? yield* options.capabilityCacheKey ?? Effect.undefined : undefined;
+    const currentCacheKey = retainProviderCapabilityCacheKey(
+      before.draft.capabilityCacheKey,
+      probedCacheKey,
+    );
+    if (currentCacheKey !== undefined && currentCacheKey !== before.draft.capabilityCacheKey) {
+      thinkingLevels.clear();
+    }
     const updatedAt = DateTime.formatIso(yield* DateTime.now);
     const next = yield* SubscriptionRef.updateAndGet(metadata, (state) => {
       if (state.authRevision !== before.authRevision) return state;
       const { message: _previousMessage, ...draft } = state.draft;
       const authenticated = draft.auth.status === "authenticated";
+      const changedExecutable =
+        currentCacheKey !== undefined && currentCacheKey !== draft.capabilityCacheKey;
       const message =
         errorMessage ??
         (authenticated
@@ -317,13 +334,15 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
           status: errorMessage ? "error" : authenticated ? "ready" : "warning",
           checkedAt: updatedAt,
           usageLimits: missingInstallation ? undefined : draft.usageLimits,
-          ...(missingInstallation
+          ...(currentCacheKey === undefined ? {} : { capabilityCacheKey: currentCacheKey }),
+          ...(missingInstallation || changedExecutable
             ? {
                 models: [],
                 slashCommands: [],
                 skills: [],
                 workspaceSnapshots: [],
                 supportsTextGeneration: false,
+                supportedRuntimeModes: ["approval-required", "auto-accept-edits", "full-access"],
               }
             : {}),
           ...(initialized !== undefined
@@ -367,9 +386,16 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
     cwd?: string,
   ) {
     if (!settings.enabled) return;
-    observeThinkingLevels(started.sessionSetupResult.configOptions);
     const before = yield* SubscriptionRef.get(metadata);
     const supportsTextGeneration = yield* options.supportsTextGeneration;
+    const currentCacheKey = retainProviderCapabilityCacheKey(
+      before.draft.capabilityCacheKey,
+      yield* options.capabilityCacheKey ?? Effect.undefined,
+    );
+    if (currentCacheKey !== undefined && currentCacheKey !== before.draft.capabilityCacheKey) {
+      thinkingLevels.clear();
+    }
+    observeThinkingLevels(started.sessionSetupResult.configOptions);
     const updatedAt = DateTime.formatIso(yield* DateTime.now);
     yield* SubscriptionRef.update(metadata, (state) => {
       if (
@@ -388,6 +414,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
           installed: true,
           status: "ready",
           version: started.initializeResult.agentInfo?.version || draft.version,
+          ...(currentCacheKey === undefined ? {} : { capabilityCacheKey: currentCacheKey }),
           auth: {
             status: "authenticated",
             type: options.auth?.type ?? "oauth-personal",

@@ -305,6 +305,7 @@ it.layer(layerTest)("AntigravityDriver", (it) => {
         const h = yield* makeHarness();
         yield* h.refresh();
         const snapshot = yield* h.instance.snapshot.getSnapshot;
+        expect(snapshot.capabilityCacheKey).toBeDefined();
         expect(snapshot.status).toBe("ready");
         expect(snapshot.auth.status).toBe("authenticated");
         expect(snapshot.models.map((model) => model.slug)).toEqual([
@@ -317,6 +318,9 @@ it.layer(layerTest)("AntigravityDriver", (it) => {
         expect(snapshot.supportsTextGeneration).toBe(true);
         h.controls.selected = h.second;
         yield* h.refresh();
+        expect((yield* h.instance.snapshot.getSnapshot).capabilityCacheKey).not.toBe(
+          snapshot.capabilityCacheKey,
+        );
 
         expect(h.acquisitions).toEqual([
           { binaryPath: "", path: h.instancePath },

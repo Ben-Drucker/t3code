@@ -9,6 +9,7 @@ import { createModelCapabilities } from "@t3tools/shared/model";
 import { assert, it } from "@effect/vitest";
 
 import { hydrateCachedProvider, isCachedProviderCorrelated } from "./providerStatusCache.ts";
+import { buildAntigravityModelsFromSession } from "./AntigravityProvider.ts";
 
 const emptyCapabilities = createModelCapabilities({ optionDescriptors: [] });
 const CODEX_DRIVER = ProviderDriverKind.make("codex");
@@ -32,6 +33,46 @@ const makeProvider = (
 });
 
 it.layer(NodeServices.layer)("providerStatusCache", (it) => {
+  it("hydrates Antigravity models and native Auto only for the same executable identity", () => {
+    const cached = {
+      ...makeProvider(ProviderDriverKind.make("antigravity")),
+      capabilityCacheKey: "configuration:agy-binary-v1",
+      models: buildAntigravityModelsFromSession({
+        models: {
+          currentModelId: "gemini-pro",
+          availableModels: [{ modelId: "gemini-pro", name: "Gemini Pro" }],
+        },
+      }),
+      supportedRuntimeModes: ["approval-required", "auto-accept-edits", "auto", "full-access"],
+    } as const;
+    const fallback = {
+      ...cached,
+      auth: { status: "unknown" },
+      status: "warning",
+      models: [],
+      supportedRuntimeModes: ["approval-required", "auto-accept-edits", "full-access"],
+    } as const;
+    const hydrated = hydrateCachedProvider({ cachedProvider: cached, fallbackProvider: fallback });
+    assert.deepStrictEqual(hydrated.models, cached.models);
+    assert.deepStrictEqual(hydrated.supportedRuntimeModes, cached.supportedRuntimeModes);
+    const unavailable = hydrateCachedProvider({
+      cachedProvider: cached,
+      fallbackProvider: { ...fallback, capabilityCacheKey: "configuration:pending" },
+    });
+    assert.deepStrictEqual(unavailable.models, cached.models);
+    assert.deepStrictEqual(unavailable.supportedRuntimeModes, cached.supportedRuntimeModes);
+    assert.equal(unavailable.capabilityCacheKey, cached.capabilityCacheKey);
+    for (const capabilityCacheKey of ["another-path", "agy-binary-v2", undefined]) {
+      const changed = { ...fallback, capabilityCacheKey };
+      const invalidated = hydrateCachedProvider({
+        cachedProvider: cached,
+        fallbackProvider: changed,
+      });
+      assert.deepStrictEqual(invalidated.models, []);
+      assert.deepStrictEqual(invalidated.supportedRuntimeModes, changed.supportedRuntimeModes);
+    }
+  });
+
   it("hydrates cached provider status while preserving current settings-derived models", () => {
     const cachedCodex = makeProvider(CODEX_DRIVER, {
       checkedAt: "2026-04-10T12:00:00.000Z",

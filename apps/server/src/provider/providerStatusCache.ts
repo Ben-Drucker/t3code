@@ -15,6 +15,15 @@ const decodeProviderStatusCache = Schema.decodeUnknownEffect(
   Schema.fromJsonString(ServerProviderSchema),
 );
 
+export const retainProviderCapabilityCacheKey = (
+  previous: string | undefined,
+  next: string | undefined,
+): string | undefined => {
+  const [configuration, executable] = next?.split(":") ?? [];
+  // An unreadable installation cannot disprove its last verified identity.
+  return executable === "pending" && previous?.startsWith(`${configuration}:`) ? previous : next;
+};
+
 const mergeProviderModels = (
   fallbackModels: ReadonlyArray<ServerProvider["models"][number]>,
   cachedModels: ReadonlyArray<ServerProvider["models"][number]>,
@@ -88,6 +97,26 @@ export const hydrateCachedProvider = (input: {
     slashCommands: input.cachedProvider.slashCommands,
     skills: input.cachedProvider.skills,
   };
+
+  if (input.fallbackProvider.driver === "antigravity") {
+    const sameExecutable =
+      input.fallbackProvider.capabilityCacheKey !== undefined &&
+      retainProviderCapabilityCacheKey(
+        input.cachedProvider.capabilityCacheKey,
+        input.fallbackProvider.capabilityCacheKey,
+      ) === input.cachedProvider.capabilityCacheKey;
+    return {
+      ...hydratedProvider,
+      capabilityCacheKey: sameExecutable
+        ? input.cachedProvider.capabilityCacheKey
+        : input.fallbackProvider.capabilityCacheKey,
+      models: sameExecutable ? hydratedProvider.models : input.fallbackProvider.models,
+      supportedRuntimeModes: sameExecutable
+        ? input.cachedProvider.supportedRuntimeModes
+        : input.fallbackProvider.supportedRuntimeModes,
+      ...(input.cachedProvider.message ? { message: input.cachedProvider.message } : {}),
+    };
+  }
 
   return input.cachedProvider.message
     ? { ...hydratedProvider, message: input.cachedProvider.message }

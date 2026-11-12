@@ -35,6 +35,7 @@ import {
   isCachedProviderCorrelated,
   orderProviderSnapshots,
   readProviderStatusCache,
+  retainProviderCapabilityCacheKey,
   resolveProviderStatusCachePath,
   writeProviderStatusCache,
 } from "./providerStatusCache.ts";
@@ -302,7 +303,27 @@ export const mergeProviderSnapshot = (
   }
   const savedAccount = carrySavedAntigravityAccount(previousProvider, nextProvider);
   const { message: _uncheckedMessage, ...nextWithoutMessage } = nextProvider;
-  const models = mergeProviderModels(nextProvider, previousProvider.models, nextProvider.models);
+  const capabilityCacheKey = retainProviderCapabilityCacheKey(
+    previousProvider.capabilityCacheKey,
+    nextProvider.capabilityCacheKey,
+  );
+  const sameExecutable =
+    nextProvider.driver !== "antigravity" ||
+    (nextProvider.capabilityCacheKey !== undefined &&
+      capabilityCacheKey === previousProvider.capabilityCacheKey);
+  const models = mergeProviderModels(
+    nextProvider,
+    sameExecutable ? previousProvider.models : [],
+    nextProvider.models,
+  );
+  const supportedRuntimeModes =
+    nextProvider.driver === ProviderDriverKind.make("antigravity") &&
+    sameExecutable &&
+    shouldRetainMissingProviderModels(nextProvider) &&
+    !nextProvider.supportedRuntimeModes?.includes("auto") &&
+    previousProvider.supportedRuntimeModes?.includes("auto")
+      ? previousProvider.supportedRuntimeModes
+      : nextProvider.supportedRuntimeModes;
   // Folder catalogs were compared with the old machine catalog, so every folder rescans.
   const previousWorkspaceSnapshots = Equal.equals(models, previousProvider.models)
     ? previousProvider.workspaceSnapshots
@@ -314,6 +335,8 @@ export const mergeProviderSnapshot = (
     ...(savedAccount?.status === "ready" ? nextWithoutMessage : nextProvider),
     ...savedAccount,
     models,
+    ...(capabilityCacheKey === undefined ? {} : { capabilityCacheKey }),
+    ...(supportedRuntimeModes === undefined ? {} : { supportedRuntimeModes }),
     ...(nextProvider.workspaceSnapshots !== undefined
       ? { workspaceSnapshots: nextProvider.workspaceSnapshots }
       : previousWorkspaceSnapshots !== undefined
