@@ -228,6 +228,9 @@ const openClaudeReplaySession = Effect.fn("openClaudeReplaySession")(function* (
     ACP_REGISTRY_PROVIDER,
   );
   const offers: Array<ProviderContinuationRequest> = [];
+  const prompts: Array<
+    Parameters<AcpSessionRuntime.AcpSessionRuntime["Service"]["prompt"]>[0]["prompt"]
+  > = [];
   const offered = yield* Queue.unbounded<void>();
   const continuationRequests = {
     offer: (request: ProviderContinuationRequest) =>
@@ -257,7 +260,15 @@ const openClaudeReplaySession = Effect.fn("openClaudeReplaySession")(function* (
     ...(continuationEnabled ? { continuationRequests } : {}),
     makeRuntime: (runtimeInput: Parameters<typeof replayRuntime>[0]) => {
       onTermination = runtimeInput.onTermination;
-      return replayRuntime(runtimeInput);
+      return replayRuntime(runtimeInput).pipe(
+        Effect.map((runtime) => ({
+          ...runtime,
+          prompt: (...args: Parameters<typeof runtime.prompt>) => {
+            prompts.push(args[0].prompt);
+            return runtime.prompt(...args);
+          },
+        })),
+      );
     },
   };
   const adapter = yield* makeAcpRegistryAdapterV2(adapterOptions).pipe(
@@ -360,6 +371,7 @@ const openClaudeReplaySession = Effect.fn("openClaudeReplaySession")(function* (
   );
   return {
     runtime,
+    prompts,
     providerThread,
     turnInput,
     until,
@@ -424,6 +436,66 @@ const claudeUnrelatedChildren = [
 ];
 
 describe("AcpRegistryAdapterV2", () => {
+  it.effect.each([
+    { text: "/qq explain this", native: false },
+    { text: "  /another-skill do this", native: false },
+    { text: "/native-skill do this", native: true },
+    { text: "/help", native: true },
+    { text: "/compact", native: true },
+  ])("sends $text as a native command only when supported", ({ text, native }) =>
+    Effect.gen(function* () {
+      const request = native ? text : `<user_request>\n${text}\n</user_request>`;
+      const prompt = native
+        ? [{ type: "text" as const, text }]
+        : [
+            {
+              type: "text" as const,
+              text: t3AcpPromptWithInstructions({
+                prompt: request,
+                state: { interactionMode: "default", hasT3Mcp: false, hasDeviceTools: false },
+              }),
+            },
+            {
+              type: "text" as const,
+              text: buildRuntimeInstructions({ harness: ACP_REGISTRY_PROVIDER, model: "default" }),
+            },
+          ];
+      const session = yield* openClaudeReplaySession(
+        [
+          ...claudeFrames.open.slice(0, -1),
+          claudeFrames.update(CLAUDE_ROOT_SESSION, {
+            sessionUpdate: "available_commands_update",
+            availableCommands: [{ name: "native-skill", description: "A native skill" }],
+          }),
+          claudeFrames.open.at(-1)!,
+          {
+            type: "expect_outbound",
+            frame: { kind: "request", method: "session/prompt", params: "<any>" },
+          },
+          {
+            type: "emit_inbound",
+            frame: {
+              kind: "response",
+              method: "session/prompt",
+              result: { stopReason: "end_turn" },
+            },
+          },
+          claudeFrames.idle("end_turn"),
+          claudeFrames.closeRequest,
+          claudeFrames.closed,
+        ],
+        undefined,
+        false,
+        { agentId: "kimi", environment: {} },
+      );
+      const input = session.turnInput(1);
+      yield* session.runtime.startTurn({ ...input, message: { ...input.message, text } });
+      const terminal = yield* session.terminal;
+      assert.equal(terminal.status, "completed");
+      assert.deepEqual(session.prompts, [prompt]);
+    }).pipe(Effect.provide(layerTest), Effect.scoped),
+  );
+
   it("preserves and sanitizes structured ACP errors without exposing arbitrary defects", () => {
     const limit = new EffectAcpErrors.AcpRequestError({
       code: -31001,
