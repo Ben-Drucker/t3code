@@ -15,6 +15,8 @@
 # session that started it) cannot kill it. It prints the log path and returns; pass --foreground to run
 # it in the current terminal with the progress bar instead.
 #
+# ./update.sh (repo root) wraps all of this: it fast-forwards the fork branch, runs deploy, and shows a live view.
+#
 # Environment:
 #   T3_FORK_DETACHED set to 1 inside the detached child; do not set it yourself
 #   T3_FORK_OUT      where DMGs, logs, step timings and the rollback app go (default <repo>/.fork-out, git-ignored)
