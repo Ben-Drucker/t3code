@@ -57,6 +57,7 @@ import {
 } from "react";
 
 import { isBrowserPreviewFile, openFileInPreview } from "~/browser/openFileInPreview";
+import { readLocalHtmlFileUrl } from "~/browser/localHtmlFile";
 import { useAssetUrlRefresh, useAssetUrlState } from "~/assets/assetUrls";
 import { OpenInPicker } from "~/components/chat/OpenInPicker";
 import { MediaVideoPlayer } from "~/components/media/MediaVideoPlayer";
@@ -1386,6 +1387,16 @@ export default function FilePreviewPanel({
               pressed={rendered}
               onPress={() => {
                 const pressed = !rendered;
+                if (
+                  pressed &&
+                  isHtml &&
+                  canOpenInBrowser &&
+                  absolutePath &&
+                  readLocalHtmlFileUrl(environmentId, absolutePath, cwd) !== null
+                ) {
+                  handleOpenInBrowser();
+                  return;
+                }
                 setRenderedPreferred(pressed);
                 setHandledReveal(
                   pressed && relativePath !== null

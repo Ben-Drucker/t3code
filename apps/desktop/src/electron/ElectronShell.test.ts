@@ -172,10 +172,16 @@ describe("ElectronShell", () => {
   it.effect("does not open unsafe external URLs", () =>
     Effect.gen(function* () {
       const electronShell = yield* ElectronShell.ElectronShell;
-      const result = yield* electronShell.openExternal("file:///etc/passwd");
+      const results = yield* Effect.forEach(
+        ["file:///etc/passwd", "file://server/share/index.html"],
+        (url) => electronShell.openExternal(url),
+      );
 
-      assert.equal(result, false);
+      assert.deepEqual(results, [false, false]);
       assert.equal(openExternalMock.mock.calls.length, 0);
+      openExternalMock.mockResolvedValue(undefined);
+      assert.equal(yield* electronShell.openExternal("file:///tmp/index.html"), true);
+      assert.deepEqual(openExternalMock.mock.calls, [["file:///tmp/index.html"]]);
     }).pipe(Effect.provide(ElectronShell.layer)),
   );
 });

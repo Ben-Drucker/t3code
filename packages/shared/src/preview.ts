@@ -72,6 +72,15 @@ export class PreviewUrlNormalizationError extends Schema.TaggedError<PreviewUrlN
 
 export const isPreviewUrlNormalizationError = Schema.is(PreviewUrlNormalizationError);
 
+export function isLocalHtmlFileUrl(url: URL): boolean {
+  return (
+    url.protocol === "file:" &&
+    url.host === "" &&
+    !url.pathname.startsWith("//") &&
+    /\.html?$/i.test(url.pathname)
+  );
+}
+
 function previewUrlProtocol(rawUrl: string): string | undefined {
   return /^([A-Za-z][A-Za-z\d+.-]*):/.exec(rawUrl)?.[1]?.toLowerCase().concat(":");
 }
@@ -186,6 +195,10 @@ export function normalizePreviewUrl(rawUrl: string): string {
     throw new PreviewUrlNormalizationError({ inputLength: rawUrl.length, reason: "empty" });
   }
   const explicitProtocol = previewUrlProtocol(trimmed);
+  if (explicitProtocol === "file:") {
+    const url = URL.parse(trimmed);
+    if (url !== null && isLocalHtmlFileUrl(url)) return url.href;
+  }
   if (explicitProtocol !== undefined && KNOWN_NON_WEB_SCHEMES.has(explicitProtocol)) {
     throw new PreviewUrlNormalizationError({
       inputLength: rawUrl.length,
