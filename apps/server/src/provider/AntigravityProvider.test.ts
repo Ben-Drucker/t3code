@@ -16,6 +16,7 @@ import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
 
@@ -27,6 +28,8 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import type * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 import type { ServerProvider } from "@t3tools/contracts";
 import { resolveDefaultRuntimeMode } from "@t3tools/shared/runtimeMode";
+import { hydrateCachedProvider } from "./providerStatusCache.ts";
+import { mergeProviderSnapshot } from "./ProviderRegistry.ts";
 import {
   buildAntigravityModelsFromSession,
   makeAntigravityProvider,
@@ -145,10 +148,12 @@ const makeHarness = Effect.fn("makeAntigravityProviderHarness")(function* (
     Deferred.await(initialProbe),
   );
   const safety = yield* Ref.make<Effect.Effect<boolean>>(Effect.succeed(options.safe ?? true));
+  const capabilityCacheKey = yield* Ref.make("agy-binary-v1");
   const provider = yield* makeAntigravityProvider(
     decodeSettings({ enabled: options.enabled ?? true, customModels: ["do-not-seed-me"] }),
     {
       stampIdentity: (snapshot) => Effect.succeed({ ...snapshot, instanceId, driver }),
+      capabilityCacheKey: Ref.get(capabilityCacheKey),
       ...(options.auth ? { auth: options.auth } : {}),
       ...(options.probeUsage ? { probeUsage: options.probeUsage } : {}),
       probe: Ref.update(probeCalls, (count) => count + 1).pipe(
@@ -177,6 +182,7 @@ const makeHarness = Effect.fn("makeAntigravityProviderHarness")(function* (
     );
   return {
     provider,
+    capabilityCacheKey,
     probe,
     probeCalls,
     safety,
@@ -350,6 +356,23 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
             auth: { status: "unknown" },
             models: [],
           });
+          const cached: ServerProvider = {
+            ...(yield* harness.provider.snapshot.getSnapshot),
+            installed: true,
+            status: "ready",
+            auth: { status: "authenticated", type: auth?.type ?? "oauth-personal" },
+            supportedRuntimeModes: [
+              "approval-required",
+              "auto-accept-edits",
+              "auto",
+              "full-access",
+            ],
+            models: buildAntigravityModelsFromSession(sessionSetupResult),
+          };
+          const hydrated = hydrateCachedProvider({
+            cachedProvider: cached,
+            fallbackProvider: yield* harness.provider.snapshot.getSnapshot,
+          });
           yield* harness.initialize;
           const snapshot = yield* harness.provider.snapshot.getSnapshot;
           expect(snapshot).toMatchObject({
@@ -364,6 +387,9 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
             models: [],
           });
           expect(yield* Ref.get(harness.probeCalls)).toBe(1);
+          const published = mergeProviderSnapshot(hydrated, snapshot);
+          expect(published.models).toEqual(cached.models);
+          expect(published.supportedRuntimeModes).toEqual(cached.supportedRuntimeModes);
         }
       }),
     ),
@@ -601,7 +627,16 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
       Effect.gen(function* () {
         const harness = yield* makeHarness();
         yield* harness.initialize;
-        yield* harness.provider.onSessionStarted(started, "/workspace");
+        yield* harness.provider.onSessionStarted(
+          {
+            ...started,
+            sessionSetupResult: {
+              ...sessionSetupResult,
+              modes: { currentModeId: "auto", availableModes: [{ id: "auto", name: "Auto" }] },
+            },
+          },
+          "/workspace",
+        );
         yield* harness.provider.onAvailableCommands(commands, "/workspace");
         yield* Ref.set(
           harness.probe,
@@ -616,6 +651,23 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
         expect(snapshot.models).toEqual(buildAntigravityModelsFromSession(sessionSetupResult));
         expect(snapshot.slashCommands).toEqual(expectedCommands);
         expect(snapshot.workspaceSnapshots?.[0]?.cwd).toBe("/workspace");
+        expect(snapshot.supportedRuntimeModes).toContain("auto");
+        const probing = yield* Deferred.make<void>();
+        yield* Ref.set(
+          harness.probe,
+          Deferred.succeed(probing, undefined).pipe(Effect.andThen(Effect.never)),
+        );
+        const refresh = yield* Effect.forkChild(harness.provider.snapshot.refresh);
+        yield* Deferred.await(probing);
+        yield* TestClock.adjust("90 seconds");
+        const timedOut = yield* Fiber.join(refresh);
+        expect(timedOut.models).toEqual(snapshot.models);
+        expect(timedOut.supportedRuntimeModes).toEqual(snapshot.supportedRuntimeModes);
+        yield* Ref.set(harness.probe, Effect.succeed(initializeResult));
+        yield* Ref.set(harness.capabilityCacheKey, "agy-binary-v2");
+        const upgraded = yield* harness.provider.snapshot.refresh;
+        expect(upgraded.models).toEqual([]);
+        expect(upgraded.supportedRuntimeModes).not.toContain("auto");
       }),
     ),
   );

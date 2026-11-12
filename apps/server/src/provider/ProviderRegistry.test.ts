@@ -49,6 +49,7 @@ import { BUNDLED_CLAUDE_MODEL_CATALOG } from "./ClaudeModelCatalog.ts";
 import { checkClaudeProviderStatus } from "./ClaudeProvider.ts";
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as AntigravityInstallation from "./AntigravityInstallation.ts";
+import { buildAntigravityModelsFromSession } from "./AntigravityProvider.ts";
 import * as ModelManifest from "./ModelManifest.ts";
 import { applyProviderCompatibility } from "./providerCompatibility.ts";
 import * as ResetCreditCoordinator from "./resetCreditCoordinator.ts";
@@ -952,6 +953,83 @@ it.layer(
       );
     });
 
+    it("retains Antigravity cached models and native Auto through initialize-only probes", () => {
+      const previousProvider = {
+        capabilityCacheKey: "configuration:agy-binary-v1",
+        instanceId: ProviderInstanceId.make("antigravity"),
+        driver: ProviderDriverKind.make("antigravity"),
+        status: "ready",
+        enabled: true,
+        installed: true,
+        auth: { status: "authenticated", type: "oauth-personal" },
+        checkedAt: "2026-11-01T00:00:00.000Z",
+        version: "1.5.0",
+        supportedRuntimeModes: ["approval-required", "auto-accept-edits", "auto", "full-access"],
+        models: [
+          {
+            slug: "gemini-pro",
+            name: "Gemini Pro",
+            isCustom: false,
+            capabilities: {
+              optionDescriptors: [
+                {
+                  id: "contextLimit",
+                  label: "Context limit",
+                  type: "select",
+                  currentValue: "256000",
+                  options: [{ id: "256000", label: "256K" }],
+                  disabledReason: "Fixed by Antigravity",
+                },
+                {
+                  id: "compactBuffer",
+                  label: "Compaction",
+                  type: "select",
+                  currentValue: "auto",
+                  options: [{ id: "auto", label: "Auto" }],
+                  disabledReason: "Fixed by Antigravity",
+                },
+              ],
+            },
+          },
+        ],
+        slashCommands: [],
+        skills: [],
+      } as const satisfies ServerProvider;
+      const initializeOnly = {
+        ...previousProvider,
+        status: "warning",
+        auth: { status: "unknown" },
+        checkedAt: "2026-11-02T00:00:00.000Z",
+        version: null,
+        models: [],
+        supportedRuntimeModes: ["approval-required", "auto-accept-edits", "full-access"],
+      } satisfies ServerProvider;
+      const failedProbe = { ...initializeOnly, status: "error" } satisfies ServerProvider;
+      const unavailableProbe = { ...failedProbe, capabilityCacheKey: "configuration:pending" };
+      const missingProbe = {
+        ...initializeOnly,
+        installed: false,
+        status: "error",
+        models: [],
+        supportedRuntimeModes: ["approval-required", "auto-accept-edits", "full-access"],
+      } satisfies ServerProvider;
+
+      for (const next of [initializeOnly, failedProbe, unavailableProbe]) {
+        const published = ProviderRegistry.mergeProviderSnapshot(previousProvider, next);
+        assert.deepStrictEqual(published.models, previousProvider.models);
+        assert.deepStrictEqual(
+          published.supportedRuntimeModes,
+          previousProvider.supportedRuntimeModes,
+        );
+      }
+      const trulyMissing = ProviderRegistry.mergeProviderSnapshot(previousProvider, missingProbe);
+      assert.deepStrictEqual(trulyMissing.models, []);
+      assert.deepStrictEqual(
+        trulyMissing.supportedRuntimeModes,
+        missingProbe.supportedRuntimeModes,
+      );
+    });
+
     it("drops Grok models a completed probe no longer advertises", () => {
       const previousProvider = {
         instanceId: ProviderInstanceId.make("grok"),
@@ -1564,6 +1642,7 @@ it.layer(
 
     describe("Antigravity saved account", () => {
       const signedIn = {
+        capabilityCacheKey: "agy-binary-v1",
         instanceId: ProviderInstanceId.make("antigravity-personal"),
         driver: ProviderDriverKind.make("antigravity"),
         status: "ready",
@@ -1593,6 +1672,45 @@ it.layer(
         message: uncheckedMessage,
         models: [],
       } as const satisfies ServerProvider;
+
+      it("preserves verified Antigravity capabilities through lightweight and failed restart probes", () => {
+        const cached = {
+          ...signedIn,
+          models: buildAntigravityModelsFromSession({
+            models: {
+              currentModelId: "gemini-pro",
+              availableModels: [{ modelId: "gemini-pro", name: "Gemini Pro" }],
+            },
+          }),
+          supportedRuntimeModes: ["approval-required", "auto-accept-edits", "auto", "full-access"],
+        } as const;
+        const lightweight = {
+          ...restartProbe,
+          supportedRuntimeModes: ["approval-required", "auto-accept-edits", "full-access"],
+        } as const;
+        for (const status of ["warning", "error"] as const) {
+          const merged = ProviderRegistry.mergeProviderSnapshot(cached, { ...lightweight, status });
+          assert.deepStrictEqual(merged.models, cached.models);
+          assert.deepStrictEqual(merged.supportedRuntimeModes, cached.supportedRuntimeModes);
+        }
+        for (const capabilityCacheKey of ["another-path", "agy-binary-v2", undefined]) {
+          const merged = ProviderRegistry.mergeProviderSnapshot(cached, {
+            ...lightweight,
+            capabilityCacheKey,
+          });
+          assert.deepStrictEqual(merged.models, []);
+          assert.deepStrictEqual(merged.supportedRuntimeModes, lightweight.supportedRuntimeModes);
+        }
+        for (const cleared of [
+          { ...lightweight, installed: false, status: "error" },
+          { ...lightweight, auth: { status: "unauthenticated" } },
+          { ...lightweight, status: "ready", auth: signedIn.auth },
+        ] satisfies ReadonlyArray<ServerProvider>) {
+          const merged = ProviderRegistry.mergeProviderSnapshot(cached, cleared);
+          assert.deepStrictEqual(merged.models, []);
+          assert.deepStrictEqual(merged.supportedRuntimeModes, lightweight.supportedRuntimeModes);
+        }
+      });
 
       it("keeps the saved Google account through restart health checks", () => {
         const merged = ProviderRegistry.mergeProviderSnapshot(signedIn, restartProbe);

@@ -54,12 +54,21 @@ export function toolItemForDisplay(item: OrchestrationV2TurnItem): Orchestration
 type CompactionLabelItem = Pick<
   Extract<OrchestrationV2TurnItem, { type: "compaction" }>,
   "status" | "beforeTokenCount" | "afterTokenCount"
->;
+> &
+  Partial<Pick<Extract<OrchestrationV2TurnItem, { type: "compaction" }>, "title" | "summary">>;
+
+function completedCompactionMessage(item: CompactionLabelItem): string | undefined {
+  if (item.status !== "completed" || !item.title || !item.summary) return undefined;
+  return item.summary.startsWith(`${item.title}: `) && !/[\r\n]/.test(item.summary)
+    ? item.summary
+    : undefined;
+}
 
 export function contextCompactionTokenCounts(
   item: CompactionLabelItem,
 ): { readonly before: string; readonly after: string } | null {
   if (
+    completedCompactionMessage(item) !== undefined ||
     item.status === "running" ||
     item.beforeTokenCount === undefined ||
     item.afterTokenCount === undefined
@@ -74,6 +83,8 @@ export function contextCompactionLabel(item: CompactionLabelItem): string {
   if (item.status === "cancelled" || item.status === "interrupted")
     return "Context compaction stopped";
   if (isOrchestrationV2WorkActive(item.status)) return "Compacting context";
+  const message = completedCompactionMessage(item);
+  if (message !== undefined) return message;
   const tokens = contextCompactionTokenCounts(item);
   return tokens
     ? `Context compacted ${tokens.before} → ${tokens.after} tokens`

@@ -734,12 +734,33 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("Antigravity inst
         yield* fs.writeFileString(other, "other", { mode: 0o755 });
         const { installation } = yield* makeHarness({ baseDir });
 
-        expect(yield* installation.resolve(cli)).toMatchObject({
+        const selected = yield* installation.resolve(cli);
+        expect(selected).toMatchObject({
           executablePath: cli,
           harnessPath: null,
           source: "override",
           version: null,
         });
+        const cacheKey = yield* AntigravityInstallation.antigravityCapabilityCacheKey(
+          selected,
+          cli,
+        );
+        expect(yield* AntigravityInstallation.antigravityCapabilityCacheKey(selected, cli)).toBe(
+          cacheKey,
+        );
+        expect(
+          yield* AntigravityInstallation.antigravityCapabilityCacheKey(selected, alias),
+        ).not.toBe(cacheKey);
+        expect(
+          yield* AntigravityInstallation.antigravityCapabilityCacheKey(
+            { ...selected, version: "1.5.8" },
+            cli,
+          ),
+        ).not.toBe(cacheKey);
+        yield* fs.writeFileString(cli, "upgraded CLI", { mode: 0o755 });
+        expect(
+          yield* AntigravityInstallation.antigravityCapabilityCacheKey(selected, cli),
+        ).not.toBe(cacheKey);
         expect(yield* installation.resolve(alias)).toMatchObject({
           executablePath: alias,
           harnessPath: null,
@@ -768,10 +789,11 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("Antigravity inst
           const windowsDirectory = path.join(baseDir, `windows-${name}`);
           yield* fs.makeDirectory(windowsDirectory);
           yield* fs.writeFileString(path.join(windowsDirectory, name), "cli");
-          expect(yield* windows.resolve("agy", { PATH: windowsDirectory })).toMatchObject({
-            executablePath: path.join(windowsDirectory, name),
-            harnessPath: null,
-          });
+          const resolved = yield* windows.resolve("agy", { PATH: windowsDirectory });
+          expect(resolved.harnessPath).toBeNull();
+          expect(resolved.executablePath.toLowerCase()).toBe(
+            path.join(windowsDirectory, name).toLowerCase(),
+          );
         }
       }),
   );

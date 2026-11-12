@@ -12,6 +12,7 @@ import {
   nodeRuntimeUnavailableMessage,
 } from "@t3tools/shared/nodeRuntime";
 import * as Digest from "effect/crypto/Digest";
+import * as Hex from "effect/encoding/Hex";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -78,6 +79,7 @@ import { discoverAntigravitySkills, resolveAntigravityUserHome } from "./Antigra
 
 const DRIVER = ProviderDriverKind.make("antigravity");
 const decodeSettings = Schema.decodeSync(AntigravitySettings);
+const encodeCapabilityConfiguration = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 const isNodeRuntimeUnavailableError = Schema.is(NodeRuntimeUnavailableError);
 const isAcpRequestError = Schema.is(AcpErrors.AcpRequestError);
 const isAcpErrorDetails = Schema.is(Schema.Struct({ details: Schema.String }));
@@ -151,6 +153,15 @@ export const AntigravityDriver: ProviderDriver<
     };
     const authConfigIssue = antigravityAuthConfigIssue(auth);
     const processEnvironment = yield* mergeProviderInstanceEnvironment(environment);
+    const capabilityCacheConfiguration = yield* encodeCapabilityConfiguration([
+      settings.binaryPath.trim(),
+      processEnvironment.PATH,
+    ]).pipe(Effect.orDie);
+    const capabilityCacheScope = Hex.encode(
+      yield* digest
+        .digest(Digest.sha256, new TextEncoder().encode(capabilityCacheConfiguration))
+        .pipe(Effect.orDie),
+    );
     const userHome = resolveAntigravityUserHome(
       yield* HostProcess.Platform,
       processEnvironment,
@@ -453,6 +464,15 @@ export const AntigravityDriver: ProviderDriver<
     );
     const provider = yield* makeAntigravityProvider(settings, {
       stampIdentity: classifyModels,
+      capabilityCacheKey: installation.resolve(settings.binaryPath, processEnvironment).pipe(
+        Effect.flatMap((executable) =>
+          AntigravityInstallation.antigravityCapabilityCacheKey(executable, settings.binaryPath),
+        ),
+        Effect.map((key) => `${capabilityCacheScope}:${key}`),
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Digest.Digest, digest),
+        Effect.orElseSucceed(() => `${capabilityCacheScope}:pending`),
+      ),
       probe,
       probeUsage: usage.probe,
       clearUsage: usage.clear,

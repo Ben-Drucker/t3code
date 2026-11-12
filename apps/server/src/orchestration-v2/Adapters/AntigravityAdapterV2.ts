@@ -36,6 +36,10 @@ import {
 } from "../../provider/acp/AntigravityChildWork.ts";
 import { readAntigravityClientTextFile } from "../../provider/acp/AntigravityClientFiles.ts";
 import { readAntigravityContextUsage } from "../../provider/acp/AntigravityContextBreakdown.ts";
+import {
+  observeAntigravityContextUsage,
+  type AntigravityContextReading,
+} from "../../provider/acp/AntigravityCompaction.logic.ts";
 import { watchAntigravityPromptOutcome } from "../../provider/acp/AntigravityTurnOutcome.ts";
 import {
   antigravityApprovalOptions,
@@ -280,6 +284,44 @@ export function makeAntigravityAcpAdapterFlavor(
     supportsImagePrompts: true,
     // ACP 1.3.0 treats /compact as ordinary model input.
     supportsCompaction: false,
+    makeContextCompactionObserver: () => {
+      let previous: AntigravityContextReading | undefined;
+      let configuration: ReadonlyArray<readonly [string, string]> | undefined;
+      return {
+        reset: () => {
+          previous = undefined;
+          configuration = undefined;
+        },
+        configure: (options) => {
+          const next = options
+            .filter(
+              (option) =>
+                option.id === "model" ||
+                option.category === "model" ||
+                option.id === "contextLimit" ||
+                option.id === "compactBuffer",
+            )
+            .map((option) => [option.id, String(option.currentValue)] as const)
+            .toSorted(([left], [right]) => left.localeCompare(right));
+          if (
+            configuration !== undefined &&
+            (configuration.length !== next.length ||
+              next.some(
+                ([id, value], index) =>
+                  configuration?.[index]?.[0] !== id || configuration[index]?.[1] !== value,
+              ))
+          ) {
+            previous = undefined;
+          }
+          configuration = next;
+        },
+        observe: (reading) => {
+          const observed = observeAntigravityContextUsage(previous, reading);
+          previous = observed.reading;
+          return observed.compaction;
+        },
+      };
+    },
     requiresSignIn: isAntigravitySignInRequiredError,
     // Antigravity can leave a prompt open without updates; long tools and approvals pause this.
     promptInactivityTimeout: "15 minutes",

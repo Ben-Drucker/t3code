@@ -8,6 +8,8 @@ import * as Clock from "effect/Clock";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
+import * as Digest from "effect/crypto/Digest";
+import * as Hex from "effect/encoding/Hex";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -60,6 +62,7 @@ const InstalledRelease = Schema.Struct({
 type InstalledRelease = typeof InstalledRelease.Type;
 const encodeActiveRelease = Schema.encodeEffect(Schema.fromJsonString(ActiveRelease));
 const encodeInstalledRelease = Schema.encodeEffect(Schema.fromJsonString(InstalledRelease));
+const encodeCapabilityIdentity = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 export class AntigravityInstallationError extends Schema.TaggedError<AntigravityInstallationError>()(
   "AntigravityInstallationError",
@@ -84,6 +87,35 @@ export interface AntigravityExecutable {
   readonly version: string | null;
   readonly managedVersionDirectory: string | null;
 }
+
+export const antigravityCapabilityCacheKey = Effect.fn(
+  "AntigravityInstallation.capabilityCacheKey",
+)(function* (executable: AntigravityExecutable, binaryPath?: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const digest = yield* Digest.Digest;
+  const files = yield* Effect.forEach(
+    [executable.executablePath, ...(executable.harnessPath ? [executable.harnessPath] : [])],
+    (file) =>
+      Effect.gen(function* () {
+        const realPath = yield* fs.realPath(file);
+        const info = yield* fs.stat(realPath);
+        return [
+          file,
+          realPath,
+          String(info.size),
+          String(Option.getOrUndefined(info.ino)),
+          Option.getOrUndefined(info.mtime)?.getTime(),
+        ];
+      }),
+  );
+  const identity = yield* encodeCapabilityIdentity([
+    binaryPath?.trim(),
+    executable.version,
+    files,
+  ]).pipe(Effect.orDie);
+  // Standalone launchers have no probe version; file identity detects in-place upgrades.
+  return Hex.encode(yield* digest.digest(Digest.sha256, new TextEncoder().encode(identity)));
+});
 
 interface AntigravityInstallationService {
   readonly managedDirectory: string;

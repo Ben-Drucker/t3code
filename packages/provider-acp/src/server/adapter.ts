@@ -453,6 +453,22 @@ export interface AcpAdapterV2Flavor {
   ) => Effect.Effect<void>;
   readonly subagentsIdleOnTurnCompletion?: boolean;
   readonly supportsCompaction?: boolean;
+  readonly makeContextCompactionObserver?: () => {
+    readonly reset: () => void;
+    readonly configure?: (options: ReadonlyArray<EffectAcpSchema.SessionConfigOption>) => void;
+    readonly observe: (reading: {
+      readonly sessionId: string;
+      readonly modelSelection: ModelSelection;
+      readonly usedTokens: number | undefined;
+      readonly maxTokens?: number;
+    }) =>
+      | {
+          readonly beforeTokenCount: number;
+          readonly afterTokenCount: number;
+          readonly summary: string;
+        }
+      | undefined;
+  };
   /**
    * Native steering: `send` queues a message into the running turn and returns the
    * agent's id for it, which `injectedSteerId` reads from the update that delivers it.
@@ -1954,6 +1970,11 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             : flavor.extractSubagentUpdate?.(tool);
         let turnAttached = yield* Deferred.make<boolean>();
         const activeSessionId = yield* Ref.make<string | null>(null);
+        const contextCompactionObserver = flavor.makeContextCompactionObserver?.();
+        const nativeContextUsageSessions = new Set<string>();
+        let detectedCompactions = 0;
+        const contextUsagePollPermit = yield* Semaphore.make(1);
+        const lastPolledContextUsage = new WeakMap<ActiveAcpTurn, number>();
         // Fork: a polled reading's split, applied to the usage update the poll raises.
         const polledBreakdownBySessionId = yield* Ref.make(
           new Map<string, ThreadTokenUsageSnapshot["breakdown"]>(),
@@ -1977,6 +1998,8 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         const setActiveSessionSetup = Effect.fnUntraced(function* (
           setup: AcpSessionRuntime.AcpSessionRuntimeStartResult,
         ) {
+          contextCompactionObserver?.reset();
+          nativeContextUsageSessions.clear();
           followsAgentWorkState =
             flavor.followAgentWorkState === true &&
             continuationRequests !== undefined &&
@@ -5038,6 +5061,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
 
         const handleSessionUpdate = Effect.fnUntraced(function* (
           notification: EffectAcpSchema.SessionNotification,
+          polled = false,
         ) {
           const context = yield* Ref.get(activeTurn);
           const update = notification.update;
@@ -5058,17 +5082,34 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             );
             if (stateEvent === undefined) return;
             if (stateEvent._tag === "UsageUpdated") {
+              if (contextCompactionObserver !== undefined) {
+                if (
+                  !polled &&
+                  stateEvent.usage.usedTokens !== undefined &&
+                  stateEvent.usage.usedTokens > 0
+                ) {
+                  nativeContextUsageSessions.add(notification.sessionId);
+                }
+              }
               const polledBreakdown = (yield* Ref.get(polledBreakdownBySessionId)).get(
                 notification.sessionId,
               );
               const previousUsage = (yield* Ref.get(contextUsageBySessionId)).get(
                 notification.sessionId,
               );
+              // Native occupancy takes precedence; DB polls still enrich its breakdown.
+              const retainNativeUsage =
+                contextCompactionObserver !== undefined &&
+                polled &&
+                nativeContextUsageSessions.has(notification.sessionId);
+              const reportedUsage = retainNativeUsage
+                ? (previousUsage ?? stateEvent.usage)
+                : stateEvent.usage;
               const usage =
                 polledBreakdown === undefined
-                  ? stateEvent.usage
+                  ? reportedUsage
                   : {
-                      ...stateEvent.usage,
+                      ...reportedUsage,
                       // A poll that does not know the window must not erase one already reported.
                       ...(stateEvent.usage.maxTokens === undefined &&
                       previousUsage?.maxTokens !== undefined
@@ -5081,6 +5122,44 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               );
               if (context?.nativeThreadId === notification.sessionId) {
                 context.contextUsage = usage;
+                const compaction = retainNativeUsage
+                  ? undefined
+                  : contextCompactionObserver?.observe({
+                      sessionId: notification.sessionId,
+                      modelSelection: context.input.modelSelection,
+                      usedTokens: usage.usedTokens,
+                      ...(usage.maxTokens === undefined ? {} : { maxTokens: usage.maxTokens }),
+                    });
+                if (compaction !== undefined) {
+                  const now = yield* DateTime.now;
+                  const nativeItemId = `${context.nativeTurnId}:detected-compaction:${detectedCompactions++}`;
+                  yield* Ref.update(compactionMarkers, (current) =>
+                    new Map(current).set(notification.sessionId, Symbol()),
+                  );
+                  yield* emitProviderEvent({
+                    type: "turn_item.updated",
+                    driver,
+                    turnItem: {
+                      id: idAllocator.derive.turnItemFromProviderItem({ driver, nativeItemId }),
+                      threadId: context.input.threadId,
+                      runId: context.input.runId,
+                      nodeId: context.input.rootNodeId,
+                      providerThreadId: context.input.providerThread.id,
+                      providerTurnId: context.providerTurnId,
+                      nativeItemRef: { driver, nativeId: nativeItemId, strength: "weak" },
+                      parentItemId: null,
+                      ordinal: yield* resolveItemOrdinal(context, nativeItemId),
+                      type: "compaction",
+                      driver,
+                      status: "completed",
+                      title: "Context compacted (detected)",
+                      ...compaction,
+                      startedAt: now,
+                      completedAt: now,
+                      updatedAt: now,
+                    },
+                  });
+                }
               }
             } else {
               const metadata = yield* Ref.modify(nativeMetadataBySessionId, (current) => {
@@ -6420,6 +6499,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                 notification.update.sessionUpdate === "config_option_update" ||
                 notification.update.sessionUpdate === "current_mode_update"
               ) {
+                contextCompactionObserver?.configure?.(yield* runtime.getConfigOptions);
                 yield* (
                   flavor.onSessionConfigurationUpdate?.(
                     yield* runtime.getConfigOptions,
@@ -7315,6 +7395,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           modelSelection: ModelSelection,
           runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
         ) {
+          contextCompactionObserver?.reset();
           yield* Ref.set(activeSelection, null);
           yield* validateModelSelection(modelSelection);
           const requestedModel = flavor.resolveModelId?.(modelSelection) ?? modelSelection.model;
@@ -7701,6 +7782,41 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           );
         });
 
+        const pollTurnContextUsage = Effect.fnUntraced(function* (context: ActiveAcpTurn) {
+          const poll = flavor.pollContextUsage;
+          if (poll === undefined) return;
+          yield* contextUsagePollPermit.withPermit(
+            Effect.gen(function* () {
+              const usage = yield* poll({
+                sessionId: context.nativeThreadId,
+                cwd: context.input.runtimePolicy.cwd ?? process.cwd(),
+                modelSelection: context.input.modelSelection,
+              });
+              if (
+                (yield* Ref.get(activeTurn)) !== context ||
+                usage === undefined ||
+                lastPolledContextUsage.get(context) === usage.usedTokens
+              )
+                return;
+              lastPolledContextUsage.set(context, usage.usedTokens);
+              yield* Ref.update(polledBreakdownBySessionId, (current) =>
+                new Map(current).set(context.nativeThreadId, usage.breakdown),
+              );
+              yield* handleSessionUpdate(
+                {
+                  sessionId: context.nativeThreadId,
+                  update: {
+                    sessionUpdate: "usage_update",
+                    used: usage.usedTokens,
+                    size: usage.maxTokens ?? 0,
+                  },
+                },
+                true,
+              );
+            }),
+          );
+        });
+
         const finalizeTurn = Effect.fnUntraced(function* (
           context: ActiveAcpTurn,
           status: "completed" | "interrupted" | "failed" | "cancelled",
@@ -7711,6 +7827,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           const settledStatus = context.interrupted ? "interrupted" : status;
           context.finalizedStatus = settledStatus;
           context.finalized = true;
+          if (contextCompactionObserver !== undefined && settledStatus === "completed") {
+            yield* pollTurnContextUsage(context).pipe(Effect.ignore);
+          }
           const watchdog = context.inactivityWatchdog;
           context.inactivityWatchdog = undefined;
           if (watchdog !== undefined) {
@@ -8337,30 +8456,11 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             yield* Ref.set(stoppedRunQuarantine, false);
             const pollContextUsage = flavor.pollContextUsage;
             if (pollContextUsage !== undefined) {
-              const cwd = turnInput.runtimePolicy.cwd ?? process.cwd();
               yield* Effect.gen(function* () {
-                let lastUsedTokens = context.contextUsage?.usedTokens;
                 while (true) {
                   yield* Effect.sleep(CONTEXT_USAGE_POLL_INTERVAL);
                   if ((yield* Ref.get(activeTurn)) !== context || context.finalized) return;
-                  const usage = yield* pollContextUsage({
-                    sessionId: requestedSessionId,
-                    cwd,
-                    modelSelection: turnInput.modelSelection,
-                  });
-                  if (usage === undefined || usage.usedTokens === lastUsedTokens) continue;
-                  lastUsedTokens = usage.usedTokens;
-                  yield* Ref.update(polledBreakdownBySessionId, (current) =>
-                    new Map(current).set(requestedSessionId, usage.breakdown),
-                  );
-                  yield* handleSessionUpdate({
-                    sessionId: requestedSessionId,
-                    update: {
-                      sessionUpdate: "usage_update",
-                      used: usage.usedTokens,
-                      size: usage.maxTokens ?? 0,
-                    },
-                  });
+                  yield* pollTurnContextUsage(context);
                 }
               }).pipe(Effect.ignore, Effect.forkIn(sessionScope), Effect.asVoid);
             }
@@ -8855,6 +8955,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               readonly modelSelection?: ModelSelection;
               readonly runtimePolicy?: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
             }) {
+              contextCompactionObserver?.reset();
               return yield* runtimeTransitionPermit.withPermit(
                 Effect.gen(function* () {
                   yield* awaitRuntimeTeardown();
