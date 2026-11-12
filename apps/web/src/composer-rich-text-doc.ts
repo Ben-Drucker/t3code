@@ -1878,6 +1878,27 @@ export function hasComposerQqChip(
   return tiptapBlocksContainQqChip(buildTiptapContent(value, skillLabelFor, options));
 }
 
+export function removeComposerQqChips(
+  state: EditorState,
+  dispatch: (transaction: Transaction) => void,
+): boolean {
+  const ranges: Array<{ from: number; to: number }> = [];
+  state.doc.descendants((node, pos) => {
+    if (node.type.name !== "composer-skill" || node.attrs.skillName !== "qq") return;
+    const end = pos + node.nodeSize;
+    const following = state.doc.resolve(end).nodeAfter;
+    ranges.push({
+      from: pos,
+      to: end + (following?.isText && following.text?.startsWith(" ") ? 1 : 0),
+    });
+  });
+  if (ranges.length === 0) return false;
+  const transaction = state.tr;
+  for (const range of ranges.toReversed()) transaction.delete(range.from, range.to);
+  dispatch(transaction.scrollIntoView());
+  return true;
+}
+
 export function flatToPm(map: RichDocMap, flatOffset: number): number {
   const bounded = Math.max(0, Math.min(flatOffset, map.docLength));
   for (const run of map.runs) {

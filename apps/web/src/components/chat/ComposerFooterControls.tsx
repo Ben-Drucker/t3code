@@ -194,7 +194,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   canOperateThread: boolean;
   qqActive: boolean;
   qqDisabled: boolean;
-  onInsertQq: () => void;
+  onToggleQq: () => void;
   activeContextWindow: ContextWindowSnapshot | null;
   contextBreakdown: ContextBreakdown | null;
   reserveContextWindowMeter: boolean;
@@ -242,19 +242,23 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
               size="xs"
               disabled={props.qqDisabled}
               aria-pressed={props.qqActive}
-              aria-label="Insert /qq quick question chip"
+              aria-label={
+                props.qqActive ? "Remove /qq quick question chip" : "Insert /qq quick question chip"
+              }
               data-testid="composer-qq-button"
               className="@max-[480px]/composer-surface:hidden px-1.5 font-extrabold tracking-tight aria-pressed:bg-accent/60 aria-pressed:text-foreground dark:aria-pressed:text-foreground"
               onClick={() => {
                 if (props.qqDisabled) return;
-                props.onInsertQq();
+                props.onToggleQq();
               }}
             />
           }
         >
           QQ
         </TooltipTrigger>
-        <TooltipPopup side="top">Insert /qq quick question chip</TooltipPopup>
+        <TooltipPopup side="top">
+          {props.qqActive ? "Remove /qq quick question chip" : "Insert /qq quick question chip"}
+        </TooltipPopup>
       </Tooltip>
       {props.activeContextWindow ? (
         <ContextWindowMeter

@@ -87,6 +87,7 @@ import {
   flatToPm,
   markdownToFlat,
   pmToFlat,
+  removeComposerQqChips,
   serializeEditorDoc,
   serializeSelection,
   skillChipReplacements,
@@ -142,6 +143,7 @@ export interface ComposerPromptEditorHandle {
   focusAt: (cursor: number) => void;
   focusAtEnd: () => void;
   readSelectionRange: () => { start: number; end: number };
+  removeQqChips: () => boolean;
   requestCitationComment: (request: ComposerCitationCommentRequest) => void;
   readSnapshot: () => {
     value: string;
@@ -1820,6 +1822,12 @@ function ComposerPromptEditorTiptapInner(
         }
       },
       readSnapshot,
+      removeQqChips: () => {
+        if (!editor || !editor.isEditable) return false;
+        const removed = removeComposerQqChips(editor.state, (tr) => editor.view.dispatch(tr));
+        if (removed) editor.commands.focus();
+        return removed;
+      },
       readCaretCoords: () => {
         if (!editor) return null;
         try {

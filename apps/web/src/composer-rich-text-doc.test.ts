@@ -30,6 +30,7 @@ import {
   hasComposerQqChip,
   markdownToFlat,
   pmToFlat,
+  removeComposerQqChips,
   serializeEditorDoc,
   serializeSelection,
   skillChipReplacements,
@@ -1456,6 +1457,27 @@ describe("surroundSelectionWithMark", () => {
 describe("hasComposerQqChip", () => {
   const knownQqSkill = (name: string) =>
     name === "qq" ? { label: "qq", description: null } : null;
+
+  it.each([
+    ["/qq ", ""],
+    ["before /qq after", "before after"],
+    ["$qq explain this", "explain this"],
+    ["**before /qq ask**", "**before ask**"],
+    ["> /qq ask", "> ask"],
+    ["/qq ask $qq again", "ask again"],
+    ["```\n/qq literal\n```\n\n/qq ask", "```\n/qq literal\n```\n\nask"],
+  ])("removes only rendered QQ chips from %j", (value, expected) => {
+    let state = EditorState.create({
+      doc: ProseMirrorNode.fromJSON(schema, buildDocJson(value, knownQqSkill)),
+    });
+    expect(
+      removeComposerQqChips(state, (transaction) => {
+        state = state.apply(transaction);
+      }),
+    ).toBe(true);
+    expect(serializeEditorDoc(state.doc).value).toBe(expected);
+    expect(removeComposerQqChips(state, () => {})).toBe(false);
+  });
 
   it("detects /qq skill chips across draft positions and blocks", () => {
     expect(hasComposerQqChip("")).toBe(false);

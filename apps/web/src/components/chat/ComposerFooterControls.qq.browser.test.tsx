@@ -1,12 +1,16 @@
 import "~/index.css";
 
-import { useState, type ComponentProps } from "react";
+import { useRef, useState, type ComponentProps } from "react";
 import { expect, it, vi } from "vite-plus/test";
 
 import { hasComposerQqChip } from "~/composer-rich-text-doc";
 import { act, render } from "../../../test/render";
 import { TooltipProvider } from "../ui/tooltip";
 import { ComposerFooterPrimaryActions } from "./ComposerFooterControls";
+import {
+  ComposerPromptEditorTiptap,
+  type ComposerPromptEditorHandle,
+} from "../ComposerPromptEditorTiptap";
 
 vi.mock("~/hooks/useSettings", async (importOriginal) => ({
   ...(await importOriginal<typeof import("~/hooks/useSettings")>()),
@@ -24,7 +28,7 @@ function baseProps(): ComponentProps<typeof ComposerFooterPrimaryActions> {
     canOperateThread: true,
     qqActive: false,
     qqDisabled: false,
-    onInsertQq: vi.fn(),
+    onToggleQq: vi.fn(),
     activeContextWindow: null,
     contextBreakdown: null,
     reserveContextWindowMeter: false,
@@ -82,19 +86,32 @@ it("hides the QQ button when composer-surface is compressed and shows it when wi
   expect(getComputedStyle(qq).display).toBe("inline-flex");
 });
 
-it("inserts /qq at most once per draft and reflects active state via aria-pressed", async () => {
+it("toggles one /qq chip per draft and reflects active state via aria-pressed", async () => {
   function Harness() {
     const [draft, setDraft] = useState("");
+    const editorRef = useRef<ComposerPromptEditorHandle>(null);
     const qqActive = hasComposerQqChip(draft);
     return (
       <TooltipProvider>
         <div className="@container/composer-surface" style={{ width: "640px" }}>
+          <ComposerPromptEditorTiptap
+            editorRef={editorRef}
+            value={draft}
+            cursor={draft.length}
+            contextRecords={new Map()}
+            skills={[]}
+            disabled={false}
+            placeholder=""
+            onChange={setDraft}
+            onPaste={() => {}}
+          />
           <ComposerFooterPrimaryActions
             {...baseProps()}
             qqActive={qqActive}
             hasSendableContent={draft.trim().length > 0}
-            onInsertQq={() => {
-              setDraft((current) => (hasComposerQqChip(current) ? current : `${current}/qq `));
+            onToggleQq={() => {
+              if (hasComposerQqChip(draft)) editorRef.current?.removeQqChips();
+              else setDraft(`${draft}/qq `);
             }}
             onSubmitMessage={() => {
               setDraft("");
@@ -117,6 +134,11 @@ it("inserts /qq at most once per draft and reflects active state via aria-presse
   expect(output.textContent).toBe("/qq ");
   expect(qq.getAttribute("aria-pressed")).toBe("true");
   expect(getComputedStyle(qq).backgroundColor).not.toBe(inactiveBackground);
+
+  await act(() => qq.click());
+  expect(output.textContent).toBe("");
+  expect(qq.getAttribute("aria-pressed")).toBe("false");
+  expect(getComputedStyle(qq).backgroundColor).toBe(inactiveBackground);
 
   await act(() => qq.click());
   expect(output.textContent).toBe("/qq ");

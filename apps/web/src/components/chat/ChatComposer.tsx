@@ -2869,7 +2869,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       literalText: isLiteralPendingAnswer,
     },
   );
-  const onInsertQqStable = useStableCallback(() => {
+  const onToggleQqStable = useStableCallback(() => {
     const currentValue = activePendingProgress
       ? activePendingProgress.customAnswer
       : promptRef.current;
@@ -2880,6 +2880,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         literalText: isLiteralPendingAnswer,
       })
     ) {
+      composerEditorRef.current?.removeQqChips();
       return;
     }
     insertComposerTextStable(hasKnownQqSkill ? "$qq " : "/qq ", "cursor", {
@@ -4053,7 +4054,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                           speechInput.freezesEditor ||
                           (pendingUserInputs.length > 0 && !activePendingProgress?.activeQuestion)
                         }
-                        onInsertQq={onInsertQqStable}
+                        onToggleQq={onToggleQqStable}
                         activeContextWindow={activeContextWindow}
                         contextBreakdown={contextBreakdown}
                         reserveContextWindowMeter={reserveContextWindowMeter}
