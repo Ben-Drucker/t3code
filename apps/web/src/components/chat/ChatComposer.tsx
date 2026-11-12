@@ -81,7 +81,7 @@ import {
   composerStateAtPromptEnd,
   detectComposerTrigger,
   expandCollapsedComposerCursor,
-  formatAssistantCitationForComposer,
+  insertAssistantCitationIntoPrompt,
   isPathSuggestionCurrent,
   extendReplacementRangeForTrailingSpace,
   replaceTextRange,
@@ -326,7 +326,7 @@ export interface ChatComposerHandle {
   pasteTextAtEnd: (text: string, options?: { bypassAutoAttachment?: boolean }) => boolean;
   citeAssistantText: (
     citation: AssistantCitation,
-    sourceAnchor: AssistantCitationSourceAnchor,
+    sourceAnchor?: AssistantCitationSourceAnchor,
   ) => boolean;
   replyToResponse: (response: ResponseContextRecord) => boolean;
   openModelPicker: () => void;
@@ -3179,12 +3179,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         focusComposer();
         return true;
       },
-      citeAssistantText: (citation, sourceAnchor) =>
-        insertComposerTextStable(
-          formatAssistantCitationForComposer(citation, citation.comment),
-          "cursor",
-          { ensureLeadingBoundary: true, citationCommentAnchor: sourceAnchor },
-        ),
+      citeAssistantText: (citation) => {
+        if (activePendingIsResponding || pendingUserInputs.length > 0 || projectSelectionRequired) {
+          return false;
+        }
+        const snapshot = readComposerSnapshotStable();
+        const next = insertAssistantCitationIntoPrompt(
+          snapshot.value,
+          snapshot.expandedCursor,
+          citation,
+        );
+        return applyPromptReplacementStable(0, snapshot.value.length, next.text, {
+          expandedCursorAfterReplace: next.cursor,
+          focusEditorAfterReplace: true,
+        });
+      },
       replyToResponse: (response) => {
         // An open question owns the composer, and its answer would not carry the reply.
         if (pendingUserInputs.length > 0 || projectSelectionRequired) return false;
@@ -3376,6 +3385,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerModelOptions,
       isEditingQueuedMessage,
       composerCursor,
+      activePendingIsResponding,
       activePendingProgress,
       pendingApprovals,
       heldRequestIds,

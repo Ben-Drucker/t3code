@@ -47,7 +47,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -58,6 +57,7 @@ import {
   collapseExpandedComposerCursor,
   expandCollapsedComposerCursor,
   pastedPathQueryLength,
+  resolveComposerCitationEdges,
 } from "~/composer-logic";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { caretLineDirection, ComposerTextDirectionExtension } from "~/composer-text-direction";
@@ -120,7 +120,7 @@ import { WorkspaceEntryTooltip } from "./chat/WorkspaceEntryIcon";
 import { FileTagChipContent } from "./chat/FileTagChip";
 import { SkillChipPopover, skillPopoverDescription } from "./chat/SkillInlineText";
 import { AgentConfigChip } from "./chat/AgentConfigChip";
-import { AssistantCitationChip } from "./chat/AssistantCitationChip";
+import { AssistantCitationEmbed } from "./chat/AssistantCitationChip";
 import { ModelMentionChip, modelMentionKey, modelMentionKeysAtom } from "./chat/ModelMentionChip";
 import { getTimelinePageScrollKey } from "./chat/pageScrollController";
 import { ContextChip } from "./ContextChip";
@@ -471,111 +471,104 @@ const ComposerCitationExtension = Node.create({
   },
 });
 
+function readComposerCitationEdges(
+  editor: NodeViewProps["editor"],
+  getPos: NodeViewProps["getPos"],
+): { leading: boolean; trailing: boolean } {
+  const pos = typeof getPos === "function" ? getPos() : undefined;
+  if (typeof pos !== "number") return { leading: true, trailing: true };
+  const map = serializeEditorDoc(editor.state.doc);
+  const run = map.runs.find(
+    (item) => item.kind === "token" && item.nodeName === "composer-citation" && item.pmPos === pos,
+  );
+  if (!run) return { leading: true, trailing: true };
+  return resolveComposerCitationEdges({
+    beforeText: map.value.slice(0, run.mdStart),
+    afterText: map.value.slice(run.mdStart + run.mdLen),
+  });
+}
+
 function ComposerCitationNodeView({ node, editor, getPos }: NodeViewProps) {
-  const commentContext = use(ComposerCitationCommentContext);
   const citation = node.attrs.citation as AssistantCitation;
-  const citeKey = node.attrs.citeKey as string;
-  const commentTarget =
-    commentContext.openComment?.key === citeKey ? commentContext.openComment : null;
+  const [edges, setEdges] = useState(() => readComposerCitationEdges(editor, getPos));
+  const [editable, setEditable] = useState(() => editor.isEditable);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- keeps leading/trailing card spacing and editability synced with surrounding ProseMirror transactions
+  useEffect(() => {
+    const sync = () => {
+      const next = readComposerCitationEdges(editor, getPos);
+      setEdges((prev) =>
+        prev.leading === next.leading && prev.trailing === next.trailing ? prev : next,
+      );
+      setEditable(editor.isEditable);
+    };
+    sync();
+    editor.on("transaction", sync);
+    return () => {
+      editor.off("transaction", sync);
+    };
+  }, [editor, getPos]);
 
   const nodePos = () => {
     const pos = typeof getPos === "function" ? getPos() : null;
     return typeof pos === "number" ? pos : null;
   };
 
-  const onSaveComment = (comment: string): boolean => {
-    if (!editor.isEditable) return false;
-    const pos = nodePos();
-    if (pos === null) return false;
-    const current = editor.state.doc.nodeAt(pos);
-    if (!current || current.type.name !== "composer-citation") return false;
-    const currentCitation = current.attrs.citation as AssistantCitation;
-    const next = withAssistantCitationComment(currentCitation, comment);
-    const tr = editor.state.tr.setNodeMarkup(pos, undefined, {
-      ...current.attrs,
-      citation: next,
-      source: serializeAssistantCitation(next),
-    });
-    editor.view.dispatch(tr);
-    return true;
-  };
-
-  const removeOnCancel = commentTarget?.removeOnCancel;
   const onRemove = () => {
-    if (!editor.isEditable || !removeOnCancel) return;
+    if (!editor.isEditable) return;
     const pos = nodePos();
     if (pos === null) return;
     const { doc } = editor.state;
     const current = doc.nodeAt(pos);
-    if (!current) return;
-    const end = pos + current.nodeSize;
-    const from = removeOnCancel.before && doc.textBetween(pos - 1, pos) === " " ? pos - 1 : pos;
-    const to = removeOnCancel.after && doc.textBetween(end, end + 1) === " " ? end + 1 : end;
-    editor.chain().focus().deleteRange({ from, to }).run();
-  };
-
-  const sentRef = useRef(false);
-  const onRestoreFocus = () => {
-    const sent = sentRef.current;
-    sentRef.current = false;
-    if (!editor.isEditable) return;
-    const pos = nodePos();
-    const current = pos === null ? null : editor.state.doc.nodeAt(pos);
-    if (pos === null || current?.type.name !== "composer-citation") {
-      if (sent) editor.view.focus();
-      return;
+    if (!current || current.type.name !== "composer-citation") return;
+    const $pos = doc.resolve(pos);
+    if ($pos.parent.type.name === "paragraph" && $pos.parent.childCount === 1) {
+      const blockStart = $pos.before();
+      const blockEnd = $pos.after();
+      const trailingEmptyOnly =
+        blockEnd < doc.content.size &&
+        blockEnd + 2 === doc.content.size &&
+        doc.lastChild?.type.name === "paragraph" &&
+        doc.lastChild.content.size === 0;
+      if (blockStart === 0 && trailingEmptyOnly) {
+        editor.chain().focus().deleteRange({ from: 0, to: doc.content.size }).run();
+        return;
+      }
+      if (blockStart > 0 && trailingEmptyOnly) {
+        editor
+          .chain()
+          .focus(blockStart - 1)
+          .deleteRange({ from: blockStart, to: doc.content.size })
+          .run();
+        return;
+      }
+      if (blockEnd < doc.content.size || blockStart > 0) {
+        editor.chain().focus().deleteRange({ from: blockStart, to: blockEnd }).run();
+        return;
+      }
     }
-    // The send's controlled rewrite may still be pending; emitting this caret move would restore the old prompt.
-    editor
-      .chain()
-      .setMeta(SILENT_SELECTION_META, sent)
-      .focus(pos + current.nodeSize)
-      .run();
+    const end = pos + current.nodeSize;
+    const removeAfter = end < $pos.end() && doc.textBetween(end, end + 1) === " " ? end + 1 : end;
+    const removeBefore =
+      removeAfter === end && pos > $pos.start() && doc.textBetween(pos - 1, pos) === " "
+        ? pos - 1
+        : pos;
+    editor.chain().focus().deleteRange({ from: removeBefore, to: removeAfter }).run();
   };
 
   return (
     <NodeViewWrapper
       as="span"
-      className={CHIP_NODE_SELECTION_CLASS_NAME}
+      className={cn(CHIP_NODE_SELECTION_CLASS_NAME, "block")}
       contentEditable={false}
       spellCheck={false}
       data-composer-citation-chip="true"
-      onKeyDown={(event: ReactKeyboardEvent<HTMLElement>) => {
-        if (
-          !editor.isEditable ||
-          event.key !== "Tab" ||
-          event.shiftKey ||
-          event.altKey ||
-          event.metaKey ||
-          event.ctrlKey ||
-          !(event.target instanceof HTMLElement) ||
-          event.target.dataset.citationCommentTrigger === undefined
-        ) {
-          return;
-        }
-        event.preventDefault();
-        onRestoreFocus();
-      }}
     >
-      <AssistantCitationChip
+      <AssistantCitationEmbed
         citation={citation}
-        commentEditor={{
-          open: commentTarget !== null,
-          sourceAnchor: commentTarget?.sourceAnchor,
-          onOpenChange: (open) => {
-            if (open && !editor.isEditable) return;
-            commentContext.onOpenChange(citeKey, open);
-          },
-          ...(removeOnCancel ? { onCancel: onRemove } : {}),
-          onSave: onSaveComment,
-          onDraftChange: (comment) => commentContext.onDraftChange(citeKey, comment),
-          onSaveAndSend: (comment) => {
-            if (!onSaveComment(comment)) return false;
-            sentRef.current = commentContext.onSubmitAndSend();
-            return true;
-          },
-          onRestoreFocus,
-        }}
+        leading={edges.leading}
+        trailing={edges.trailing}
+        onRemove={editable ? onRemove : undefined}
       />
     </NodeViewWrapper>
   );

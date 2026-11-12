@@ -21,8 +21,11 @@ import {
   expandCollapsedComposerCursor,
   extendReplacementRangeForTrailingSpace,
   formatAssistantCitationForComposer,
+  insertAssistantCitationIntoPrompt,
   isPathSuggestionCurrent,
+  removeAssistantCitationRange,
   replaceTextRange,
+  resolveComposerCitationEdges,
 } from "./composer-logic";
 import { slashCommandItemsForPromptPosition } from "./components/chat/composerSlashCommandSearch";
 import { carryDisplacedCustomAnswerIntoPrompt } from "./pendingUserInput";
@@ -84,13 +87,102 @@ describe("isPathSuggestionCurrent", () => {
 });
 
 describe("formatAssistantCitationForComposer", () => {
-  it("binds a multiline comment to its citation without adding standalone prompt text", () => {
+  it("places the serialized citation on its own line ready for composer commentary beneath it", () => {
     const comment = 'What does "keep" mean? 👋\n  Please show an example.';
     const text = formatAssistantCitationForComposer(citation, `  ${comment}\n`);
     const boundCitation = { ...citation, comment };
-    expect(text).toBe(`${serializeAssistantCitation(boundCitation)} `);
+    expect(text).toBe(`${serializeAssistantCitation(boundCitation)}\n`);
     expect(collectAssistantCitations(text).map((entry) => entry.citation)).toEqual([boundCitation]);
-    expect(expandAssistantCitationsForProvider(text)).toMatch(/^\[assistant-quote-1\] \n\n/);
+    expect(expandAssistantCitationsForProvider(text)).toMatch(/^\[assistant-quote-1\]\n\n/);
+  });
+});
+
+describe("assistant citation draft helpers", () => {
+  const secondCitation: AssistantCitation = {
+    ...citation,
+    messageId: MessageId.make("message-2"),
+    text: "Second quoted passage",
+    prefix: "before ",
+    suffix: " after",
+  };
+
+  it("inserts single and multiple cites on their own lines with the caret on the commentary line below", () => {
+    const first = insertAssistantCitationIntoPrompt("", 0, citation);
+    const firstToken = serializeAssistantCitation(citation);
+    expect(first).toEqual({
+      text: `${firstToken}\n`,
+      cursor: firstToken.length + 1,
+    });
+
+    const withComment = `${first.text}Check **this** in @app.ts`;
+    const second = insertAssistantCitationIntoPrompt(
+      withComment,
+      withComment.length,
+      secondCitation,
+    );
+    const secondToken = serializeAssistantCitation(secondCitation);
+    expect(second).toEqual({
+      text: `${firstToken}\nCheck **this** in @app.ts\n${secondToken}\n`,
+      cursor: `${firstToken}\nCheck **this** in @app.ts\n${secondToken}\n`.length,
+    });
+
+    const parsed = collectAssistantCitations(second.text);
+    expect(parsed.map((entry) => entry.citation)).toEqual([citation, secondCitation]);
+    expect(expandAssistantCitationsForProvider(`${second.text}And compare here.`)).toContain(
+      "[assistant-quote-1]\nCheck **this** in @app.ts\n[assistant-quote-2]\nAnd compare here.",
+    );
+  });
+
+  it("removes a sole or multi-cite quote cleanly from the draft", () => {
+    const firstToken = serializeAssistantCitation(citation);
+    const secondToken = serializeAssistantCitation(secondCitation);
+
+    const sole = `${firstToken}\n`;
+    expect(removeAssistantCitationRange(sole, 0, firstToken.length)).toEqual({
+      text: "",
+      cursor: 0,
+    });
+
+    const multi = `${firstToken}\nFirst comment\n${secondToken}\nSecond comment`;
+    const withoutFirst = removeAssistantCitationRange(multi, 0, firstToken.length);
+    expect(withoutFirst).toEqual({
+      text: `First comment\n${secondToken}\nSecond comment`,
+      cursor: 0,
+    });
+
+    const trailingUncommented = `${firstToken}\nFirst comment\n${secondToken}\n`;
+    const secondStart = `${firstToken}\nFirst comment\n`.length;
+    expect(
+      removeAssistantCitationRange(
+        trailingUncommented,
+        secondStart,
+        secondStart + secondToken.length,
+      ),
+    ).toEqual({
+      text: `${firstToken}\nFirst comment`,
+      cursor: `${firstToken}\nFirst comment`.length,
+    });
+  });
+
+  it("computes leading and trailing block edges matching sent-message ResponseCard spacing", () => {
+    expect(resolveComposerCitationEdges({ beforeText: "", afterText: "\nCommentary" })).toEqual({
+      leading: true,
+      trailing: false,
+    });
+    expect(resolveComposerCitationEdges({ beforeText: "", afterText: "\n" })).toEqual({
+      leading: true,
+      trailing: false,
+    });
+    expect(
+      resolveComposerCitationEdges({ beforeText: "Intro\n", afterText: "\nCommentary" }),
+    ).toEqual({
+      leading: false,
+      trailing: false,
+    });
+    expect(resolveComposerCitationEdges({ beforeText: "Intro\n", afterText: "" })).toEqual({
+      leading: false,
+      trailing: true,
+    });
   });
 });
 
