@@ -7,7 +7,6 @@ import {
   resolveTimelineMinimapEdgeFade,
   resolveTimelineMinimapHeightStyle,
   resolveTimelineMinimapIndexFromPointer,
-  resolveTimelineMinimapInteractiveWidth,
   resolveTimelineMinimapItemOffset,
   resolveTimelineMinimapMaskImage,
   resolveTimelineMinimapNavigationInteractive,
@@ -18,10 +17,6 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
-
-function timelineMinimapEventTargetsPreview(target: EventTarget): boolean {
-  return target instanceof Element && target.closest("[data-minimap-preview]") !== null;
-}
 
 // A release outside the window can skip `mouseup`, so the next button-free
 // `mousemove` also counts.
@@ -58,6 +53,7 @@ export function TimelineMinimap({
   hasPersistentGutter,
   hitStripWidth,
   currentIndex,
+  atEnd,
   items,
   stripMap,
   onWheel,
@@ -66,6 +62,7 @@ export function TimelineMinimap({
   hasPersistentGutter: boolean;
   hitStripWidth: number;
   currentIndex: number | null;
+  atEnd: boolean;
   items: ReadonlyArray<TimelineMinimapItem>;
   stripMap: Map<string, HTMLSpanElement>;
   onWheel: (event: WheelEvent) => void;
@@ -99,7 +96,6 @@ export function TimelineMinimap({
         rail &&
         event.target instanceof Node &&
         rail.contains(event.target) &&
-        !timelineMinimapEventTargetsPreview(event.target) &&
         rail.scrollHeight > rail.clientHeight + 1
       ) {
         return;
@@ -140,20 +136,12 @@ export function TimelineMinimap({
             resolveTimelineMinimapItemOffset(resolvedActiveIndex) - scrollMetrics.scrollTop,
           ),
         );
-  const activeTooltipTranslate =
-    resolvedActiveIndex === null
-      ? "-50%"
-      : resolvedActiveIndex === 0 || (viewportHeight > 48 && activeVisualTopPx <= 16)
-        ? "0%"
-        : resolvedActiveIndex === items.length - 1 ||
-            (viewportHeight > 48 && activeVisualTopPx >= viewportHeight - 16)
-          ? "-100%"
-          : "-50%";
   const resolvedCurrentIndex =
     currentIndex !== null && currentIndex >= 0 && currentIndex < items.length ? currentIndex : null;
   const previousItem =
     resolvedCurrentIndex === null ? null : (items[resolvedCurrentIndex - 1] ?? null);
-  const nextItem = resolvedCurrentIndex === null ? null : (items[resolvedCurrentIndex + 1] ?? null);
+  const nextItem =
+    resolvedCurrentIndex === null || atEnd ? null : (items[resolvedCurrentIndex + 1] ?? null);
 
   const scrollIndexIntoView = (targetIndex: number | null) => {
     const node = railNodeRef.current;
@@ -272,7 +260,7 @@ export function TimelineMinimap({
           }}
           style={{
             height: resolveTimelineMinimapHeightStyle(items.length),
-            width: resolveTimelineMinimapInteractiveWidth(hitStripWidth, activeItem !== null),
+            width: hitStripWidth,
           }}
         >
           <TimelineMinimapNavigationButton
@@ -294,9 +282,6 @@ export function TimelineMinimap({
               }
             }}
             onClick={(event) => {
-              if (timelineMinimapEventTargetsPreview(event.target)) {
-                return;
-              }
               const nextIndex = resolveActiveIndexFromPointer(event);
               const selectedItem = nextIndex === null ? null : (items[nextIndex] ?? null);
               if (selectedItem) {
@@ -329,12 +314,7 @@ export function TimelineMinimap({
               if (event.buttons !== 0 && !pressedOnStripRef.current) return;
               updateActiveIndexFromPointer(event);
             }}
-            onMouseDown={(event) => {
-              if (timelineMinimapEventTargetsPreview(event.target)) {
-                return;
-              }
-              event.preventDefault();
-            }}
+            onMouseDown={(event) => event.preventDefault()}
             onScroll={(event) => {
               const element = event.currentTarget;
               syncScrollMetrics(element);
@@ -398,17 +378,11 @@ export function TimelineMinimap({
             </span>
           </button>
           {activeItem ? (
+            // Display-only: it overlaps the message column, and the strip keeps tracking beneath it.
             <span
-              className="pointer-events-auto absolute left-8 z-20 w-80 cursor-text select-text"
+              className="pointer-events-none absolute left-8 z-20 w-80 -translate-y-1/2"
               data-minimap-preview
-              onMouseEnter={() => {
-                pointerClientYRef.current = null;
-              }}
-              onMouseMove={(event) => event.stopPropagation()}
-              style={{
-                top: `${activeVisualTopPx}px`,
-                transform: `translateY(${activeTooltipTranslate})`,
-              }}
+              style={{ top: `${activeVisualTopPx}px` }}
             >
               <span className="dropdown-glass block rounded-xl p-3 text-left text-popover-foreground shadow-xl shadow-black/25">
                 <span className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium leading-5">
@@ -466,7 +440,7 @@ function TimelineMinimapNavigationButton({
             className={cn(
               "absolute left-1 z-10 inline-flex -translate-x-1/2 opacity-0 transition-opacity duration-150 hover:opacity-100 focus-within:opacity-100",
               interactive ? "pointer-events-auto" : "pointer-events-none",
-              previous ? "bottom-[calc(100%+2px)]" : "top-[calc(100%+2px)]",
+              previous ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]",
             )}
           />
         }

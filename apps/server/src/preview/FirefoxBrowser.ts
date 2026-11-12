@@ -940,10 +940,6 @@ export class FirefoxBrowser implements ServerBrowserBackend {
       }
       case "evaluate": {
         const input = request.input as PreviewAutomationEvaluateInput;
-        if (input.returnByValue === false)
-          unsupported(
-            "Firefox Classic evaluation returns JSON values; remote object handles are unavailable.",
-          );
         const result =
           input.awaitPromise === false
             ? await this.script<unknown>(

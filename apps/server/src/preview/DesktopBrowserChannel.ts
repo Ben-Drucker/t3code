@@ -6,6 +6,7 @@ import {
   DesktopBrowserCommand,
   DesktopBrowserEvent,
   type DesktopBrowserCommand as DesktopBrowserCommandType,
+  type PreviewAutomationLoadError,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
@@ -54,6 +55,8 @@ export class DesktopBrowserChannel extends Context.Service<
     readonly isAttached: (key: DesktopTabKey) => Effect.Effect<boolean>;
     /** Whether a desktop window draws the tab on screen, which no streamed viewer counts. */
     readonly isShown: (key: DesktopTabKey) => boolean;
+    /** A load failure the desktop saw, possibly before the server connected to the tab. */
+    readonly loadFailure: (key: DesktopTabKey) => PreviewAutomationLoadError | undefined;
     readonly endpoint: (key: DesktopTabKey) => Effect.Effect<string, never, Scope.Scope>;
     readonly pointer: (
       key: DesktopTabKey,
@@ -78,6 +81,7 @@ const make = Effect.gen(function* () {
   const attachedTabs = new Set<string>();
   // Missing reports protect desktop tabs until the renderer explicitly marks them hidden.
   const shownTabs = new Map<string, boolean>();
+  const loadFailures = new Map<string, PreviewAutomationLoadError>();
   const inbound = new Map<string, Queue.Queue<string>>();
   const writeLock = yield* Semaphore.make(1);
 
@@ -102,6 +106,7 @@ const make = Effect.gen(function* () {
         return Effect.void;
       }),
       isShown: () => false,
+      loadFailure: () => undefined,
       dock: Effect.fn("DesktopBrowserChannel.dock")(function () {
         return Effect.void;
       }),
@@ -147,9 +152,17 @@ const make = Effect.gen(function* () {
         case "attached":
           attachedTabs.add(id);
           return PubSub.publish(changes, { key, attached: true });
+        case "loadFailed":
+          loadFailures.set(id, {
+            url: event.url.slice(0, 2048),
+            code: event.code,
+            description: event.description,
+          });
+          return Effect.void;
         case "detached": {
           attachedTabs.delete(id);
           shownTabs.delete(id);
+          loadFailures.delete(id);
           const queue = inbound.get(id);
           return (queue ? Queue.shutdown(queue) : Effect.void).pipe(
             Effect.andThen(PubSub.publish(changes, { key, attached: false })),
@@ -165,7 +178,12 @@ const make = Effect.gen(function* () {
       }
     }),
     Effect.catchCause((cause) => Effect.logWarning("desktop browser channel stopped", { cause })),
-    Effect.ensuring(Effect.sync(() => shownTabs.clear())),
+    Effect.ensuring(
+      Effect.sync(() => {
+        shownTabs.clear();
+        loadFailures.clear();
+      }),
+    ),
     Effect.forkScoped,
   );
 
@@ -200,12 +218,14 @@ const make = Effect.gen(function* () {
           connected = true;
           const writer = yield* socket.writer;
           const reader = yield* socket.reader;
-          yield* Stream.fromQueue(queue).pipe(
+          // A detach shuts the queue down. Ending here closes the socket, so Playwright's
+          // pending commands fail instead of waiting forever for the tab to answer.
+          const toPlaywright = Stream.fromQueue(queue).pipe(
             Stream.runForEach((message) => writer.write(message)),
-            Effect.forkScoped,
+            Effect.exit,
           );
           const decoder = new TextDecoder();
-          return yield* reader.pull.pipe(
+          const toDesktop = reader.pull.pipe(
             Effect.flatMap((frames) =>
               Effect.forEach(
                 frames,
@@ -220,6 +240,7 @@ const make = Effect.gen(function* () {
             ),
             Effect.forever,
           );
+          return yield* Effect.raceFirst(toPlaywright, toDesktop);
         }).pipe(Effect.scoped, Effect.ignore),
       )
       .pipe(Effect.forkScoped);
@@ -257,6 +278,7 @@ const make = Effect.gen(function* () {
       return Effect.sync(() => attachedTabs.has(keyOf(key)));
     }),
     isShown: (key) => shownTabs.get(keyOf(key)) ?? true,
+    loadFailure: (key) => loadFailures.get(keyOf(key)),
     dock: Effect.fn("DesktopBrowserChannel.dock")(function (key, pid) {
       return command({ type: "dock", ...key, pid });
     }),

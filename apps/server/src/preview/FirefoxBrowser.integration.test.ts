@@ -330,6 +330,7 @@ firefoxTest(
           attached: Stream.empty,
           isAttached: () => Effect.succeed(false),
           isShown: () => false,
+          loadFailure: () => undefined,
           endpoint: () => Effect.die("unused"),
           pointer: () => Effect.void,
           dock: (key, pid) => Queue.offer(docks, { ...key, pid }).pipe(Effect.asVoid),

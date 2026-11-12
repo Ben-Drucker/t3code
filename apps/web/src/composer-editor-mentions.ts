@@ -1,8 +1,10 @@
+import { collectComposerModelMentions } from "@t3tools/client-runtime/composer-model-mentions";
 import type { AssistantCitation } from "@t3tools/contracts";
 import { collectAssistantCitations } from "@t3tools/shared/assistantCitations";
 import { collectComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import {
   collectComposerInlineTokens,
+  composerMathRanges,
   type ComposerInlineToken,
 } from "@t3tools/shared/composerInlineTokens";
 
@@ -24,6 +26,12 @@ export type ComposerPromptSegment =
   | {
       type: "agent-config";
       config: string;
+      source: string;
+    }
+  | {
+      type: "model";
+      instanceId: string;
+      model: string;
       source: string;
     }
   | {
@@ -80,8 +88,27 @@ function forEachMentionMatch(
   });
 }
 
+// Like `$skill`, a typed reference waits for whitespace so `gpt-6` cannot chip while typing `gpt-6.1`.
+function collectModelTokens(text: string, inlineTokens: ReadonlyArray<ComposerInlineToken>) {
+  const mentions = collectComposerModelMentions(text).filter((mention) =>
+    /\s/.test(text[mention.end] ?? ""),
+  );
+  if (mentions.length === 0) return [];
+  const taken = [...inlineTokens, ...composerMathRanges(text)];
+  return mentions
+    .filter(
+      (mention) => !taken.some((range) => mention.start < range.end && mention.end > range.start),
+    )
+    .map((mention) => ({ ...mention, type: "model" as const }));
+}
+
 export function collectComposerPromptInlineTokens(text: string) {
-  const tokens = collectComposerInlineTokens(text, { agentConfigs: true });
+  const inlineTokens = collectComposerInlineTokens(text, { agentConfigs: true });
+  const models = collectModelTokens(text, inlineTokens);
+  const tokens =
+    models.length === 0
+      ? inlineTokens
+      : [...inlineTokens, ...models].sort((left, right) => left.start - right.start);
   const citations = collectAssistantCitations(text);
   const references = collectComposerContextReferences(text);
   if (citations.length === 0 && references.length === 0) return tokens;
@@ -134,6 +161,13 @@ function splitPromptTextIntoComposerSegments(text: string): ComposerPromptSegmen
       });
     } else if (match.type === "agent-config") {
       segments.push({ type: "agent-config", config: match.value, source: match.source });
+    } else if (match.type === "model") {
+      segments.push({
+        type: "model",
+        instanceId: match.instanceId,
+        model: match.model,
+        source: match.source,
+      });
     } else {
       segments.push({ type: "skill", name: match.value, source: match.source });
     }
