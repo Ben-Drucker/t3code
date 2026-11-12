@@ -3526,6 +3526,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 group={folder.group}
                                 collapsed={folder.collapsed}
                                 hiddenThreads={folder.hiddenThreads}
+                                openThreadKey={routeRowThreadKey}
                                 onToggle={toggleProjectFolder}
                                 onNewThread={startThreadInProjectFolder}
                                 onContextMenu={handleProjectFolderContextMenu}

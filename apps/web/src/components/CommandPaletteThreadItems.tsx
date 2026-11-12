@@ -120,7 +120,16 @@ export function useCommandPaletteThreadItems(input: {
     ...(activeThread ? { activeThread } : {}),
     projectByKey,
     icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
-    renderLeadingContent: (thread) => <ThreadRowLeadingStatus thread={thread} />,
+    renderLeadingContent: (thread) => (
+      <ThreadRowLeadingStatus
+        thread={thread}
+        isOpen={
+          activeThread !== null &&
+          activeThread.environmentId === thread.environmentId &&
+          activeThread.id === thread.id
+        }
+      />
+    ),
     renderTrailingContent: (thread) => (
       <>
         <ThreadSearchPullRequestNumber

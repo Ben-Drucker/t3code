@@ -7,10 +7,38 @@ import {
   NOTIFICATION_MODE_LABELS,
   unlockNotificationAudio,
 } from "../../threadNotifications";
+import {
+  describeSlowRequestWarningsStatus,
+  resumeSlowRequestWarnings,
+  useActiveSlowRequestWarningsPause,
+} from "../SlowRpcRequestToastCoordinator.logic";
+import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SettingsRow } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
+
+export function SlowRequestWarningsSettingsRow() {
+  const activePause = useActiveSlowRequestWarningsPause();
+  const statusLabel = describeSlowRequestWarningsStatus(activePause);
+
+  return (
+    <SettingsRow
+      {...searchableSetting("slow-request-warnings")}
+      description="Toast alert when background requests wait longer than 15 seconds."
+      control={
+        <div className="flex flex-wrap items-center gap-2 @min-[32rem]/settings-row:justify-end">
+          <span className="text-xs text-muted-foreground">{statusLabel}</span>
+          {activePause !== null ? (
+            <Button size="xs" variant="outline" onClick={() => resumeSlowRequestWarnings()}>
+              Resume
+            </Button>
+          ) : null}
+        </div>
+      }
+    />
+  );
+}
 
 export function NotificationSettings() {
   const mode = useScopedSettings((settings) => settings.notificationMode);

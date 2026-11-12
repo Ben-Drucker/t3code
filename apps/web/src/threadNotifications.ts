@@ -38,7 +38,26 @@ export function threadNotificationTag(environmentId: EnvironmentId, threadId: Th
 let originalFavicon: HTMLLinkElement | undefined;
 let badgeFavicon: HTMLLinkElement | undefined;
 
-export function setNotificationBadge(count: number) {
+export type NotificationAttentionTone = "orange" | "blue" | "red";
+
+const NOTIFICATION_TONE_HEX: Record<NotificationAttentionTone, string> = {
+  orange: "#f97316",
+  blue: "#3b82f6",
+  red: "#e5484d",
+};
+
+function makeDotSvgDataUrl(hex: string): string {
+  return `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" fill="${hex}"/></svg>`,
+  )}`;
+}
+
+export const NOTIFICATION_DOT_ICON: Record<"orange" | "blue", string> = {
+  orange: makeDotSvgDataUrl(NOTIFICATION_TONE_HEX.orange),
+  blue: makeDotSvgDataUrl(NOTIFICATION_TONE_HEX.blue),
+};
+
+export function setNotificationBadge(count: number, tone: NotificationAttentionTone = "orange") {
   const bridge = window.desktopBridge;
   let image: string | null = null;
   if (count > 0 && (!bridge || bridge.getClientPlatform() === "win32")) {
@@ -46,7 +65,7 @@ export function setNotificationBadge(count: number) {
     canvas.width = canvas.height = 64;
     const context = canvas.getContext("2d");
     if (context) {
-      context.fillStyle = "#e5484d";
+      context.fillStyle = NOTIFICATION_TONE_HEX[tone];
       context.beginPath();
       context.arc(32, 32, 28, 0, Math.PI * 2);
       context.fill();

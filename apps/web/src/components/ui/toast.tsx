@@ -59,6 +59,7 @@ export type ThreadToastData = {
   expandableContent?: ReactNode;
   expandableLabels?: { expand?: string; collapse?: string };
   expandableDescriptionTrigger?: boolean;
+  footerContent?: ReactNode;
   actionLayout?: "inline" | "stacked-end";
   actionVariant?:
     | "default"
@@ -402,6 +403,9 @@ function ToastBodyContent({
           toastDescription={toastDescription}
           toastType={toastType}
         />
+        {toastData?.footerContent ? (
+          <div className="mt-2 min-w-0">{toastData.footerContent}</div>
+        ) : null}
       </div>
       {hasTrailingControls ? (
         <div

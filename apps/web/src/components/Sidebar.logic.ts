@@ -789,14 +789,30 @@ export function buildBulkUnpinContextMenuItem(input: {
   return { id: "unpin", label: `Unpin (${input.pinnedCount})` };
 }
 
+export type ThreadAttentionDot = "orange" | "blue";
+
+export const THREAD_ATTENTION_DOT_CLASS_NAME: Record<ThreadAttentionDot, string> = {
+  orange: "bg-orange-500 dark:bg-orange-400",
+  blue: "bg-blue-500 dark:bg-blue-400",
+};
+
+export const THREAD_ATTENTION_TEXT_CLASS_NAME: Record<ThreadAttentionDot, string> = {
+  orange: "text-orange-600 dark:text-orange-400",
+  blue: "text-blue-600 dark:text-blue-400",
+};
+
+export const THREAD_ATTENTION_LABEL: Record<ThreadAttentionDot, "Needs you" | "Done"> = {
+  orange: "Needs you",
+  blue: "Done",
+};
+
 export interface ThreadStatusPill {
   label:
     | "Working"
     | "Connecting"
-    | "Completed"
+    | "Done"
     | "Failed"
-    | "Pending Approval"
-    | "Awaiting Input"
+    | "Needs you"
     | "Guest Request"
     | "Waiting"
     | "Plan Ready";
@@ -805,7 +821,7 @@ export interface ThreadStatusPill {
   pulse: boolean;
 }
 
-type ThreadStatusInput = Pick<
+export type ThreadStatusInput = Pick<
   SidebarThreadSummary,
   | "hasActionableProposedPlan"
   | "hasPendingApprovals"
@@ -817,6 +833,9 @@ type ThreadStatusInput = Pick<
   | "runtime"
 > & {
   lastVisitedAt?: string | null | undefined;
+  pendingRequestAt?: string | null | undefined;
+  pendingUserInputAt?: string | null | undefined;
+  updatedAt?: string | undefined;
   pendingBackgroundTasks?: SidebarThreadSummary["pendingBackgroundTasks"] | undefined;
   blockedOnThreadWait?: boolean | undefined;
 };
@@ -931,6 +950,9 @@ export function resolveThreadLastVisitedAt(
 
 export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
   if (!thread.latestRun?.completedAt) return false;
+  if (thread.latestRun.status === "failed" || thread.latestRun.status === "cancelled") {
+    return false;
+  }
   const completedAt = Date.parse(thread.latestRun.completedAt);
   if (Number.isNaN(completedAt)) return false;
   if (!thread.lastVisitedAt) return false;
@@ -938,6 +960,62 @@ export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
   const lastVisitedAt = Date.parse(thread.lastVisitedAt);
   if (Number.isNaN(lastVisitedAt)) return true;
   return completedAt > lastVisitedAt;
+}
+
+function hasUnseenUserRequest(
+  thread: Pick<
+    ThreadStatusInput,
+    | "hasPendingApprovals"
+    | "hasPendingUserInput"
+    | "pendingSubagentRequest"
+    | "pendingRequestAt"
+    | "pendingUserInputAt"
+    | "updatedAt"
+    | "lastVisitedAt"
+  >,
+  descendantStatus?: SidebarThreadStatus | null,
+): boolean {
+  const directRequest = thread.hasPendingApprovals || thread.hasPendingUserInput;
+  const subagentRequest =
+    thread.pendingSubagentRequest === "approval" ||
+    thread.pendingSubagentRequest === "user_input" ||
+    descendantStatus === "approval" ||
+    descendantStatus === "input";
+  if (!directRequest && !subagentRequest) return false;
+  if (!thread.lastVisitedAt) return true;
+
+  const lastVisitedAt = Date.parse(thread.lastVisitedAt);
+  if (Number.isNaN(lastVisitedAt)) return true;
+
+  const requestAtIso =
+    thread.pendingRequestAt ??
+    thread.pendingUserInputAt ??
+    (directRequest ? (thread.updatedAt ?? null) : null);
+  if (!requestAtIso) return true;
+
+  const requestAt = Date.parse(requestAtIso);
+  if (Number.isNaN(requestAt)) return true;
+  return requestAt > lastVisitedAt;
+}
+
+export function resolveThreadAttentionDot(input: {
+  readonly thread: ThreadStatusInput;
+  readonly descendantStatus?: SidebarThreadStatus | null | undefined;
+  readonly isOpen?: boolean | undefined;
+}): ThreadAttentionDot | null {
+  if (input.isOpen) return null;
+  const { thread, descendantStatus } = input;
+  if (hasUnseenUserRequest(thread, descendantStatus)) {
+    return "orange";
+  }
+  const status = rollUpSidebarThreadStatus(
+    resolveSidebarThreadStatus(thread),
+    descendantStatus == null ? [] : [descendantStatus],
+  );
+  if (status === "ready" && !hasUnseenFailure(thread) && hasUnseenCompletion(thread)) {
+    return "blue";
+  }
+  return null;
 }
 
 /** Unopened threads' failures still count as unseen, unlike completions. */
@@ -1089,8 +1167,9 @@ type SidebarThreadStatusInput = Pick<
   | "pendingSubagentRequest"
   | "pendingGuestMessageCount"
   | "runtime"
-  | "blockedOnThreadWait"
->;
+> & {
+  blockedOnThreadWait?: boolean | undefined;
+};
 
 export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): SidebarThreadStatus {
   if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
@@ -1132,20 +1211,14 @@ export function resolveSidebarFolderDot(
   threads: ReadonlyArray<ThreadStatusInput & SidebarThreadStatusInput>,
 ): "attention" | "failed" | "unread" | "working" | null {
   const statuses = new Set(threads.map(resolveSidebarThreadStatus));
-  if (
-    statuses.has("input") ||
-    statuses.has("approval") ||
-    statuses.has("request") ||
-    statuses.has("limited")
-  ) {
+  const hasOrangeDot = threads.some((thread) => resolveThreadAttentionDot({ thread }) === "orange");
+  if (hasOrangeDot || statuses.has("request") || statuses.has("limited")) {
     return "attention";
   }
   if (statuses.has("failed")) return "failed";
   // Rows show Done only for ready threads, so the dot follows the same rule.
-  const hasUnread = threads.some(
-    (thread) => resolveSidebarThreadStatus(thread) === "ready" && hasUnseenCompletion(thread),
-  );
-  if (hasUnread) return "unread";
+  const hasBlueDot = threads.some((thread) => resolveThreadAttentionDot({ thread }) === "blue");
+  if (hasBlueDot) return "unread";
   if (statuses.has("working") || statuses.has("preparing")) return "working";
   return null;
 }
@@ -1323,24 +1396,17 @@ export function resolveWorkingStartedAt(
 }
 
 export function resolveThreadStatusPill(input: {
-  thread: ThreadStatusInput;
+  readonly thread: ThreadStatusInput;
+  readonly isOpen?: boolean | undefined;
 }): ThreadStatusPill | null {
-  const { thread } = input;
+  const { thread, isOpen } = input;
+  const attentionDot = resolveThreadAttentionDot({ thread, isOpen });
 
-  if (thread.hasPendingApprovals || thread.pendingSubagentRequest === "approval") {
+  if (attentionDot === "orange") {
     return {
-      label: "Pending Approval",
-      colorClass: "text-amber-600 dark:text-amber-300/90",
-      dotClass: "bg-amber-500 dark:bg-amber-300/90",
-      pulse: false,
-    };
-  }
-
-  if (thread.hasPendingUserInput || thread.pendingSubagentRequest === "user_input") {
-    return {
-      label: "Awaiting Input",
-      colorClass: "text-indigo-600 dark:text-indigo-300/90",
-      dotClass: "bg-indigo-500 dark:bg-indigo-300/90",
+      label: THREAD_ATTENTION_LABEL.orange,
+      colorClass: THREAD_ATTENTION_TEXT_CLASS_NAME.orange,
+      dotClass: THREAD_ATTENTION_DOT_CLASS_NAME.orange,
       pulse: false,
     };
   }
@@ -1354,9 +1420,16 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
+  const hasSeenUserRequest =
+    thread.hasPendingApprovals ||
+    thread.hasPendingUserInput ||
+    thread.pendingSubagentRequest === "approval" ||
+    thread.pendingSubagentRequest === "user_input";
+
   if (
-    (thread.runtime?.status === "running" && thread.blockedOnThreadWait !== true) ||
-    thread.runtime?.status === "waiting"
+    !hasSeenUserRequest &&
+    ((thread.runtime?.status === "running" && thread.blockedOnThreadWait !== true) ||
+      thread.runtime?.status === "waiting")
   ) {
     return {
       label: "Working",
@@ -1367,9 +1440,10 @@ export function resolveThreadStatusPill(input: {
   }
 
   if (
-    thread.runtime?.status === "preparing" ||
-    thread.runtime?.status === "starting" ||
-    thread.runtime?.status === "queued"
+    !hasSeenUserRequest &&
+    (thread.runtime?.status === "preparing" ||
+      thread.runtime?.status === "starting" ||
+      thread.runtime?.status === "queued")
   ) {
     return {
       label: "Connecting",
@@ -1380,7 +1454,9 @@ export function resolveThreadStatusPill(input: {
   }
 
   if (
-    (thread.runtime?.status === "running" && thread.blockedOnThreadWait === true) ||
+    (!hasSeenUserRequest &&
+      thread.runtime?.status === "running" &&
+      thread.blockedOnThreadWait === true) ||
     backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])
   ) {
     return {
@@ -1401,10 +1477,12 @@ export function resolveThreadStatusPill(input: {
   }
 
   const hasPlanReadyPrompt =
+    !isOpen &&
     !thread.hasPendingUserInput &&
     thread.interactionMode === "plan" &&
     isLatestRunSettled(thread.latestRun, thread.runtime) &&
-    thread.hasActionableProposedPlan;
+    thread.hasActionableProposedPlan &&
+    (!thread.lastVisitedAt || hasUnseenCompletion(thread));
   if (hasPlanReadyPrompt) {
     return {
       label: "Plan Ready",
@@ -1414,11 +1492,11 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  if (hasUnseenCompletion(thread)) {
+  if (attentionDot === "blue") {
     return {
-      label: "Completed",
-      colorClass: "text-emerald-600 dark:text-emerald-300/90",
-      dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
+      label: THREAD_ATTENTION_LABEL.blue,
+      colorClass: THREAD_ATTENTION_TEXT_CLASS_NAME.blue,
+      dotClass: THREAD_ATTENTION_DOT_CLASS_NAME.blue,
       pulse: false,
     };
   }

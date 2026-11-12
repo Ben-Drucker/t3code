@@ -22,6 +22,7 @@ interface VisitedShell {
   readonly updatedAt: string;
   readonly lastVisitedAt?: string | null | undefined;
   readonly latestRun: { readonly completedAt: string | null } | null;
+  readonly pendingRequestAt?: string | null | undefined;
   /**
    * When a scheduled wake the user is looking at took effect. A wake later
    * than `updatedAt` is an update the server never sent, so the watermark
@@ -99,9 +100,18 @@ export function createThreadVisitTracker(options: ThreadVisitTrackerOptions) {
         const shellUpdatedAtMs = Date.parse(shell.updatedAt);
         if (Number.isNaN(shellUpdatedAtMs)) return;
         const wokeAtMs = shell.wokeAt ? Date.parse(shell.wokeAt) : NaN;
+        const requestAtMs = shell.pendingRequestAt ? Date.parse(shell.pendingRequestAt) : NaN;
+        let visitedAt = shell.updatedAt;
+        let updatedAtMs = shellUpdatedAtMs;
+        if (wokeAtMs > updatedAtMs && shell.wokeAt) {
+          visitedAt = shell.wokeAt;
+          updatedAtMs = wokeAtMs;
+        }
+        if (requestAtMs > updatedAtMs && shell.pendingRequestAt) {
+          visitedAt = shell.pendingRequestAt;
+          updatedAtMs = requestAtMs;
+        }
         const wakeIsLatest = wokeAtMs > shellUpdatedAtMs;
-        const visitedAt = wakeIsLatest && shell.wokeAt ? shell.wokeAt : shell.updatedAt;
-        const updatedAtMs = wakeIsLatest ? wokeAtMs : shellUpdatedAtMs;
         if (shell.lastVisitedAt === undefined) {
           options.markLocalVisit?.(ref, visitedAt);
           return;
@@ -129,8 +139,16 @@ export function createThreadVisitTracker(options: ThreadVisitTrackerOptions) {
         const hasUnseenCompletion =
           !Number.isNaN(completedAtMs) &&
           (Number.isNaN(lastVisitedAtMs) || completedAtMs > lastVisitedAtMs);
+        const hasUnseenRequest =
+          !Number.isNaN(requestAtMs) &&
+          (Number.isNaN(lastVisitedAtMs) || requestAtMs > lastVisitedAtMs);
         const elapsed = Date.now() - lastDispatchAt;
-        if (hasUnseenCompletion || wakeIsLatest || elapsed >= VISIT_DISPATCH_THROTTLE_MS) {
+        if (
+          hasUnseenCompletion ||
+          hasUnseenRequest ||
+          wakeIsLatest ||
+          elapsed >= VISIT_DISPATCH_THROTTLE_MS
+        ) {
           dispatch(shell, visitedAt, false);
           return;
         }

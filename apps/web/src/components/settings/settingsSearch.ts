@@ -680,6 +680,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["notification toast popup completion input approval failure"],
   },
   {
+    id: "slow-request-warnings",
+    title: msg("Slow request warnings"),
+    to: "/settings/general",
+    searchTerms: [
+      "slow requests waiting longer than 15s toast warning pause snooze resume latency rpc",
+    ],
+  },
+  {
     id: "language",
     title: msg("Language"),
     to: "/settings/general",
