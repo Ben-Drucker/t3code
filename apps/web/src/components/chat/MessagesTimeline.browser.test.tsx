@@ -1555,3 +1555,117 @@ it("keeps concurrent approvals actionable outside collapsed work and restores se
     .element(screen.getByRole("button", { name: "Open the current tab", exact: true }))
     .toBeVisible();
 });
+
+describe("reasoning row expansion", () => {
+  function reasoningEntry(id: string, detail: string): Entry {
+    return {
+      id: `${id}-entry`,
+      kind: "work",
+      createdAt: CREATED_AT,
+      entry: {
+        id,
+        createdAt: CREATED_AT,
+        runId: RunId.make("run-reasoning"),
+        label: "Thought",
+        detail,
+        itemType: "reasoning",
+        tone: "thinking",
+        toolLifecycleStatus: "completed",
+        projectedItem: {
+          item: {
+            id: TurnItemId.make(id),
+            threadId: ThreadId.make("thread-reasoning"),
+            runId: RunId.make("run-reasoning"),
+            attemptId: RunAttemptId.make("attempt-reasoning"),
+            ordinal: 1,
+            createdAt: CREATED_AT,
+            updatedAt: CREATED_AT,
+            status: "completed",
+            type: "reasoning",
+            text: detail,
+          },
+          visibility: "full",
+          sourceItemId: TurnItemId.make(id),
+        } as never,
+      },
+    };
+  }
+
+  function timelineContainer(widthPx = 360) {
+    const container = document.createElement("div");
+    container.style.cssText = `height: 600px; width: ${widthPx}px; display: flex; flex-direction: column;`;
+    return container;
+  }
+
+  it("hides the chevron and keeps a short single-line thought non-interactive", async () => {
+    const container = timelineContainer(600);
+    await using screen = await render(
+      <MessagesTimeline
+        {...baseProps()}
+        timelineEntries={[reasoningEntry("short", "Brief check.")]}
+      />,
+      { container },
+    );
+    await screen.getByRole("button", { name: /^Worked for / }).click();
+    await expect.element(screen.getByText("Brief check.")).toBeVisible();
+    const row = container.querySelector('[data-v2-item-type="reasoning"]')!;
+    expect(row.getAttribute("role")).toBeNull();
+    const chevron = row.querySelector("svg.lucide-chevron-right")?.parentElement;
+    expect(chevron?.classList.contains("invisible")).toBe(true);
+  });
+
+  it("expands a multi-line thought in place in the same muted style without duplicating text", async () => {
+    const detail = "First line of reasoning\nSecond line with details\nThird concluding line";
+    const container = timelineContainer(420);
+    await using screen = await render(
+      <MessagesTimeline {...baseProps()} timelineEntries={[reasoningEntry("multi", detail)]} />,
+      { container },
+    );
+    await screen.getByRole("button", { name: /^Worked for / }).click();
+    await expect.element(screen.getByText(/First line of reasoning/)).toBeVisible();
+    const rowEl = container.querySelector<HTMLElement>('[data-v2-item-type="reasoning"]')!;
+    expect(rowEl.getAttribute("aria-expanded")).toBe("false");
+    const collapsedColor = getComputedStyle(rowEl.querySelector(".chat-markdown")!).color;
+    const collapsedHeight = rowEl.getBoundingClientRect().height;
+
+    rowEl.click();
+    await vi.waitFor(() => expect(rowEl.getAttribute("aria-expanded")).toBe("true"));
+
+    const markdownBlocks = rowEl.querySelectorAll(".chat-markdown");
+    expect(markdownBlocks).toHaveLength(1);
+    expect(getComputedStyle(markdownBlocks[0]!).color).toBe(collapsedColor);
+    expect(rowEl.getBoundingClientRect().height).toBeGreaterThan(collapsedHeight + 16);
+    expect(container.textContent?.split("Second line with details")).toHaveLength(2);
+  });
+
+  it("expands a long single-line Codex thought in place when it overflows width without duplicating text", async () => {
+    const detail =
+      "Inspecting TimelineWorkEntryRow and WorkLogRow to verify single-line Codex thoughts wrap in place when wider than the timeline row";
+    const container = timelineContainer(320);
+    await using screen = await render(
+      <MessagesTimeline
+        {...baseProps()}
+        timelineEntries={[reasoningEntry("codex-long", detail)]}
+      />,
+      { container },
+    );
+    await screen.getByRole("button", { name: /^Worked for / }).click();
+    await expect.element(screen.getByText(/Inspecting TimelineWorkEntryRow/)).toBeVisible();
+
+    const rowEl = container.querySelector<HTMLElement>('[data-v2-item-type="reasoning"]')!;
+    await vi.waitFor(() => expect(rowEl.getAttribute("aria-expanded")).toBe("false"));
+    const chevron = rowEl.querySelector("svg.lucide-chevron-right")?.parentElement;
+    expect(chevron?.classList.contains("invisible")).toBe(false);
+    const collapsedColor = getComputedStyle(rowEl.querySelector(".chat-markdown")!).color;
+    const collapsedHeight = rowEl.getBoundingClientRect().height;
+
+    rowEl.click();
+    await vi.waitFor(() => expect(rowEl.getAttribute("aria-expanded")).toBe("true"));
+
+    const markdownBlocks = rowEl.querySelectorAll(".chat-markdown");
+    expect(markdownBlocks).toHaveLength(1);
+    expect(getComputedStyle(markdownBlocks[0]!).color).toBe(collapsedColor);
+    expect(rowEl.getBoundingClientRect().height).toBeGreaterThan(collapsedHeight + 12);
+    expect(container.textContent?.split("verify single-line Codex thoughts")).toHaveLength(2);
+  });
+});

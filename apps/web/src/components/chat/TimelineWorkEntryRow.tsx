@@ -119,32 +119,6 @@ const toolCallExpandedBodyClassName =
 
 const stopRowToggle = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
-export function ReasoningTraceContent({ entries }: { entries: ReadonlyArray<TimelineWorkEntry> }) {
-  const ctx = use(TimelineRowCtx);
-  const { isWorking, latestRunId } = use(TimelineRowActivityCtx);
-  const isStreaming = (entry: TimelineWorkEntry) =>
-    isWorking && entry.runId === latestRunId && entry.toolLifecycleStatus === "inProgress";
-  return (
-    <WorkLogDetails followLive={entries.some(isStreaming)}>
-      {entries.map((entry) => (
-        <ChatMarkdown
-          key={entry.id}
-          className="text-foreground"
-          text={entry.detail ?? ""}
-          cwd={ctx.markdownCwd}
-          threadRef={ctx.threadRef ?? undefined}
-          skills={ctx.skills}
-          isStreaming={isStreaming(entry)}
-          headingLevelOffset={MESSAGE_HEADING_LEVEL}
-          onUseArtifactTemplate={ctx.onUseArtifactTemplate}
-          onImageExpand={ctx.onImageExpand}
-          lineBreaks
-        />
-      ))}
-    </WorkLogDetails>
-  );
-}
-
 type WorkEntryRowProps = {
   workEntry: TimelineWorkEntry;
   workspaceRoot: string | undefined;
@@ -200,29 +174,32 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
     (settings) => settings.liveStreaming,
   );
   const [userToggled, setUserToggled] = useState(false);
-  // A one-line thought stays in the compact row; only multi-line thoughts get the full view.
+  const isReasoning = workEntry.itemType === "reasoning";
   const multilineThought = workEntry.detail?.trim().includes("\n") ?? false;
   const thoughtLabelRef = useRef<HTMLSpanElement>(null);
   const [thoughtOverflows, setThoughtOverflows] = useState(false);
+  const reasoningText = isReasoning ? (workEntry.detail?.trim() ?? "") : "";
+  const canExpandReasoning = reasoningText !== "" && (multilineThought || thoughtOverflows);
   const autoOpenLiveReasoning =
     liveStreaming &&
     !userToggled &&
     multilineThought &&
-    workEntry.itemType === "reasoning" &&
+    isReasoning &&
     activity.isWorking &&
     workEntry.runId === activity.latestRunId &&
     workEntry.toolLifecycleStatus === "inProgress" &&
-    (workEntry.detail?.trim() ?? "") !== "";
+    reasoningText !== "";
   const expanded = expandedState || autoOpenLiveReasoning;
-  const wrapsInRow = expanded && workEntry.itemType === "reasoning" && !multilineThought;
+  const wrapsInRow = expanded && isReasoning;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures whether the collapsed label is clipped by the DOM
   useLayoutEffect(() => {
     const el = thoughtLabelRef.current;
-    if (!el || expanded || workEntry.itemType !== "reasoning") return;
-    const measure = () => setThoughtOverflows(el.scrollWidth > el.clientWidth + 1);
+    if (!el || expanded || !reasoningText) return;
+    const measure = () =>
+      setThoughtOverflows(reasoningText.length > 0 && el.scrollWidth > el.clientWidth + 1);
     measure();
     return observeResize(el, measure);
-  }, [expanded, workEntry.itemType]);
+  }, [expanded, reasoningText]);
   const toggleExpanded = () => {
     setUserToggled(true);
     const next = !expanded;
@@ -319,16 +296,11 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
     showWarningIndicator || showDestructiveRowStyle
       ? undefined
       : (workEntry.toolIcon ?? workEntry.toolSource?.icon);
-  const isReasoning = workEntry.itemType === "reasoning";
   const questionHeading = workEntry.questionAnswer
     ? getQuestionTextPreview(workEntry.questionAnswer)
     : "";
   const previewText =
-    isReasoning && expanded && multilineThought
-      ? workEntry.toolLifecycleStatus === "inProgress"
-        ? "Thinking"
-        : "Thought"
-      : questionHeading || (displayLabel ?? workEntryDisplayLabel(workEntry, workspaceRoot));
+    questionHeading || (displayLabel ?? workEntryDisplayLabel(workEntry, workspaceRoot));
   const answerPreview =
     workEntry.questionAnswer && hasQuestionAnswer(workEntry.questionAnswer)
       ? getQuestionAnswerPreview(workEntry.questionAnswer)
@@ -383,13 +355,12 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
   };
   const canExpandProjectedItem = isTodoList
     ? false
-    : plainOutput !== undefined
-      ? Boolean(plainOutput || viewedImage || workEntry.questionAnswer || plainOutputFetches)
-      : workEntry.projectedItem === undefined
-        ? canExpand
-        : isReasoning
-          ? // A one-line thought already shows in full on the collapsed row unless it overflows.
-            multilineThought || thoughtOverflows
+    : isReasoning
+      ? canExpandReasoning
+      : plainOutput !== undefined
+        ? Boolean(plainOutput || viewedImage || workEntry.questionAnswer || plainOutputFetches)
+        : workEntry.projectedItem === undefined
+          ? canExpand
           : Boolean(
               viewedImage ||
               workEntry.questionAnswer ||
@@ -458,6 +429,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       data-v2-item-type={workEntry.projectedItem?.item.type}
       data-v2-item-visibility={workEntry.projectedItem?.visibility}
       tinted={expandedCommand}
+      wrapLabel={wrapsInRow}
       {...rowToggleProps}
       icon={
         <span
@@ -475,7 +447,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       }
       label={
         <div className="min-w-0 flex-1 overflow-hidden">
-          <p className="flex min-w-0 w-full items-baseline gap-1.5 text-sm leading-relaxed">
+          <div className="flex min-w-0 w-full items-baseline gap-1.5 text-sm leading-relaxed">
             <span
               ref={thoughtLabelRef}
               className={cn(
@@ -484,18 +456,38 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
                 headingClass,
               )}
             >
-              {isReasoning && (!expanded || wrapsInRow) ? (
-                <ChatMarkdown
-                  inline
-                  text={workEntry.detail ?? previewText}
-                  cwd={ctx.markdownCwd}
-                  parseRawHtml={false}
-                  extraRemarkPlugins={
-                    workEntry.toolLifecycleStatus === "inProgress"
-                      ? THINKING_PREVIEW_PLUGINS
-                      : THOUGHT_PREVIEW_PLUGINS
-                  }
-                />
+              {isReasoning ? (
+                wrapsInRow ? (
+                  <ChatMarkdown
+                    className="select-text text-secondary-label [&_*]:select-text"
+                    text={workEntry.detail ?? previewText}
+                    cwd={ctx.markdownCwd}
+                    threadRef={ctx.threadRef ?? undefined}
+                    skills={ctx.skills}
+                    isStreaming={
+                      activity.isWorking &&
+                      workEntry.runId === activity.latestRunId &&
+                      workEntry.toolLifecycleStatus === "inProgress"
+                    }
+                    parseRawHtml={false}
+                    headingLevelOffset={MESSAGE_HEADING_LEVEL}
+                    onUseArtifactTemplate={ctx.onUseArtifactTemplate}
+                    onImageExpand={ctx.onImageExpand}
+                    lineBreaks
+                  />
+                ) : (
+                  <ChatMarkdown
+                    inline
+                    text={workEntry.detail ?? previewText}
+                    cwd={ctx.markdownCwd}
+                    parseRawHtml={false}
+                    extraRemarkPlugins={
+                      workEntry.toolLifecycleStatus === "inProgress"
+                        ? THINKING_PREVIEW_PLUGINS
+                        : THOUGHT_PREVIEW_PLUGINS
+                    }
+                  />
+                )
               ) : threadLabel ? (
                 <ThreadReadLabel
                   label={threadLabel}
@@ -520,7 +512,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
                 {answerPreview}
               </span>
             ) : null}
-          </p>
+          </div>
         </div>
       }
       trailing={
@@ -560,6 +552,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
           <span
             className={cn(
               "flex size-4 shrink-0 items-center justify-center",
+              wrapsInRow && "h-6",
               !canExpandProjectedItem && "invisible",
             )}
             aria-hidden
@@ -589,9 +582,6 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       ) : null}
       {expanded && workEntry.questionAnswer ? (
         <QuestionAnswerHistory answer={workEntry.questionAnswer} />
-      ) : null}
-      {expanded && isReasoning && multilineThought ? (
-        <ReasoningTraceContent entries={[workEntry]} />
       ) : null}
       {expanded &&
       !isReasoning &&

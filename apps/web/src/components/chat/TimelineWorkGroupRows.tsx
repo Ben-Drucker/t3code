@@ -44,7 +44,6 @@ import {
   useThreadReadTarget,
   threadReadLabel,
   ThreadReadLabel,
-  ReasoningTraceContent,
   SimpleWorkEntryRow,
 } from "./TimelineWorkEntryRow";
 import {
@@ -81,9 +80,6 @@ export const WorkGroupSection = memo(function WorkGroupSection({
   });
 
   if (nonEmptyEntries.length === 0) return null;
-  if (isExpandedToolGroup && nonEmptyEntries.every((entry) => entry.itemType === "reasoning")) {
-    return <ReasoningTraceContent entries={nonEmptyEntries} />;
-  }
   if (isExpandedToolGroup) {
     return (
       <ExpandedWorkGroupEntries
@@ -506,8 +502,9 @@ export function LiveWorkEntryTimelineRow({
   if (pendingApproval) return <TimelinePendingApprovalRow approval={pendingApproval} />;
 
   const failed = workEntryDisplayIndicatesToolFailure(row.entry);
-  const thoughtLine = row.thought && !row.expanded ? liveThoughtLine(row.thought.detail ?? "") : "";
-  const thoughtIsStatus = thoughtLine !== "" && row.entry === row.thought;
+  const fullThoughtLine = row.thought ? liveThoughtLine(row.thought.detail ?? "") : "";
+  const thoughtLine = row.expanded ? "" : fullThoughtLine;
+  const thoughtIsStatus = fullThoughtLine !== "" && row.entry === row.thought;
 
   return (
     <button
