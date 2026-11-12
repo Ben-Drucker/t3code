@@ -19,3 +19,4 @@
 - QQ button should toggle on click, adding or removing the `/qq` from the composer, instead of only turning it on.
 - Render `@` file and directory paths as hyperlinks in monospace, in the composer and in sent messages.
 - Opening an HTML file should go straight to a browser: no temp server, just `file:///path/to/file`, in a new browser tab instead of the limited HTML preview. Use the browser chosen in settings (native, Firefox docked, or Chrome docked).
+- Settings option to choose the permission mode for providers that have an auto mode, and a separate one for providers that do not. Also clarify Kimi's extra modes (such as yolo), which seem to overlap with permissions.
