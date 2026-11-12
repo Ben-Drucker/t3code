@@ -14,6 +14,8 @@ import {
   openUrlInPreview,
 } from "~/browser/openFileInPreview";
 import * as previewRuntime from "~/browser/previewRuntime";
+import * as localHtmlFile from "~/browser/localHtmlFile";
+import * as localApi from "~/localApi";
 import { __setClientSettingsForTests } from "~/hooks/useSettings";
 import {
   hostRightPanel,
@@ -100,6 +102,49 @@ describe("openPreviewSession", () => {
 });
 
 describe("openUrlInPreview from a link", () => {
+  it.each(["system", "builtin", "chrome-docked", "firefox-docked"] as const)(
+    "opens local HTML with %s without creating an asset URL",
+    async (mode) => {
+      vi.spyOn(localHtmlFile, "readLocalHtmlFileUrl").mockReturnValue("file:///repo/index.html");
+      __setClientSettingsForTests({
+        ...DEFAULT_CLIENT_SETTINGS,
+        browserLinkTarget: mode === "system" ? "system" : "app",
+        browserPreviewMode: mode === "system" ? "chrome-docked" : mode,
+      });
+      const api = localApi.createLocalApi();
+      const openExternal = vi.spyOn(api.shell, "openExternal").mockResolvedValue(undefined);
+      vi.spyOn(localApi, "readLocalApi").mockReturnValue(api);
+      const openPreview = vi.fn(async () => AsyncResult.success(snapshot));
+      const createAssetUrl = vi.fn(async () =>
+        AsyncResult.success({ relativeUrl: "/assets/index.html", expiresAt: 0 }),
+      );
+      expect(
+        (
+          await openFileInPreview({
+            threadRef,
+            filePath: "/repo/index.html",
+            workspaceRoot: "/repo",
+            httpBaseUrl: "http://localhost:3000",
+            createAssetUrl,
+            openPreview,
+          })
+        )._tag,
+      ).toBe("Success");
+      expect(createAssetUrl).not.toHaveBeenCalled();
+      if (mode === "system" || mode === "builtin") {
+        expect(openExternal).toHaveBeenCalledExactlyOnceWith("file:///repo/index.html");
+        expect(openPreview).not.toHaveBeenCalled();
+      } else {
+        expect(openExternal).not.toHaveBeenCalled();
+        expect(openPreview).toHaveBeenCalledWith(
+          expect.objectContaining({
+            input: expect.objectContaining({ url: "file:///repo/index.html", runtime: "server" }),
+          }),
+        );
+      }
+    },
+  );
+
   it.each(["link", "file"] as const)(
     "opens a side chat's %s in the parent's browser panel after the pane unmounts",
     async (entryPoint) => {
@@ -130,7 +175,13 @@ describe("openUrlInPreview from a link", () => {
 
       expect(openPreview).toHaveBeenCalledWith(
         expect.objectContaining({
-          input: expect.objectContaining({ threadId: threadRef.threadId }),
+          input: expect.objectContaining({
+            threadId: threadRef.threadId,
+            url:
+              entryPoint === "file"
+                ? "http://localhost:3000/assets/index.html"
+                : "https://t3.chat/",
+          }),
         }),
       );
       expect(readThreadPreviewState(threadRef).activeTabId).toBe(snapshot.tabId);

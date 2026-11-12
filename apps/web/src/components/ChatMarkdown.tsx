@@ -195,6 +195,7 @@ import {
   BrowserPreviewUnavailableError,
   isBrowserSettingsReadError,
 } from "../browser/openFileInPreview";
+import { readLocalHtmlFileUrl } from "../browser/localHtmlFile";
 import { resolveLinkTarget } from "../browser/browserLinkTarget";
 import { PullRequestLinkPreview } from "./pullRequest/PullRequestLinkPreview";
 import { MarkdownCodeBlock, SuspenseShikiCodeBlock } from "./chat/MarkdownCodeBlock";
@@ -808,8 +809,27 @@ function useChatMarkdownState({
     if (!threadRef) return;
     // Every open supersedes pending lookups, including synchronous opens.
     const isLatestLookup = claimWorkspaceBasenameLookup();
-    const openAt = (path: string) =>
+    const openAt = (path: string) => {
+      if (
+        fileLinkMeta.line === undefined &&
+        readLocalHtmlFileUrl(threadRef.environmentId, path, cwd) !== null &&
+        canOperatePreview
+      ) {
+        void openMarkdownFileInPreview(path).then((result) => {
+          if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Unable to open file in browser",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        });
+        return;
+      }
       useRightPanelStore.getState().openFile(threadRef, path, fileLinkMeta.line);
+    };
     if (
       fileLinkMeta.workspaceLookupPath === null ||
       !cwd ||

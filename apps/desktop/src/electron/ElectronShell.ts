@@ -11,6 +11,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import * as Electron from "electron";
+import { isLocalHtmlFileUrl } from "@t3tools/shared/preview";
 
 // Remote editor deep links and local editor file links must reach the OS handler.
 const SAFE_WEB_PROTOCOLS = new Set(["http:", "https:"]);
@@ -50,6 +51,7 @@ export function parseSafeExternalUrl(rawUrl: unknown): Option.Option<string> {
   try {
     const url = new URL(rawUrl);
     return SAFE_WEB_PROTOCOLS.has(url.protocol) ||
+      isLocalHtmlFileUrl(url) ||
       APP_LAUNCH_URLS.has(url.href) ||
       isRemoteEditorUrl(url) ||
       isLocalEditorFileUrl(url)

@@ -20,7 +20,11 @@ import {
 } from "../../rightPanelStore";
 import { requestWorkspaceContentFocus, requestWorkspaceFocus } from "../../lib/workspaceFocus";
 import { setActivePreviewTab } from "../../previewStateStore";
-import { isBrowserSettingsReadError } from "../../browser/openFileInPreview";
+import { isBrowserSettingsReadError, openFileInPreview } from "../../browser/openFileInPreview";
+import { readLocalHtmlFileUrl } from "../../browser/localHtmlFile";
+import { readPreparedConnection } from "../../state/session";
+import { assetEnvironment } from "../../state/assets";
+import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { addBrowserSurface } from "../preview/addBrowserSurface";
 import { focusActivePanelTerminal, focusTerminal } from "../../lib/terminalFocus";
 import { subscribePreviewAction } from "../preview/previewActionBus";
@@ -94,6 +98,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   } = input;
 
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
+  const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, { reportFailure: false });
   const onToggleDiff = () => {
     if (!isServerThread) {
       return;
@@ -165,6 +170,33 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   const addDeviceSurfaceStable = useStableCallback(addDeviceSurface);
   const openFileSurface = (relativePath: string) => {
     if (!activeThreadRef || !activeProject) return;
+    const workspaceRoot = gitCwd ?? activeProjectCwd ?? undefined;
+    const connection = readPreparedConnection(activeThreadRef.environmentId);
+    if (
+      canOperatePreview &&
+      connection &&
+      readLocalHtmlFileUrl(activeThreadRef.environmentId, relativePath, workspaceRoot) !== null
+    ) {
+      void openFileInPreview({
+        threadRef: activeThreadRef,
+        filePath: relativePath,
+        workspaceRoot,
+        httpBaseUrl: connection.httpBaseUrl,
+        createAssetUrl,
+        openPreview,
+      }).then((result) => {
+        if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Unable to open file in browser",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      });
+      return;
+    }
     useRightPanelStore.getState().openFile(activeThreadRef, relativePath);
   };
   const openFileSurfaceStable = useStableCallback(openFileSurface);

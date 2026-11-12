@@ -149,6 +149,19 @@ describe("resolveSearchUrlTemplate", () => {
 });
 
 describe("normalizePreviewUrl", () => {
+  it("accepts local HTML files and rejects other file URLs", () => {
+    for (const url of ["file:///tmp/a%20b.html", "file:///C:/reports/index.HTM"]) {
+      expect(normalizePreviewUrl(url)).toBe(url);
+    }
+    for (const url of [
+      "file:///etc/passwd",
+      "file://server/share/index.html",
+      "file:////server/share/index.html",
+    ]) {
+      expect(() => normalizePreviewUrl(url)).toThrow();
+    }
+  });
+
   it("tells agents how to open a blank tab and which URLs are accepted", () => {
     expect(() => normalizePreviewUrl("about:blank")).toThrow(
       /preview_open, omit url when creating a new tab[^.]*blank tab/i,

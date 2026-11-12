@@ -31,6 +31,9 @@ import {
 } from "~/rightPanelStore";
 
 import { resolveBrowserDefaults } from "./browserDefaults";
+import { readLocalHtmlFileUrl } from "./localHtmlFile";
+import { ensureClientSettingsHydrated, getClientSettings } from "~/hooks/useSettings";
+import { readLocalApi } from "~/localApi";
 
 export const isBrowserPreviewFile = (path: string): boolean =>
   /\.(?:html?|pdf)$/i.test(path.split(/[?#]/, 1)[0] ?? "");
@@ -62,6 +65,7 @@ export async function openUrlInPreview<E>(input: {
   readonly openPreview: OpenPreviewMutation<E>;
   readonly profileId?: PreviewOpenInput["profileId"];
   readonly background?: boolean;
+  readonly runtime?: PreviewOpenInput["runtime"];
 }): Promise<AtomCommandResult<void, E | BrowserSettingsReadError>> {
   // Read before any await: a side chat pane that unmounts meanwhile drops its host mapping.
   const threadRef = rightPanelHostRef(input.threadRef);
@@ -71,7 +75,7 @@ export async function openUrlInPreview<E>(input: {
   if (isBrowserSettingsReadError(defaults)) {
     return AsyncResult.failure(Cause.fail(defaults));
   }
-  const runtime = previewRuntimeFor(threadRef.environmentId);
+  const runtime = input.runtime ?? previewRuntimeFor(threadRef.environmentId);
   const previousActiveTabId = readThreadPreviewState(threadRef).activeTabId;
   // The server changes the active tab, not panel selection; selection changes come from the user.
   const selectedSurface = () =>
@@ -123,6 +127,36 @@ export async function openFileInPreview<AssetError, PreviewError>(input: {
     AssetError | PreviewError | BrowserPreviewUnavailableError | BrowserSettingsReadError
   >
 > {
+  const hostRef = rightPanelHostRef(input.threadRef);
+  const fileUrl = readLocalHtmlFileUrl(
+    input.threadRef.environmentId,
+    input.filePath,
+    input.workspaceRoot,
+  );
+  if (fileUrl !== null) {
+    try {
+      await ensureClientSettingsHydrated();
+    } catch (cause) {
+      return AsyncResult.failure(Cause.fail(new BrowserSettingsReadError({ cause })));
+    }
+    const settings = getClientSettings();
+    if (settings.browserLinkTarget === "system" || settings.browserPreviewMode === "builtin") {
+      try {
+        const api = readLocalApi();
+        if (!api) throw new Error("Link opening is unavailable.");
+        await api.shell.openExternal(fileUrl);
+        return AsyncResult.success(undefined);
+      } catch (cause) {
+        return AsyncResult.failure(Cause.die(cause));
+      }
+    }
+    return openUrlInPreview({
+      threadRef: hostRef,
+      url: fileUrl,
+      openPreview: input.openPreview,
+      runtime: "server",
+    });
+  }
   if (!isPreviewAvailableFor(input.threadRef.environmentId)) {
     return AsyncResult.failure(
       Cause.fail(
@@ -132,7 +166,6 @@ export async function openFileInPreview<AssetError, PreviewError>(input: {
       ),
     );
   }
-  const hostRef = rightPanelHostRef(input.threadRef);
   const insideWorkspace =
     mediaFileReference(input.filePath, input.workspaceRoot).relativePath !== undefined;
   const assetResult = await input.createAssetUrl({

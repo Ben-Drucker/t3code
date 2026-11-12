@@ -6,6 +6,7 @@ import {
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { promptLinkAppPath } from "@t3tools/shared/promptLinks";
+import { parseFileUrlHref } from "@t3tools/shared/fileLinks";
 import { readPairingAppLink, resolveRemotePairingTarget } from "@t3tools/shared/remote";
 import { useRouter } from "@tanstack/react-router";
 import * as Effect from "effect/Effect";
@@ -183,7 +184,7 @@ export function DesktopWebLinkCoordinator() {
         ? null
         : await openFileInPreview({
             threadRef,
-            filePath: decodeURIComponent(new URL(url).pathname),
+            filePath: parseFileUrlHref(url)?.path ?? decodeURIComponent(new URL(url).pathname),
             workspaceRoot: undefined,
             httpBaseUrl,
             createAssetUrl,
