@@ -24,7 +24,9 @@ export function MarkdownDetails({
   const revealRef = findRevealRef(revealForFind);
   const childNodes = Children.toArray(children);
   const summaryIndex = childNodes.findIndex(
-    (child) => isValidElement(child) && child.type === "summary",
+    (child) =>
+      isValidElement<{ node?: { tagName?: string } }>(child) &&
+      (child.type === "summary" || child.props.node?.tagName === "summary"),
   );
   const summaryNode = summaryIndex >= 0 ? childNodes[summaryIndex] : null;
   const summary =
