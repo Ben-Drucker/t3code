@@ -47,7 +47,7 @@ export function applyProviderOptionSelection(
   change: ProviderOptionSelection,
 ): ReadonlyArray<ProviderOptionSelection> | null {
   const descriptor = descriptors.find((candidate) => candidate.id === change.id);
-  if (!descriptor) {
+  if (!descriptor || descriptor.disabledReason !== undefined) {
     return null;
   }
   if (

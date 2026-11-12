@@ -252,7 +252,9 @@ export function getProviderOptionDescriptors(input: {
   return baseDescriptors.map((descriptor) =>
     withDescriptorCurrentValue(
       descriptor,
-      getRawSelectionValueById(selections, descriptor.id) ?? descriptor.currentValue,
+      descriptor.disabledReason === undefined
+        ? (getRawSelectionValueById(selections, descriptor.id) ?? descriptor.currentValue)
+        : descriptor.currentValue,
     ),
   );
 }
@@ -295,7 +297,7 @@ export function getProviderOptionCurrentValue(
   const hasExplicitOption = selection?.options?.some((option) => option.id === descriptor.id);
   // Reported values are display-only; callers that build dispatch options omit this context.
   const reportedValue = getReportedOptionValue(descriptor.id, selection, reportedSelection);
-  if (reportedValue !== undefined) return reportedValue;
+  if (reportedValue !== undefined && descriptor.disabledReason === undefined) return reportedValue;
   if (descriptor.id === "variant" && selection && !hasExplicitOption) return undefined;
   if (descriptor.type === "boolean") {
     return descriptor.currentValue;

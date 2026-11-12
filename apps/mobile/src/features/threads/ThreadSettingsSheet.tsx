@@ -202,17 +202,26 @@ function DisclosureRow(props: {
   readonly value: string | undefined;
   readonly onPress: () => void;
   readonly isLast?: boolean;
+  readonly disabledReason?: string | undefined;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled: props.disabledReason !== undefined }}
+      disabled={props.disabledReason !== undefined}
       onPress={props.onPress}
       className={cn(
         "min-h-11 flex-row items-center gap-2 bg-grouped-card px-4 py-2 active:bg-subtle android:min-h-14",
         !props.isLast && "border-b border-border-subtle",
+        props.disabledReason !== undefined && "opacity-50",
       )}
     >
-      <Text className="text-sm font-t3-medium text-foreground">{props.label}</Text>
+      <View>
+        <Text className="text-sm font-t3-medium text-foreground">{props.label}</Text>
+        {props.disabledReason ? (
+          <Text className="text-xs text-foreground-muted">{props.disabledReason}</Text>
+        ) : null}
+      </View>
       <View className="flex-1" />
       {props.value ? (
         <Text className="text-sm text-foreground-muted" numberOfLines={1}>
@@ -234,6 +243,7 @@ function SwitchRow(props: {
   readonly value: boolean;
   readonly onValueChange: (value: boolean) => void;
   readonly isLast?: boolean;
+  readonly disabledReason?: string | undefined;
 }) {
   return (
     <View
@@ -242,9 +252,15 @@ function SwitchRow(props: {
         !props.isLast && "border-b border-border-subtle",
       )}
     >
-      <Text className="text-sm font-t3-medium text-foreground">{props.label}</Text>
+      <View>
+        <Text className="text-sm font-t3-medium text-foreground">{props.label}</Text>
+        {props.disabledReason ? (
+          <Text className="text-xs text-foreground-muted">{props.disabledReason}</Text>
+        ) : null}
+      </View>
       <ThemedSwitch
         accessibilityLabel={props.label}
+        disabled={props.disabledReason !== undefined}
         onValueChange={props.onValueChange}
         value={props.value}
       />
@@ -878,6 +894,7 @@ function ThreadSettingsOptionsItem(props: {
               >
                 <DisclosureRow
                   label={descriptor.label}
+                  disabledReason={descriptor.disabledReason}
                   value={
                     session.promptTraits.ultrathinkPromptControlled &&
                     descriptor.id === session.promptTraits.primarySelectDescriptor?.id
@@ -902,6 +919,7 @@ function ThreadSettingsOptionsItem(props: {
             >
               <SwitchRow
                 label={descriptor.label}
+                disabledReason={descriptor.disabledReason}
                 value={descriptor.currentValue ?? false}
                 onValueChange={(value) => session.applyOptionChange(descriptor.id, value)}
               />
@@ -1113,8 +1131,8 @@ function ThreadSettingsChoiceContent(props: {
             rows: selectableChoices(activeDescriptor).map((choice) => ({
               id: choice.id,
               label: choice.label,
-              description: choice.description,
-              disabled: false,
+              description: activeDescriptor.disabledReason ?? choice.description,
+              disabled: activeDescriptor.disabledReason !== undefined,
               selected:
                 choice.id ===
                 (session.promptTraits.ultrathinkPromptControlled &&

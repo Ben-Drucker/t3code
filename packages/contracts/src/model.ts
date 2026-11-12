@@ -21,6 +21,7 @@ const ProviderOptionDescriptorBase = {
   description: Schema.optional(TrimmedNonEmptyString),
   /** The agent reads this option only when it launches, so the picker fixes it once a thread has turns. */
   lockedOnceStarted: Schema.optional(Schema.Boolean),
+  disabledReason: Schema.optional(TrimmedNonEmptyString),
 } as const;
 
 export const SelectProviderOptionDescriptor = Schema.Struct({

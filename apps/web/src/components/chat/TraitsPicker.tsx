@@ -431,6 +431,11 @@ const TraitsMenuContent = memo(function TraitsMenuContentImpl(props: TraitsSelec
             <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">
               {descriptor.label}
             </div>
+            {descriptor.disabledReason ? (
+              <div className="px-2 pb-1.5 text-muted-foreground/80 text-xs">
+                {descriptor.disabledReason}
+              </div>
+            ) : null}
             {ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id ? (
               <div className="px-2 pb-1.5 text-muted-foreground/80 text-xs">
                 {ULTRATHINK_IN_BODY_NOTE}
@@ -448,6 +453,7 @@ const TraitsMenuContent = memo(function TraitsMenuContentImpl(props: TraitsSelec
                   closeOnClick
                   disabled={
                     (ultrathinkInBodyText && descriptor.id === primarySelectDescriptor?.id) ||
+                    descriptor.disabledReason !== undefined ||
                     (descriptor.lockedOnceStarted === true && threadStarted)
                   }
                 >
@@ -492,7 +498,13 @@ const TraitsMenuContent = memo(function TraitsMenuContentImpl(props: TraitsSelec
               onValueChange={(value) => traits.changeBoolean(descriptor.id, value === "on")}
             >
               {(["on", "off"] as const).map((value) => (
-                <MenuRadioItem key={value} value={value} hideIndicator closeOnClick>
+                <MenuRadioItem
+                  key={value}
+                  value={value}
+                  hideIndicator
+                  closeOnClick
+                  disabled={descriptor.disabledReason !== undefined}
+                >
                   <span className="flex w-full min-w-0 items-center justify-between gap-3">
                     <span>{value === "on" ? "On" : "Off"}</span>
                   </span>

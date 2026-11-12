@@ -23,6 +23,17 @@ import { acpToolCallDiffPatch } from "@t3tools/provider-acp/server/adapter";
 
 const isSessionNotification = Schema.is(AcpWireSchema.SessionNotification);
 
+it("measures native usage against Antigravity's compaction ceiling", () => {
+  const notification = {
+    sessionId: "session-1",
+    update: { sessionUpdate: "usage_update", used: 13_689, size: 1_048_576 },
+  } satisfies EffectAcpSchema.SessionNotification;
+  expect(normalizeAntigravitySessionUpdate(notification)).toEqual({
+    ...notification,
+    update: { ...notification.update, size: 256_000 },
+  });
+});
+
 describe("native Antigravity subagent tools", () => {
   it("recognizes only native invocation titles and excludes MCP tools", () => {
     const toolCall = { toolCallId: "trajectory:4", kind: "other", data: {} };

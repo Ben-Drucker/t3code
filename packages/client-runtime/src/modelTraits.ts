@@ -32,7 +32,7 @@ export function replaceDescriptorCurrentValue(
   currentValue: string | boolean | undefined,
 ): ReadonlyArray<ProviderOptionDescriptor> {
   return descriptors.map((descriptor) =>
-    descriptor.id !== descriptorId
+    descriptor.id !== descriptorId || descriptor.disabledReason !== undefined
       ? descriptor
       : descriptor.type === "boolean"
         ? {
@@ -91,7 +91,12 @@ export function getTraitSelectChange(
   prompt: string,
   value: string,
 ) {
-  if (!value || descriptor.promptInjectedValues?.includes(value)) return null;
+  if (
+    descriptor.disabledReason !== undefined ||
+    !value ||
+    descriptor.promptInjectedValues?.includes(value)
+  )
+    return null;
   const isPrimary = descriptor.id === selected.primarySelectDescriptor?.id;
   if (isPrimary && selected.ultrathinkInBodyText) return null;
   return {

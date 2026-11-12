@@ -24,6 +24,8 @@ import * as Stream from "effect/Stream";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import { HttpClient } from "effect/http";
 import * as AcpErrors from "effect-acp/errors";
+import { readAntigravityContextUsage } from "../acp/AntigravityContextBreakdown.ts";
+import { resolveAntigravityConversationStore } from "../acp/AntigravityProfilePaths.ts";
 
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import {
@@ -171,6 +173,7 @@ export const AntigravityDriver: ProviderDriver<
       ),
     );
     const profileDirectory = directories.profile;
+    let conversationStore = { profileDirectory, appDataDirectory: "antigravity-acp" };
     for (const directory of [
       directories.runtimeTemp,
       path.join(profileDirectory, "antigravity-acp", "tmp"),
@@ -267,25 +270,40 @@ export const AntigravityDriver: ProviderDriver<
               ),
             ),
       );
+      const spawn = buildAntigravityAcpSpawnInput({
+        installation: executable,
+        profile,
+        cwd: input.cwd,
+        baseEnv: processEnvironment,
+        auth,
+        runtimeTempDirectory,
+      });
+      conversationStore = resolveAntigravityConversationStore({
+        managed: executable.harnessPath !== null,
+        profileDirectory,
+        environment: spawn.env ?? {},
+        userHome,
+        cwd: input.cwd,
+      });
       const runtime = yield* makeAntigravityAcpRuntime({
         ...input,
         runtimeVersion: executable.version,
         authMethod: auth.authMethod,
         childProcessSpawner: spawner,
-        spawn: buildAntigravityAcpSpawnInput({
-          installation: executable,
-          profile,
-          cwd: input.cwd,
-          baseEnv: processEnvironment,
-          auth,
-          runtimeTempDirectory,
-        }),
+        spawn,
       }).pipe(Effect.provideService(SecureRandom.SecureRandom, random));
       return {
         ...runtime,
-        ...(executable.harnessPath === null
-          ? { setMode: (modeId: string) => runtime.setMode(antigravityCliSessionMode(modeId)) }
-          : {}),
+        setMode: Effect.fn("AntigravityDriver.setMode")(function* (modeId: string) {
+          const modes = yield* runtime.getModeState;
+          const selected =
+            modeId === "auto" && !modes?.availableModes.some((mode) => mode.id === "auto")
+              ? "default"
+              : modeId;
+          return yield* runtime.setMode(
+            executable.harnessPath === null ? antigravityCliSessionMode(selected) : selected,
+          );
+        }),
         start: () =>
           runtime
             .start()
@@ -463,6 +481,12 @@ export const AntigravityDriver: ProviderDriver<
       withProcess: authFlow.withProcess,
       defaultModel,
       profileDirectory,
+      pollContextUsage: ({ sessionId }) =>
+        readAntigravityContextUsage(
+          conversationStore.profileDirectory,
+          sessionId,
+          conversationStore.appDataDirectory,
+        ),
       onSessionStarted: provider.onSessionStarted,
       onSessionEvent: (event) => {
         if (event._tag === "ConfigOptionsUpdated") {

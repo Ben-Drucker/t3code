@@ -11,6 +11,7 @@ import type * as EffectAcpSchema from "effect-acp/compat";
 import * as AcpWireSchema from "effect-acp/schema-v1";
 
 import type { AcpToolCallState } from "@t3tools/provider-acp/server/runtimeModel";
+import { ANTIGRAVITY_CONTEXT_LIMIT } from "../antigravityCompaction.ts";
 
 import {
   ANTIGRAVITY_EDIT_DIFF_OMITTED,
@@ -314,6 +315,9 @@ export function normalizeAntigravitySessionUpdate(
   notification: EffectAcpSchema.SessionNotification,
 ): EffectAcpSchema.SessionNotification {
   const update = notification.update;
+  if (update.sessionUpdate === "usage_update") {
+    return { ...notification, update: { ...update, size: ANTIGRAVITY_CONTEXT_LIMIT } };
+  }
   if (update.sessionUpdate !== "tool_call" && update.sessionUpdate !== "tool_call_update") {
     return notification;
   }

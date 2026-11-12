@@ -317,6 +317,7 @@ function EffortRows(props: { control: ColumnControl; traits: TraitsSelection; lo
             key={String(value)}
             label={value ? "On" : "Off"}
             selected={(control.descriptor.currentValue === true) === value}
+            disabled={descriptor.disabledReason !== undefined}
             tabStop={(control.descriptor.currentValue === true) === value}
             onPick={() => traits.changeBoolean(descriptor.id, value)}
           />
@@ -342,9 +343,9 @@ function EffortRows(props: { control: ColumnControl; traits: TraitsSelection; lo
           label={option.label}
           selected={option.id === value}
           tabStop={shown ? option.id === value : index === 0}
-          description={option.description}
+          description={descriptor.disabledReason ?? option.description}
           isDefault={option.isDefault}
-          disabled={locked}
+          disabled={locked || descriptor.disabledReason !== undefined}
           onPick={() => traits.changeSelect(control.descriptor, option.id)}
         />
       ))}
@@ -355,11 +356,14 @@ function EffortRows(props: { control: ColumnControl; traits: TraitsSelection; lo
 const OPTION_ROW = cn(COLUMN_ROW, "h-auto py-1");
 
 /** An option's name over its current value. */
-function OptionRowText(props: { label: string; value: string }) {
+function OptionRowText(props: { label: string; value: string; description?: string | undefined }) {
   return (
     <span className="flex min-w-0 flex-1 flex-col">
       <span className="truncate text-muted-foreground text-xs">{props.label}</span>
       <span className="truncate">{props.value}</span>
+      {props.description ? (
+        <span className="text-muted-foreground text-xs">{props.description}</span>
+      ) : null}
     </span>
   );
 }
@@ -382,7 +386,9 @@ function OptionMenuRow(props: {
   const chosenLimit = chosenContextLimit(traits.selectDescriptors);
   const currentLimit = useComposerContextLimit();
   const threadStarted = useComposerThreadStarted();
-  const locked = descriptor.lockedOnceStarted === true && threadStarted;
+  const locked =
+    descriptor.disabledReason !== undefined ||
+    (descriptor.lockedOnceStarted === true && threadStarted);
   const current = choices.find((choice) => choice.id === value)?.label ?? "";
   return (
     <Menu
@@ -420,7 +426,12 @@ function OptionMenuRow(props: {
       >
         <OptionRowText
           label={descriptor.label}
-          value={locked ? `${current} (fixed once started)` : current}
+          value={
+            locked && descriptor.disabledReason === undefined
+              ? `${current} (fixed once started)`
+              : current
+          }
+          description={descriptor.disabledReason}
         />
         <ChevronRightIcon
           aria-hidden="true"
@@ -452,7 +463,7 @@ function OptionMenuRow(props: {
           }}
         >
           {choices.map((choice) => (
-            <MenuRadioItem key={choice.id} value={choice.id} closeOnClick>
+            <MenuRadioItem key={choice.id} value={choice.id} closeOnClick disabled={locked}>
               <span className="flex items-center gap-3">
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="truncate">{choice.label}</span>
@@ -487,9 +498,14 @@ function OptionSwitchRow(props: {
   const checked = descriptor.currentValue === true;
   return (
     <label className={cn(OPTION_ROW, "has-focus-visible:bg-foreground/[0.09]")}>
-      <OptionRowText label={descriptor.label} value={checked ? "On" : "Off"} />
+      <OptionRowText
+        label={descriptor.label}
+        value={checked ? "On" : "Off"}
+        description={descriptor.disabledReason}
+      />
       <Switch
         size="sm"
+        disabled={descriptor.disabledReason !== undefined}
         checked={checked}
         onCheckedChange={(next) => traits.changeBoolean(descriptor.id, next)}
         aria-label={descriptor.label}

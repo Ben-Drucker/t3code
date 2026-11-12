@@ -169,6 +169,7 @@ export function antigravityPermissionMode(runtimeMode: RuntimeMode): string {
     case "auto-accept-edits":
       return "auto_edit";
     case "auto":
+      return "auto";
     case "approval-required":
       return "default";
   }
@@ -176,6 +177,7 @@ export function antigravityPermissionMode(runtimeMode: RuntimeMode): string {
 
 /** 1.5 renamed `auto_edit` to `accept-edits` and dropped `yolo`; permissions then stay with T3. */
 export const ANTIGRAVITY_SESSION_MODE_ALIASES = {
+  auto: ["default"],
   auto_edit: ["accept-edits"],
   yolo: [],
 } as const;
@@ -192,6 +194,8 @@ export function antigravityCliSessionMode(modeId: string): string {
 /** The runtime mode an Antigravity session mode grants; the inverse of `antigravityPermissionMode`. */
 export function antigravityRuntimeModeForSessionMode(modeId: string): RuntimeMode | undefined {
   switch (modeId) {
+    case "auto":
+      return "auto";
     case "yolo":
       return "full-access";
     case "auto_edit":

@@ -18,6 +18,7 @@ import * as EffectAcpErrors from "effect-acp/errors";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { PULL_REQUEST_LINKING_INSTRUCTIONS } from "@t3tools/provider-core/server/runtimeInstructions";
 import type { AntigravityAuth } from "../../provider/AntigravityAuth.ts";
+import { acpPermissionDisposition } from "@t3tools/provider-acp/server/clientPolicy";
 import type * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 import {
   antigravityAppendsSystemPrompt,
@@ -93,6 +94,7 @@ export interface AntigravityAdapterV2Options {
   readonly continuationRequests?: Parameters<typeof makeAcpAdapterV2>[0]["continuationRequests"];
   /** The agent's GEMINI_HOME. Its session logs show turns that ended on an upstream error. */
   readonly profileDirectory?: string;
+  readonly pollContextUsage?: AcpAdapterV2Flavor["pollContextUsage"];
 }
 
 /**
@@ -261,6 +263,9 @@ export function makeAntigravityAcpAdapterFlavor(
           request,
         }),
     },
+    // Native Auto has already reviewed these requests and still requires the user's decision.
+    permissionDisposition: (policy, request) =>
+      policy.runtimeMode === "auto" ? "ask" : acpPermissionDisposition(policy, request),
     approvalOptions: antigravityApprovalOptions,
     extractPermissionQuestion: (request) => {
       const question = extractAntigravityUserInputQuestion(request);
@@ -289,6 +294,9 @@ export function makeAntigravityAcpAdapterFlavor(
           pollContextUsage: ({ sessionId }: { readonly sessionId: string }) =>
             readAntigravityContextUsage(profileDirectory, sessionId),
         }),
+    ...(options.pollContextUsage === undefined
+      ? {}
+      : { pollContextUsage: options.pollContextUsage }),
   };
 }
 

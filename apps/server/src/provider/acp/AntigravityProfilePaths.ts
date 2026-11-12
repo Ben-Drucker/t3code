@@ -3,6 +3,30 @@ import type * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 
+interface AntigravityConversationStore {
+  readonly profileDirectory: string;
+  readonly appDataDirectory: string;
+}
+
+export function resolveAntigravityConversationStore(input: {
+  readonly managed: boolean;
+  readonly profileDirectory: string;
+  readonly environment: NodeJS.ProcessEnv;
+  readonly userHome: string;
+  readonly cwd: string;
+}): AntigravityConversationStore {
+  return input.managed
+    ? { profileDirectory: input.profileDirectory, appDataDirectory: "antigravity-acp" }
+    : {
+        // The standalone CLI uses these overrides, not the managed server's GEMINI_HOME.
+        profileDirectory: NodePath.resolve(
+          input.cwd,
+          input.environment.ANTIGRAVITY_GEMINI_DIR || NodePath.join(input.userHome, ".gemini"),
+        ),
+        appDataDirectory: input.environment.ANTIGRAVITY_APP_DATA_DIR || "antigravity-cli",
+      };
+}
+
 /**
  * Proves a native runtime entry is at its literal path below the canonical profile: every
  * component exists with the expected type and none is a link. A link could point at another

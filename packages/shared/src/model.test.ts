@@ -35,6 +35,32 @@ const codexCaps: ModelCapabilities = createModelCapabilities({
 });
 
 describe("descriptor helpers", () => {
+  it("keeps provider-fixed values when a saved thread or runtime reports another value", () => {
+    const fixed = {
+      id: "contextLimit",
+      label: "Context limit",
+      type: "select",
+      disabledReason: "Fixed by Antigravity",
+      currentValue: "256000",
+      options: [{ id: "256000", label: "256K", isDefault: true }],
+    } as const;
+    const descriptors = getProviderOptionDescriptors({
+      caps: { optionDescriptors: [fixed] },
+      selections: [{ id: "contextLimit", value: "1048576" }],
+    });
+    expect(descriptors).toEqual([fixed]);
+    expect(
+      getProviderOptionCurrentLabel(
+        descriptors[0],
+        { instanceId: ProviderInstanceId.make("antigravity"), model: "gemini" },
+        {
+          instanceId: ProviderInstanceId.make("antigravity"),
+          model: "gemini",
+          options: [{ id: "contextLimit", value: "1048576" }],
+        },
+      ),
+    ).toBe("256K");
+  });
   it("builds dispatch options only from explicit selections", () => {
     const descriptors = getProviderOptionDescriptors({
       caps: codexCaps,

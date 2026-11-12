@@ -29,7 +29,9 @@ the parent conversation with the subagent's name, so you can respond without swi
 
 Providers enforce permissions differently. Some read-only actions can proceed in **Supervised**.
 **Auto** uses automatic review on Codex, Claude, Cursor, Grok, and fx.
-Providers without Auto, including OpenCode, Antigravity, Pi, Kiro, Muse, and
+Antigravity offers **Auto** when its runtime advertises native automatic review. Requests it
+still escalates come to you for approval. Older Antigravity runtimes fall back to **Supervised**.
+Providers without Auto, including OpenCode, Pi, Kiro, Muse, and
 ACP Registry agents, do not offer it in the picker. On Grok, commands its review blocks come
 to you for approval. On fx, prompts it still sends also come to you.
 

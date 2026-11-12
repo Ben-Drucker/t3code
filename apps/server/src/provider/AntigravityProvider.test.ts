@@ -26,6 +26,7 @@ import * as ProviderHostLive from "./ProviderHostLive.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import type * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 import type { ServerProvider } from "@t3tools/contracts";
+import { resolveDefaultRuntimeMode } from "@t3tools/shared/runtimeMode";
 import {
   buildAntigravityModelsFromSession,
   makeAntigravityProvider,
@@ -279,13 +280,33 @@ describe("Antigravity model catalog", () => {
       ]),
     );
     const thinkingOf = (slug: string) =>
-      models.find((model) => model.slug === slug)?.capabilities?.optionDescriptors?.[0];
+      models
+        .find((model) => model.slug === slug)
+        ?.capabilities?.optionDescriptors?.find((option) => option.id === "thinking_level");
 
     expect(thinkingOf("gemini")).toMatchObject({ id: "thinking_level", currentValue: "high" });
     expect(thinkingOf("claude")).toMatchObject({ id: "thinking_level", currentValue: "low" });
     expect(thinkingOf("plain")).toBeUndefined();
     expect(thinkingOf("unseen")).toMatchObject({ id: "thinking_level" });
     expect(thinkingOf("unseen")).not.toHaveProperty("currentValue");
+    for (const model of models) {
+      expect(
+        model.capabilities?.optionDescriptors?.filter((option) => option.disabledReason),
+      ).toMatchObject([
+        {
+          id: "contextLimit",
+          currentValue: "256000",
+          disabledReason: "Fixed by Antigravity",
+          options: [{ id: "256000", label: "256K" }],
+        },
+        {
+          id: "compactBuffer",
+          currentValue: "auto",
+          disabledReason: "Fixed by Antigravity",
+          options: [{ id: "auto", label: "Auto" }],
+        },
+      ]);
+    }
   });
 });
 
@@ -348,17 +369,64 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
     ),
   );
 
-  it.effect("does not offer Auto, so Auto threads fall back to Supervised", () =>
+  it.effect("offers Auto only when the session advertises native automatic review", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const harness = yield* makeHarness();
         yield* harness.initialize;
-        // Antigravity has no automatic review; the shared ACP policy would approve every request.
         expect((yield* harness.provider.snapshot.getSnapshot).supportedRuntimeModes).toEqual([
           "approval-required",
           "auto-accept-edits",
           "full-access",
         ]);
+        yield* harness.provider.onSessionStarted({
+          ...started,
+          sessionSetupResult: {
+            ...sessionSetupResult,
+            modes: {
+              currentModeId: "default",
+              availableModes: [
+                { id: "default", name: "Default" },
+                { id: "auto", name: "Auto" },
+              ],
+            },
+          },
+        });
+        expect((yield* harness.provider.snapshot.getSnapshot).supportedRuntimeModes).toContain(
+          "auto",
+        );
+        yield* harness.provider.onSessionStarted(started);
+        expect((yield* harness.provider.snapshot.getSnapshot).supportedRuntimeModes).not.toContain(
+          "auto",
+        );
+        const mode = sessionSetupResult.configOptions.find((option) => option.id === "mode")!;
+        yield* harness.provider.onConfigOptionsUpdated([
+          ...sessionSetupResult.configOptions.filter((option) => option.id !== "mode"),
+          {
+            ...mode,
+            options: [
+              { value: "default", name: "Default" },
+              { value: "auto", name: "Auto" },
+            ],
+          },
+        ]);
+        const supported = (yield* harness.provider.snapshot.getSnapshot).supportedRuntimeModes;
+        expect(supported).toContain("auto");
+        expect(
+          resolveDefaultRuntimeMode(
+            { defaultRuntimeMode: "full-access", defaultRuntimeModeWithAuto: "auto" },
+            supported,
+          ),
+        ).toBe("auto");
+        yield* harness.provider.onConfigOptionsUpdated(sessionSetupResult.configOptions);
+        const legacy = (yield* harness.provider.snapshot.getSnapshot).supportedRuntimeModes;
+        expect(legacy).not.toContain("auto");
+        expect(
+          resolveDefaultRuntimeMode(
+            { defaultRuntimeMode: "full-access", defaultRuntimeModeWithAuto: "auto" },
+            legacy,
+          ),
+        ).toBe("full-access");
       }),
     ),
   );

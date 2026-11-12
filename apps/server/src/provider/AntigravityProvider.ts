@@ -23,6 +23,7 @@ import type * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
 
 import type * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
+import { parseSessionModeState } from "@t3tools/provider-acp/server/runtimeModel";
 import { acpProviderOptionDescriptors } from "@t3tools/provider-acp/server/sessionConfig";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
 import {
@@ -37,6 +38,7 @@ import {
 import { resolveUsageLimitsAfterProbe } from "@t3tools/provider-core/server/usageLimits";
 
 import { antigravityThinkingConfig } from "./acp/AntigravityAcpSupport.ts";
+import { withAntigravityContextControls } from "./antigravityCompaction.ts";
 
 const EMPTY_MODEL_CAPABILITIES = createModelCapabilities({ optionDescriptors: [] });
 const MAX_WORKSPACE_SNAPSHOTS = 32;
@@ -107,10 +109,11 @@ export function buildAntigravityModelsFromSession(
         ...(entry.value === currentValue
           ? { isDefault: true, aliases: [ANTIGRAVITY_DEFAULT_MODEL] }
           : {}),
-        capabilities:
+        capabilities: withAntigravityContextControls(
           observed === undefined
             ? thinkingCapabilities(currentThinking, false)
             : thinkingCapabilities(observed, true),
+        ),
       },
     ];
   });
@@ -185,7 +188,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
       presentation: {
         displayName: "Antigravity",
         showInteractionModeToggle: false,
-        // No automatic review, so Auto falls back to Supervised instead of approving everything.
+        // Until a session advertises native Auto, fall back to Supervised.
         supportedRuntimeModes: ["approval-required", "auto-accept-edits", "full-access"],
       },
       enabled: settings.enabled,
@@ -391,6 +394,11 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
             label: options.auth?.label ?? "Google account",
           },
           checkedAt: updatedAt,
+          supportedRuntimeModes: parseSessionModeState(
+            started.sessionSetupResult,
+          )?.availableModes.some((mode) => mode.id === "auto")
+            ? ["approval-required", "auto-accept-edits", "auto", "full-access"]
+            : ["approval-required", "auto-accept-edits", "full-access"],
           models: buildAntigravityModelsFromSession(started.sessionSetupResult, thinkingLevels),
           supportsTextGeneration,
           ...(cwd
@@ -417,9 +425,23 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
   ) {
     observeThinkingLevels(configOptions);
     const models = buildAntigravityModelsFromSession({ configOptions }, thinkingLevels);
+    const modes = parseSessionModeState({ configOptions });
     yield* SubscriptionRef.update(metadata, (state) => {
       if (state.draft.auth.status !== "authenticated") return state;
-      return { ...state, draft: { ...state.draft, models } };
+      return {
+        ...state,
+        draft: {
+          ...state.draft,
+          models,
+          ...(modes === undefined
+            ? {}
+            : {
+                supportedRuntimeModes: modes.availableModes.some((mode) => mode.id === "auto")
+                  ? ["approval-required", "auto-accept-edits", "auto", "full-access"]
+                  : ["approval-required", "auto-accept-edits", "full-access"],
+              }),
+        },
+      } satisfies AntigravityProviderState;
     });
   });
 
@@ -481,6 +503,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
             skills: [],
             workspaceSnapshots: [],
             supportsTextGeneration: false,
+            supportedRuntimeModes: ["approval-required", "auto-accept-edits", "full-access"],
             usageLimits: undefined,
           },
         }) satisfies AntigravityProviderState,

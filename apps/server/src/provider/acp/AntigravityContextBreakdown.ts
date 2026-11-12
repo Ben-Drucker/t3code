@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off -- node:sqlite reads the native session log.
 import * as NodeSqlite from "node:sqlite";
+import * as NodePath from "node:path";
 
 import type { ThreadContextBreakdown } from "@t3tools/contracts";
 
@@ -7,6 +8,7 @@ type Breakdown = typeof ThreadContextBreakdown.Type;
 import * as Effect from "effect/Effect";
 
 import { antigravityManagedPath, antigravityProfileRoot } from "./AntigravityProfilePaths.ts";
+import { ANTIGRAVITY_CONTEXT_LIMIT } from "../antigravityCompaction.ts";
 
 /**
  * Fork: Antigravity records a token breakdown with every model call in the `gen_metadata` table of
@@ -182,15 +184,27 @@ export function antigravityBreakdownFromGeneration(
 const NATIVE_SESSION_ID = /^[\w-]+$/;
 
 /** The newest breakdown in this session's own database, or undefined. Never fails. */
-export const readAntigravityContextUsage = (profileDirectory: string, sessionId: string) =>
+export const readAntigravityContextUsage = (
+  profileDirectory: string,
+  sessionId: string,
+  appDataDirectory = "antigravity-acp",
+) =>
   Effect.tryPromise({
     try: async () => {
       if (!NATIVE_SESSION_ID.test(sessionId)) return undefined;
+      const segments = appDataDirectory.split(/[/\\]/);
+      if (
+        NodePath.isAbsolute(appDataDirectory) ||
+        segments.some(
+          (segment) => !segment || segment === "." || segment === ".." || /[:\0]/.test(segment),
+        )
+      )
+        return undefined;
       const root = await antigravityProfileRoot(profileDirectory);
       if (root === undefined) return undefined;
       const database = await antigravityManagedPath(
         root,
-        ["antigravity-acp", "conversations", `${sessionId}.db`],
+        [...segments, "conversations", `${sessionId}.db`],
         "file",
       );
       if (database === undefined) return undefined;
@@ -200,9 +214,9 @@ export const readAntigravityContextUsage = (profileDirectory: string, sessionId:
         const row = connection
           .prepare("SELECT data FROM gen_metadata ORDER BY idx DESC LIMIT 1")
           .get();
-        return row?.data instanceof Uint8Array
-          ? antigravityBreakdownFromGeneration(row.data)
-          : undefined;
+        if (!(row?.data instanceof Uint8Array)) return undefined;
+        const usage = antigravityBreakdownFromGeneration(row.data);
+        return usage === undefined ? undefined : { ...usage, maxTokens: ANTIGRAVITY_CONTEXT_LIMIT };
       } finally {
         connection.close();
       }

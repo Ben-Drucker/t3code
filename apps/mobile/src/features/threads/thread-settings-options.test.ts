@@ -71,6 +71,14 @@ const effortDescriptor: Extract<ProviderOptionDescriptor, { type: "select" }> = 
 };
 
 describe("fast mode switch", () => {
+  it("rejects changes to provider-fixed controls", () => {
+    expect(
+      applyProviderOptionSelection([{ ...effortDescriptor, disabledReason: "Fixed by provider" }], {
+        id: "effort",
+        value: "low",
+      }),
+    ).toBeNull();
+  });
   // regression: #29729 Cursor reports Fast on by default, but its picker shows an unset fastMode as off
   it("shows an unset fast mode as off, saves it as off and turns it on when toggled", () => {
     const capabilities = {
