@@ -76,7 +76,7 @@ def parse_status(raw: str) -> list[tuple[str, str]]:
 
 def classify_status(raw: str, repo: Path, out_dir: Path) -> tuple[list[str], list[str]]:
     """Splits dirty paths into (ignorable, blocking). Anything under the build output directory and
-    untracked task-history-handoffs/ is ignorable; conflicted and other changed paths block."""
+    untracked task-history-handoffs/ and Python __pycache__ are ignorable; conflicted and other changed paths block."""
     try:
         out_rel = out_dir.resolve().relative_to(repo.resolve()).as_posix()
     except ValueError:
@@ -88,7 +88,7 @@ def classify_status(raw: str, repo: Path, out_dir: Path) -> tuple[list[str], lis
             blocking.append(f"{path} (conflicted)")
         elif out_rel and (path == out_rel or path.startswith(out_rel + "/")):
             ignorable.append(path)
-        elif xy == "??" and path.split("/")[0] in IGNORED_UNTRACKED:
+        elif xy == "??" and (path.split("/")[0] in IGNORED_UNTRACKED or "__pycache__" in path.split("/")):
             ignorable.append(path)
         else:
             blocking.append(f"{path} ({xy.strip() or xy})")
