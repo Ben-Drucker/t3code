@@ -1,6 +1,6 @@
 import { expect, it } from "vite-plus/test";
 import * as DateTime from "effect/DateTime";
-import { tokenThroughput } from "./tokenThroughput";
+import { tokenThroughput } from "./tokenThroughput.ts";
 
 it("weights chat throughput by duration and selects the latest measured turn", () => {
   const sample = (start: number, end: number, outputTokens: number) => ({

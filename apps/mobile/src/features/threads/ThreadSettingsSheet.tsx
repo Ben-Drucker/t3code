@@ -3,6 +3,8 @@ import {
   getTraitSelectChange,
 } from "@t3tools/client-runtime/model-traits";
 import * as Dialog from "../../components/ui/Dialog";
+import { tokenThroughput } from "@t3tools/shared/tokenThroughput";
+import { useSelectedThreadProjection } from "../../state/use-thread-detail";
 import { createV5StackNavigator as createNativeStackNavigator } from "../../native/createV5StackNavigator";
 import { useSheetStackOptions } from "../layout/nested-stacks";
 import { DEFAULT_SERVER_SETTINGS, ProviderInstanceId } from "@t3tools/contracts";
@@ -273,6 +275,7 @@ type ThreadSettingsSubmenuPage =
   | { readonly kind: "runtime" };
 
 type ThreadSettingsSessionProps = {
+  readonly threadDetails?: ReactNode;
   readonly environmentId: EnvironmentId | null;
   readonly projectId: ProjectId | null;
   readonly cwd: string | null;
@@ -299,6 +302,7 @@ export type ExistingThreadSettingsRouteParams = {
 };
 
 type ThreadSettingsSessionValue = {
+  readonly threadDetails?: ReactNode;
   readonly environmentId: EnvironmentId | null;
   readonly providerInstanceId?: ProviderInstanceId;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
@@ -620,6 +624,7 @@ function ThreadSettingsSessionProvider(
     props.cwd && scannedInstanceId ? { instanceId: scannedInstanceId, cwd: props.cwd } : null;
 
   const value = {
+    threadDetails: props.threadDetails,
     environmentId,
     providerInstanceId: props.providerInstanceId,
     providerGroups,
@@ -876,6 +881,7 @@ function ThreadSettingsOptionsItem(props: {
   return (
     <View style={{ paddingBottom: insets.bottom + props.bottomInset + 12 }}>
       <ChatGptSharingStatus provider={selectedProvider} />
+      {session.threadDetails}
       <Text className="px-5 pb-2 pt-2 text-sm font-t3-medium text-foreground-muted">Options</Text>
       <Animated.View
         className="mx-4 overflow-hidden rounded-2xl bg-grouped-card"
@@ -1421,6 +1427,7 @@ export function ExistingThreadSettingsRouteScreen({
 
   return (
     <ThreadSettingsPickerScreen
+      threadDetails={<ThreadDetailsMetrics />}
       environmentId={selectedThread.environmentId}
       projectId={selectedThread.projectId}
       cwd={selectedThreadCwd}
@@ -1445,6 +1452,25 @@ export function ExistingThreadSettingsRouteScreen({
       onUpdateRuntimeMode={(runtimeMode) => updateComposerDraftSettings(threadKey, { runtimeMode })}
       onClose={() => navigation.goBack()}
     />
+  );
+}
+
+function ThreadDetailsMetrics() {
+  const thread = useSelectedThreadProjection();
+  const throughput = tokenThroughput(thread?.projection.providerTurns ?? []);
+  const rate = (value: number | null) =>
+    value === null ? "Unavailable" : `${value.toFixed(1)} tok/s`;
+  return (
+    <View className="mx-4 mb-4 gap-2 rounded-2xl bg-grouped-card p-4">
+      <View className="flex-row justify-between gap-4">
+        <Text className="text-sm text-foreground">Tokens per second</Text>
+        <Text className="text-sm text-foreground-secondary">{rate(throughput.average)}</Text>
+      </View>
+      <View className="flex-row justify-between gap-4">
+        <Text className="text-sm text-foreground-muted">Latest turn</Text>
+        <Text className="text-sm text-foreground-muted">{rate(throughput.last)}</Text>
+      </View>
+    </View>
   );
 }
 

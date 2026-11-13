@@ -305,7 +305,7 @@ import {
 } from "./chat/PanelLayoutControls";
 import type { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { ThreadDetailsPanel } from "./chat/ThreadDetailsPanel";
-import { tokenThroughput } from "./chat/tokenThroughput";
+import { tokenThroughput } from "@t3tools/shared/tokenThroughput";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import {
   resolveEffectiveEnvMode,

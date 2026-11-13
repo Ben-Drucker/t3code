@@ -21,7 +21,7 @@ import { ThreadDetailsCard } from "./ThreadDetailsCard";
 import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
-import type { tokenThroughput } from "./tokenThroughput";
+import type { tokenThroughput } from "@t3tools/shared/tokenThroughput";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 import { ThreadServersPanel } from "./ThreadServersPanel";
