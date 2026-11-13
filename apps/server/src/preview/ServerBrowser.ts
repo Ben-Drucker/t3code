@@ -2652,12 +2652,31 @@ const make = Effect.gen(function* () {
       if (event.type === "opened" && event.snapshot.runtime === "server") {
         if (forceFirefox || firefoxDockedUsable()) {
           firefoxKeys.add(tabKey(event.threadId, event.tabId));
-          await firefox.openManaged(event.snapshot).catch(async () => {
+          await firefox.openManaged(event.snapshot).catch(async (cause) => {
             await runPromise(
               manager
                 .close({ threadId: ThreadId.make(event.threadId), tabId: event.tabId })
                 .pipe(Effect.ignore),
             );
+            if (!forceFirefox) {
+              dockedRefused = true;
+              firefoxFallbackMessage =
+                "Firefox could not open a dedicated preview window. Using the built-in preview. Check Marionette and Firefox system access.";
+              await runPromise(Effect.logWarning(firefoxFallbackMessage, { cause }));
+              await runPromise(
+                manager.open({
+                  threadId: ThreadId.make(event.threadId),
+                  runtime: "server",
+                  ...("url" in event.snapshot.navStatus
+                    ? { url: event.snapshot.navStatus.url }
+                    : {}),
+                  ...(event.snapshot.automationOwner === undefined
+                    ? {}
+                    : { automationOwner: event.snapshot.automationOwner }),
+                  reveal: event.snapshot.reveal ?? true,
+                }),
+              );
+            }
           });
           return;
         }
