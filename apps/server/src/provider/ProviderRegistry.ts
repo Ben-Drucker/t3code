@@ -224,6 +224,8 @@ const shouldRetainMissingProviderModels = (provider: ServerProvider): boolean =>
     return false;
   }
 
+  if (isAntigravity && provider.installed && provider.models.length === 0) return true;
+
   // Antigravity's local health check does not authenticate or discover models.
   const isPendingAntigravityAuthentication =
     isAntigravity && provider.status === "warning" && provider.auth.status === "unknown";

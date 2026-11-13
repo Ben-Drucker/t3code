@@ -396,6 +396,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
       thinkingLevels.clear();
     }
     observeThinkingLevels(started.sessionSetupResult.configOptions);
+    const models = buildAntigravityModelsFromSession(started.sessionSetupResult, thinkingLevels);
     const updatedAt = DateTime.formatIso(yield* DateTime.now);
     yield* SubscriptionRef.update(metadata, (state) => {
       if (
@@ -412,7 +413,10 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
         draft: {
           ...draft,
           installed: true,
-          status: "ready",
+          status: models.length > 0 ? "ready" : "warning",
+          ...(models.length > 0
+            ? {}
+            : { message: "Antigravity returned no models. Keeping the previous model list." }),
           version: started.initializeResult.agentInfo?.version || draft.version,
           ...(currentCacheKey === undefined ? {} : { capabilityCacheKey: currentCacheKey }),
           auth: {
@@ -426,7 +430,12 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
           )?.availableModes.some((mode) => mode.id === "auto")
             ? ["approval-required", "auto-accept-edits", "auto", "full-access"]
             : ["approval-required", "auto-accept-edits", "full-access"],
-          models: buildAntigravityModelsFromSession(started.sessionSetupResult, thinkingLevels),
+          models:
+            models.length > 0
+              ? models
+              : currentCacheKey === draft.capabilityCacheKey
+                ? draft.models
+                : [],
           supportsTextGeneration,
           ...(cwd
             ? {
@@ -459,7 +468,7 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
         ...state,
         draft: {
           ...state.draft,
-          models,
+          models: models.length > 0 ? models : state.draft.models,
           ...(modes === undefined
             ? {}
             : {

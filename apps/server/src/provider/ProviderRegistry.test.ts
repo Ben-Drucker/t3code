@@ -1611,7 +1611,16 @@ it.layer(
         skills: [],
       } as const satisfies ServerProvider;
 
-      it("clears models after sign-out, disable, uninstall, or an empty successful refresh", () => {
+      it("retains a verified catalog after an empty successful background snapshot", () => {
+        const previous = { ...previousProvider, capabilityCacheKey: "same-binary" };
+        const merged = ProviderRegistry.mergeProviderSnapshot(previous, {
+          ...previous,
+          models: [],
+        });
+        assert.deepStrictEqual(merged.models, previous.models);
+      });
+
+      it("clears models after sign-out, disable, or uninstall", () => {
         const emptyProvider = {
           ...previousProvider,
           checkedAt: "2026-09-02T00:01:00.000Z",
@@ -1623,7 +1632,6 @@ it.layer(
           { ...emptyProvider, status: "disabled", enabled: false },
           { ...emptyProvider, status: "error", enabled: false },
           { ...emptyProvider, status: "error", installed: false, auth: { status: "unknown" } },
-          emptyProvider,
         ] satisfies ReadonlyArray<ServerProvider>;
 
         for (const provider of clearedProviders) {

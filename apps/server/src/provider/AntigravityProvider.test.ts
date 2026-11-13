@@ -528,7 +528,7 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
     ),
   );
 
-  it.effect("replaces live model choices and accepts an empty catalog", () =>
+  it.effect("retains live model choices after empty config and session updates", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const harness = yield* makeHarness();
@@ -556,7 +556,20 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
           slashCommands: expectedCommands,
         });
         yield* harness.provider.onConfigOptionsUpdated([]);
-        expect((yield* harness.provider.snapshot.getSnapshot).models).toEqual([]);
+        expect((yield* harness.provider.snapshot.getSnapshot).models).toEqual(
+          buildAntigravityModelsFromSession({ configOptions }),
+        );
+        yield* harness.provider.onSessionStarted({
+          ...started,
+          sessionSetupResult: {
+            ...started.sessionSetupResult,
+            configOptions: [],
+            models: undefined,
+          },
+        });
+        expect((yield* harness.provider.snapshot.getSnapshot).models).toEqual(
+          buildAntigravityModelsFromSession({ configOptions }),
+        );
       }),
     ),
   );
