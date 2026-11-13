@@ -1,6 +1,8 @@
 # Backlog
 
-- More prominent done/waiting styling: blue dot for done, orange dot for needs the user. Clicking the thread clears the dot. Notifications match the same meanings.
+Keep unfinished items here. Once a feature, fix, or change is completed, move it to MINE_DIVERGENCE_LOG.md and remove its corresponding backlog entry only with evidence of completion.
+
+- Model-chip regression: inserting a model through `%` no longer includes the selected settings in its `%[model: …]` token. Preserve the selected reasoning effort, service tier, context limit, and compaction buffer. Reported example: `%[model: codex/gpt-6.1-sol, reasoningEffort=medium, serviceTier=priority, contextLimit=default, compactBuffer=default]`; accompanying screenshot shows Medium, 400K context, and 10% free compaction buffer.
 - Mini QQ: a global hotkey (opt+opt, plus a reliable chord such as Opt+Space as the fallback) opens a small floating window with an exact copy of the composer, QQ on by default. The answer streams into a stripped-down sheet above it. Esc or the hotkey again dismisses it.
   - Starts in the "No project" option. Each question is a normal saved thread, hidden from the sidebar, with an "Open in T3" action.
   - Reopening within 10 minutes (timer starts at the hotkey press) keeps the previous conversation. After that, or on Cmd+N, it starts a fresh "No project" session.
@@ -8,15 +10,15 @@
   - Riskiest part, test first: taking keyboard focus over a full-screen app without switching Spaces (non-activating panel window). opt+opt needs Accessibility permission and goes dead during macOS secure input (password fields), so keep the chord as the fallback.
   - Other pitfalls: the two windows share draft storage and would overwrite each other (use a separate key), and keep a warm provider session so the first answer is not slow.
   - Estimate: MVP 3-4 days, polished 7-10 days.
-- Render `%[model: …]` and `%[tool: …]` chips in assistant messages too. Today they only render in the composer and in sent user messages; assistant output shows the raw text.
-- `%` menu: when it opens, put the cursor in the search box at once, and do not type the search text back into the composer (it does that now).
-- Cites (quoting assistant text with a comment): write the comment in the real composer so it has rich text. Show both the quoted material and the comment before sending, laid out the same way they look after sending.
-- `@`-mention directories, not just files. Return/Enter selects the highlighted item from the menu.
 - Fix `/qq` on the Kimi harness: it answers "Unknown ACP command: /qq. Use /help to see available commands." (screenshot: attachment 4bbfbc05-8177-4a3b-b6b7-df38844723d0-80938358-c49b-47bf-9a5b-71f665df0bc8).
 - OpenCode models ignore the chosen context window unevenly: some (e.g. Haiku) respect it, others (Gemini 4 Carbon via the API, the 1.05M-context kind, not Antigravity) do not. Find out why.
 - Quick explainer (mermaid diagram): how device connect works through a private server, how it reaches the phone, and whether/how the iOS version code needs to change. Ben has a paid Apple developer account ($99/yr).
 - Investigate only: how dictation works or doesn't in T3. Do providers such as Claude Code (subscription) offer it over ACP or their SDKs? What about small free local models?
-- QQ button should toggle on click, adding or removing the `/qq` from the composer, instead of only turning it on.
-- Render `@` file and directory paths as hyperlinks in monospace, in the composer and in sent messages.
-- Opening an HTML file should go straight to a browser: no temp server, just `file:///path/to/file`, in a new browser tab instead of the limited HTML preview. Use the browser chosen in settings (native, Firefox docked, or Chrome docked).
-- Settings option to choose the permission mode for providers that have an auto mode, and a separate one for providers that do not. Also clarify Kimi's extra modes (such as yolo), which seem to overlap with permissions.
+- Clarify Kimi's extra modes (such as yolo), which seem to overlap with permissions. Separate permission defaults are implemented and recorded in MINE_DIVERGENCE_LOG.md; retain this explanatory follow-up until its completion is established.
+- Tokens-per-second meter, added as the 13th sidebar meter option. It shows two numbers: the average over the current chat and the rate for the last message.
+- Compaction progress bar, shown next to the compaction indicator.
+  - Research the industry-standard formula that maps the current context size to the expected size after compaction.
+  - Use the tokens per second from the last turn to estimate how long it takes to write that many output tokens.
+  - Reconcile the "Context compacted 315K → 18.4K tokens" message (attachment 4bbfbc05-8177-4a3b-b6b7-df38844723d0-d75b9d40-6659-495e-89db-a66b0d06d2e2). Right after it, the context meter showed about 45K, not 18K. Ben believes 45K is right, since a fresh context normally starts at 15-30K. Find where 18.4K comes from. If it is the number of output tokens the summary took, session data can be used to calibrate the formula.
+- Option key on the stop button: while Option is held, show a parent indicator next to the stop button, and clicking stops only the parent thread and leaves its subagents running.
+- Working shimmer: when the agent is thinking or waiting it is hard to tell whether it is still busy. Show a subtle tracer or shimmer around the composer while a turn is running (no continuously repainting animation, per the performance rules).
