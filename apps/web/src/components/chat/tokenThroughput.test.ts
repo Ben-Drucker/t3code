@@ -19,6 +19,12 @@ it("weights chat throughput by duration and selects the latest measured turn", (
     last: 30,
   });
   expect(
+    tokenThroughput([
+      sample(0, 1000, 10),
+      { ...sample(1000, 4000, 90), turnTokenUsage: undefined },
+    ]),
+  ).toEqual({ average: 10, last: null });
+  expect(
     tokenThroughput([sample(0, 0, 100), { ...sample(0, 1000, 100), turnTokenUsage: undefined }]),
   ).toEqual({ average: null, last: null });
   expect(

@@ -10,20 +10,17 @@ export function tokenThroughput(turns: readonly Sample[]) {
   let lastCompleted = -Infinity;
   for (const turn of turns) {
     const usage = turn.turnTokenUsage;
-    if (
-      !turn.startedAt ||
-      !turn.completedAt ||
-      usage?.usageStatus !== "complete" ||
-      usage.localCommand
-    )
-      continue;
+    if (!turn.startedAt || !turn.completedAt || usage?.localCommand) continue;
     const completed = DateTime.toEpochMillis(turn.completedAt);
     const duration = (completed - DateTime.toEpochMillis(turn.startedAt)) / 1000;
-    if (duration <= 0) continue;
-    tokens += usage.outputTokens;
-    seconds += duration;
+    const rate =
+      duration > 0 && usage?.usageStatus === "complete" ? usage.outputTokens / duration : null;
+    if (rate !== null && usage?.usageStatus === "complete") {
+      tokens += usage.outputTokens;
+      seconds += duration;
+    }
     if (completed >= lastCompleted) {
-      last = usage.outputTokens / duration;
+      last = rate;
       lastCompleted = completed;
     }
   }
