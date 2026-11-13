@@ -65,6 +65,9 @@ export const throttleContextUsage = <E, R>(source: Stream.Stream<ProviderAdapter
               const boundary =
                 event.type === "turn.terminal" ||
                 event.type === "provider_session.updated" ||
+                (!next &&
+                  (event.type === "provider_thread.updated" ||
+                    event.type === "provider_turn.updated")) ||
                 (event.type === "provider_turn.updated" &&
                   event.providerTurn.status !== "running") ||
                 (event.type === "turn_item.updated" && event.turnItem.type === "compaction");
