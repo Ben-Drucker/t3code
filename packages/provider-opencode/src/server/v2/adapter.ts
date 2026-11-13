@@ -2181,7 +2181,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       state.lastContextTokens =
         lastStep === undefined
           ? undefined
-          : lastStep.input + lastStep.cache.read + lastStep.cache.write + lastStep.output;
+          : lastStep.input + lastStep.cache.read + lastStep.cache.write + lastStep.output + lastStep.reasoning;
       yield* emitProviderTurn(state, turn, {
         ...turn.providerTurn,
         status: terminal.status,
@@ -2192,7 +2192,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
           : {
               tokenUsage: {
                 usedTokens:
-                  lastStep.input + lastStep.cache.read + lastStep.cache.write + lastStep.output,
+                  lastStep.input + lastStep.cache.read + lastStep.cache.write + lastStep.output + lastStep.reasoning,
                 maxTokens,
                 ...(threshold === null ? {} : { autoCompactThreshold: threshold }),
                 inputTokens: lastStep.input + lastStep.cache.read + lastStep.cache.write,
@@ -2767,6 +2767,25 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
           turn.usage.cacheWrite += tokens.cache.write;
           turn.usage.output += tokens.output + tokens.reasoning;
           turn.usage.reasoning += tokens.reasoning;
+          const { maxTokens, threshold } = resolveOpenCodeCompaction(
+            turn.input.modelSelection,
+            windowOf(turn.input.runtimePolicy.cwd, turn.input.modelSelection.model),
+          );
+          const usedTokens = tokens.input + tokens.cache.read + tokens.cache.write + tokens.output + tokens.reasoning;
+          state.lastContextTokens = usedTokens;
+          yield* emitProviderTurn(state, turn, {
+            ...turn.providerTurn,
+            tokenUsage: {
+              usedTokens,
+              maxTokens,
+              ...(threshold === null ? {} : { autoCompactThreshold: threshold }),
+              inputTokens: tokens.input + tokens.cache.read + tokens.cache.write,
+              cachedInputTokens: tokens.cache.read,
+              outputTokens: tokens.output,
+              reasoningOutputTokens: tokens.reasoning,
+              updatedAt: DateTime.formatIso(yield* DateTime.now),
+            },
+          });
           return;
         }
         case "session.retry.scheduled":

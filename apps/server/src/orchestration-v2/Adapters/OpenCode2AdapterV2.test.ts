@@ -4610,7 +4610,8 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
       const turn = yield* runtime.events.pipe(
         Stream.filter(
           (event) =>
-            event.type === "provider_turn.updated" && event.providerTurn.completedAt !== null,
+            event.type === "provider_turn.updated" && event.providerTurn.status === "running" &&
+            event.providerTurn.tokenUsage != null,
         ),
         Stream.runHead,
         Effect.forkScoped,
@@ -4618,11 +4619,11 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
       yield* runtime.startTurn(turnInput(thread));
       const settled = Option.getOrUndefined(yield* Fiber.join(turn));
       assert.deepInclude(
-        settled?.type === "provider_turn.updated" ? settled.providerTurn.turnTokenUsage : undefined,
+        settled?.type === "provider_turn.updated" ? settled.providerTurn.tokenUsage : undefined,
         {
           inputTokens: 1200 + 300 + 2500,
           cachedInputTokens: 300,
-          cacheCreationTokens: 2500,
+          usedTokens: 4040,
           outputTokens: 40,
         },
       );
