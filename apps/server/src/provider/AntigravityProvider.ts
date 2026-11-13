@@ -461,6 +461,9 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
   ) {
     observeThinkingLevels(configOptions);
     const models = buildAntigravityModelsFromSession({ configOptions }, thinkingLevels);
+    const emptyCatalog =
+      models.length === 0 &&
+      configOptions.some((option) => option.id === "model" || option.category === "model");
     const modes = parseSessionModeState({ configOptions });
     yield* SubscriptionRef.update(metadata, (state) => {
       if (state.draft.auth.status !== "authenticated") return state;
@@ -469,6 +472,12 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
         draft: {
           ...state.draft,
           models: models.length > 0 ? models : state.draft.models,
+          ...(emptyCatalog
+            ? {
+                status: "warning",
+                message: "Antigravity returned no models. Keeping the previous model list.",
+              }
+            : {}),
           ...(modes === undefined
             ? {}
             : {

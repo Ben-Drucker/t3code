@@ -559,6 +559,8 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
         expect((yield* harness.provider.snapshot.getSnapshot).models).toEqual(
           buildAntigravityModelsFromSession({ configOptions }),
         );
+        yield* harness.provider.onConfigOptionsUpdated([{ ...modelConfig, options: [] }]);
+        expect((yield* harness.provider.snapshot.getSnapshot).status).toBe("warning");
         yield* harness.provider.onSessionStarted({
           ...started,
           sessionSetupResult: {
@@ -568,6 +570,9 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
           },
         });
         expect((yield* harness.provider.snapshot.getSnapshot).models).toEqual(
+          buildAntigravityModelsFromSession({ configOptions }),
+        );
+        expect((yield* harness.provider.snapshot.refresh).models).toEqual(
           buildAntigravityModelsFromSession({ configOptions }),
         );
       }),

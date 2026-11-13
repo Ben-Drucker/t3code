@@ -1696,7 +1696,7 @@ it.layer(
           ...restartProbe,
           supportedRuntimeModes: ["approval-required", "auto-accept-edits", "full-access"],
         } as const;
-        for (const status of ["warning", "error"] as const) {
+        for (const status of ["warning", "error", "ready"] as const) {
           const merged = ProviderRegistry.mergeProviderSnapshot(cached, { ...lightweight, status });
           assert.deepStrictEqual(merged.models, cached.models);
           assert.deepStrictEqual(merged.supportedRuntimeModes, cached.supportedRuntimeModes);
@@ -1712,7 +1712,6 @@ it.layer(
         for (const cleared of [
           { ...lightweight, installed: false, status: "error" },
           { ...lightweight, auth: { status: "unauthenticated" } },
-          { ...lightweight, status: "ready", auth: signedIn.auth },
         ] satisfies ReadonlyArray<ServerProvider>) {
           const merged = ProviderRegistry.mergeProviderSnapshot(cached, cleared);
           assert.deepStrictEqual(merged.models, []);
