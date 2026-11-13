@@ -25,11 +25,21 @@ const CONNECTOR_START_REM = 1.125;
 const CONNECTOR_CLASS = "pointer-events-none absolute border-(--sidebar-tree-line)";
 // Reaches across the 1px gap between sibling rows, so a trunk runs unbroken from row to row.
 const TRUNK_CLASS = `${CONNECTOR_CLASS} top-0 -bottom-px border-s`;
-const BRANCH_WIDTH_REM = CHILD_INDENT_REM - 0.125;
+// The elbow: a 1px vertical border and a 1px bottom border joined by a rounded corner, from the
+// row top to the row midline. Its width, height, and radius are the only place the geometry lives.
+const ELBOW_CLASS = `${CONNECTOR_CLASS} top-0 h-1/2 border-s border-b`;
+const ELBOW_WIDTH_REM = CHILD_INDENT_REM - 0.125;
+const ELBOW_RADIUS_REM = 0.375;
+// The continuation is a bare 1px `border-s` box at the elbow's own left offset, so the two share
+// one pixel column. It starts where the elbow's border leaves the vertical (midline minus
+// radius), so nothing is drawn twice alongside the curve, and runs through the row gap.
+const CONTINUATION_CLASS = `${CONNECTOR_CLASS} -bottom-px border-s`;
+const CONTINUATION_TOP = `calc(50% - ${ELBOW_RADIUS_REM}rem)`;
 
 /**
  * The tree lines beside a nested row: ancestor trunks, this level's trunk when siblings follow,
- * and the branch into the row. The last sibling is one curved element ending at the row's midline.
+ * and the branch into the row. Every branch is the same curved elbow ending at the row midline;
+ * a row with later siblings also continues the trunk from where the elbow's curve begins.
  * Lengths are whole pixels at the default font size so edges stay crisp at fractional DPRs.
  */
 function SidebarChildConnectors(props: {
@@ -52,25 +62,21 @@ function SidebarChildConnectors(props: {
             ]
           : [],
       )}
-      {props.isLast ? (
+      <span
+        aria-hidden
+        className={ELBOW_CLASS}
+        style={{
+          insetInlineStart: columnX(props.depth),
+          width: `${ELBOW_WIDTH_REM}rem`,
+          borderEndStartRadius: `${ELBOW_RADIUS_REM}rem`,
+        }}
+      />
+      {props.isLast ? null : (
         <span
           aria-hidden
-          className={cn(CONNECTOR_CLASS, "top-0 h-1/2 rounded-es-md border-s border-b")}
-          style={{ insetInlineStart: columnX(props.depth), width: `${BRANCH_WIDTH_REM}rem` }}
+          className={CONTINUATION_CLASS}
+          style={{ insetInlineStart: columnX(props.depth), top: CONTINUATION_TOP }}
         />
-      ) : (
-        <>
-          <span
-            aria-hidden
-            className={TRUNK_CLASS}
-            style={{ insetInlineStart: columnX(props.depth) }}
-          />
-          <span
-            aria-hidden
-            className={cn(CONNECTOR_CLASS, "top-0 h-1/2 border-b")}
-            style={{ insetInlineStart: columnX(props.depth), width: `${BRANCH_WIDTH_REM}rem` }}
-          />
-        </>
       )}
     </>
   );
