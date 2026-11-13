@@ -48,7 +48,7 @@ function fakeHelper() {
   };
 }
 
-it("matches replies to requests by id and parses find results", async () => {
+it("matches replies to requests by id and parses candidate windows", async () => {
   const helper = fakeHelper();
   const client = startWindowDockClient("fake", helper.spawn);
   const trusted = client.checkTrusted(false);
@@ -63,38 +63,66 @@ it("matches replies to requests by id and parses find results", async () => {
     type: "result",
     id: 2,
     found: true,
-    frame: { x: 1, y: 2, width: 3, height: 4 },
+    windows: [
+      {
+        windowId: 7,
+        pid: 42,
+        standard: true,
+        minimized: false,
+        frame: { x: 1, y: 2, width: 3, height: 4 },
+      },
+    ],
     contentTop: 88,
   });
   assert.deepStrictEqual(await found, {
     found: true,
-    frame: { x: 1, y: 2, width: 3, height: 4 },
+    windows: [
+      {
+        windowId: 7,
+        pid: 42,
+        standard: true,
+        minimized: false,
+        frame: { x: 1, y: 2, width: 3, height: 4 },
+      },
+    ],
     contentTop: 88,
   });
 });
 
-it("reports closed events and ignores malformed lines", async () => {
+it("reports closed and frameChanged events with windowId and ignores malformed lines", async () => {
   const helper = fakeHelper();
   const client = startWindowDockClient("fake", helper.spawn);
-  const closed: number[] = [];
-  client.onClosed((pid) => closed.push(pid));
+  const closed: Array<{ pid: number; windowId: number | undefined }> = [];
+  const frames: Array<{ pid: number; windowId: number; frame: { width: number } }> = [];
+  client.onClosed((event) => closed.push(event));
+  client.onFrameChanged((event) => frames.push(event));
   const seen = new Promise<void>((resolve) => client.onClosed(() => resolve()));
   helper.child.stdout.write("not json\n");
-  helper.reply({ type: "closed", pid: 7 });
+  helper.reply({
+    type: "frameChanged",
+    pid: 7,
+    windowId: 3,
+    frame: { x: 10, y: 20, width: 800, height: 600 },
+  });
+  helper.reply({ type: "closed", pid: 7, windowId: 3 });
   await seen;
-  assert.deepStrictEqual(closed, [7]);
+  assert.strictEqual(frames.length, 1);
+  assert.strictEqual(frames[0]?.windowId, 3);
+  assert.strictEqual(frames[0]?.frame.width, 800);
+  assert.deepStrictEqual(closed, [{ pid: 7, windowId: 3 }]);
 });
 
 it("drops stale frames while the helper pipe is backed up", async () => {
   const helper = fakeHelper();
   const client = startWindowDockClient("fake", helper.spawn);
   helper.block();
-  for (let x = 0; x < 20; x++) client.setFrame(5, { x, y: 0, width: 100, height: 100 });
+  for (let x = 0; x < 20; x++) client.setFrame(5, 11, { x, y: 0, width: 100, height: 100 });
   helper.release();
   await helper.until(() => helper.written.some((message) => message.x === 19));
   const frames = helper.written.filter((message) => message.type === "setFrame");
   assert.isBelow(frames.length, 20);
   assert.strictEqual(frames.at(-1)?.x, 19);
+  assert.strictEqual(frames.at(-1)?.windowId, 11);
 });
 
 it("fails pending requests when the helper exits", async () => {

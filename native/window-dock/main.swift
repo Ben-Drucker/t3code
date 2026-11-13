@@ -2,7 +2,10 @@ import AppKit
 import ApplicationServices
 import Foundation
 
-// JSON lines over stdio. Requests: {"id"?, "type", ...}. Replies: {"id", "type":"result", ...}. Events: {"type":"closed","pid"}.
+// JSON lines over stdio.
+// Requests: {"id"?, "type", "pid"?, "windowId"?, ...}.
+// Replies: {"id", "type":"result", ...}.
+// Events: {"type":"closed","pid","windowId"}, {"type":"frameChanged","pid","windowId","frame"}.
 
 setvbuf(stdout, nil, _IOLBF, 0)
 
@@ -16,24 +19,53 @@ func emit(_ object: [String: Any]) {
   }
 }
 
-var selectedWindows: [pid_t: AXUIElement] = [:]
+struct OwnedWindowEntry {
+  let pid: pid_t
+  let element: AXUIElement
+}
+
+var nextWindowId = 1
+var knownWindows: [Int: OwnedWindowEntry] = [:]
 let selectionLock = NSLock()
-func axWindow(pid: pid_t) -> AXUIElement? {
+
+func registerWindow(pid: pid_t, element: AXUIElement) -> Int {
   selectionLock.lock()
-  let selected = selectedWindows[pid]
-  selectionLock.unlock()
-  if let selected { return selected }
+  defer { selectionLock.unlock() }
+  for (id, entry) in knownWindows where entry.pid == pid && CFEqual(entry.element, element) {
+    return id
+  }
+  let id = nextWindowId
+  nextWindowId += 1
+  knownWindows[id] = OwnedWindowEntry(pid: pid, element: element)
+  return id
+}
+
+func appWindows(pid: pid_t) -> [AXUIElement] {
+  guard kill(pid, 0) == 0 else { return [] }
   let app = AXUIElementCreateApplication(pid)
   AXUIElementSetMessagingTimeout(app, 0.4)
   var value: CFTypeRef?
-  if AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &value) == .success,
-    let value, CFGetTypeID(value) == AXUIElementGetTypeID() {
-    return (value as! AXUIElement)
-  }
   guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
     let windows = value as? [AXUIElement]
-  else { return nil }
-  return windows.first
+  else { return [] }
+  return windows.filter { element in
+    var ownerPid: pid_t = 0
+    return AXUIElementGetPid(element, &ownerPid) == .success && ownerPid == pid
+  }
+}
+
+// Resolves ONLY the exact (pid, windowId) previously discovered for that process; never falls back
+// to frontmost/focused windows, app names, or other windows of the same process.
+func ownedWindow(pid: pid_t, windowId: Int) -> AXUIElement? {
+  selectionLock.lock()
+  let entry = knownWindows[windowId]
+  selectionLock.unlock()
+  guard let entry, entry.pid == pid else { return nil }
+  var ownerPid: pid_t = 0
+  guard AXUIElementGetPid(entry.element, &ownerPid) == .success, ownerPid == pid else { return nil }
+  let liveWindows = appWindows(pid: pid)
+  guard liveWindows.contains(where: { CFEqual($0, entry.element) }) else { return nil }
+  return entry.element
 }
 
 func frame(of element: AXUIElement) -> CGRect? {
@@ -49,28 +81,42 @@ func frame(of element: AXUIElement) -> CGRect? {
   return CGRect(origin: point, size: size)
 }
 
+func boolAttr(_ element: AXUIElement, _ attr: String) -> Bool {
+  var value: CFTypeRef?
+  guard AXUIElementCopyAttributeValue(element, attr as CFString, &value) == .success else {
+    return false
+  }
+  return (value as? Bool) == true
+}
+
+func stringAttr(_ element: AXUIElement, _ attr: String) -> String? {
+  var value: CFTypeRef?
+  guard AXUIElementCopyAttributeValue(element, attr as CFString, &value) == .success else {
+    return nil
+  }
+  return value as? String
+}
+
+// Size -> Position -> Size avoids macOS clamping size against the old position (when shrinking and
+// moving toward the right edge) or position against the old size (when widening).
 func setFrame(_ window: AXUIElement, _ rect: CGRect) {
   var origin = rect.origin
   var size = rect.size
-  if let p = AXValueCreate(.cgPoint, &origin) {
-    AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, p)
-  }
-  if let s = AXValueCreate(.cgSize, &size) {
-    AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, s)
-  }
+  let sizeVal = AXValueCreate(.cgSize, &size)
+  let posVal = AXValueCreate(.cgPoint, &origin)
+  if let sizeVal { AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeVal) }
+  if let posVal { AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, posVal) }
+  if let sizeVal { AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeVal) }
 }
 
-// Distance from the window top to the page area, when Chrome exposes its accessibility tree.
+// Distance from the window top to the page area, when the browser exposes its accessibility tree.
 func contentTop(of window: AXUIElement, windowFrame: CGRect) -> Double? {
   var queue: [(AXUIElement, Int)] = [(window, 0)]
   var visited = 0
   while !queue.isEmpty && visited < 400 {
     let (element, depth) = queue.removeFirst()
     visited += 1
-    var role: CFTypeRef?
-    if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role) == .success,
-      (role as? String) == "AXWebArea", let f = frame(of: element)
-    {
+    if stringAttr(element, kAXRoleAttribute as String) == "AXWebArea", let f = frame(of: element) {
       return Double(f.minY - windowFrame.minY)
     }
     if depth >= 8 { continue }
@@ -88,38 +134,111 @@ func rectJSON(_ r: CGRect) -> [String: Double] {
   ["x": Double(r.minX), "y": Double(r.minY), "width": Double(r.width), "height": Double(r.height)]
 }
 
-var watched: [pid_t: UUID] = [:]
+func candidateWindows(pid: pid_t) -> (windows: [[String: Any]], firstElement: AXUIElement?, firstFrame: CGRect?) {
+  var list: [[String: Any]] = []
+  var firstElement: AXUIElement?
+  var firstFrame: CGRect?
+  for element in appWindows(pid: pid) {
+    guard stringAttr(element, kAXRoleAttribute as String) == "AXWindow" else { continue }
+    let subrole = stringAttr(element, kAXSubroleAttribute as String)
+    let standard = subrole == (kAXStandardWindowSubrole as String)
+    let minimized = boolAttr(element, kAXMinimizedAttribute as String)
+    guard let f = frame(of: element) else { continue }
+    let wid = registerWindow(pid: pid, element: element)
+    if standard && firstElement == nil {
+      firstElement = element
+      firstFrame = f
+    }
+    list.append([
+      "windowId": wid,
+      "pid": Int(pid),
+      "standard": standard,
+      "minimized": minimized,
+      "frame": rectJSON(f),
+    ])
+  }
+  return (list, firstElement, firstFrame)
+}
+
+struct WatchKey: Hashable {
+  let pid: pid_t
+  let windowId: Int
+}
+
+var watched: [WatchKey: UUID] = [:]
 let watchLock = NSLock()
 
-func startWatching(pid: pid_t) {
+func startWatching(pid: pid_t, windowId: Int) {
+  let key = WatchKey(pid: pid, windowId: windowId)
   watchLock.lock()
-  if watched[pid] != nil {
+  if watched[key] != nil {
     watchLock.unlock()
     return
   }
   let token = UUID()
-  watched[pid] = token
+  watched[key] = token
   watchLock.unlock()
   DispatchQueue.global().async {
     var misses = 0
+    var lastFrame: CGRect?
     while true {
       usleep(400_000)
       watchLock.lock()
-      let active = watched[pid] == token
+      let active = watched[key] == token
       watchLock.unlock()
       if !active { return }
-      let alive = kill(pid, 0) == 0
-      let hasWindow = alive && axWindow(pid: pid).flatMap { frame(of: $0) } != nil
-      misses = hasWindow ? 0 : misses + 1
-      if misses >= 3 {
-        watchLock.lock()
-        watched[pid] = nil
-        watchLock.unlock()
-        emit(["type": "closed", "pid": Int(pid)])
-        return
+      if let window = ownedWindow(pid: pid, windowId: windowId) {
+        misses = 0
+        let minimized = boolAttr(window, kAXMinimizedAttribute as String)
+        if !minimized, let f = frame(of: window) {
+          if let previous = lastFrame, !f.equalTo(previous) {
+            lastFrame = f
+            emit([
+              "type": "frameChanged",
+              "pid": Int(pid),
+              "windowId": windowId,
+              "frame": rectJSON(f),
+            ])
+          } else if lastFrame == nil {
+            lastFrame = f
+          }
+        }
+      } else {
+        misses += 1
+        if misses >= 3 {
+          watchLock.lock()
+          watched[key] = nil
+          watchLock.unlock()
+          selectionLock.lock()
+          knownWindows[windowId] = nil
+          selectionLock.unlock()
+          emit(["type": "closed", "pid": Int(pid), "windowId": windowId])
+          return
+        }
       }
     }
   }
+}
+
+func stopWatching(pid: pid_t, windowId: Int?) {
+  watchLock.lock()
+  if let windowId {
+    watched[WatchKey(pid: pid, windowId: windowId)] = nil
+  } else {
+    for key in watched.keys where key.pid == pid {
+      watched[key] = nil
+    }
+  }
+  watchLock.unlock()
+  selectionLock.lock()
+  if let windowId {
+    if knownWindows[windowId]?.pid == pid { knownWindows[windowId] = nil }
+  } else {
+    for (id, entry) in knownWindows where entry.pid == pid {
+      knownWindows[id] = nil
+    }
+  }
+  selectionLock.unlock()
 }
 
 func handle(_ request: [String: Any]) {
@@ -131,6 +250,7 @@ func handle(_ request: [String: Any]) {
     emit(message)
   }
   let pid = (request["pid"] as? Int).map { pid_t($0) }
+  let windowId = request["windowId"] as? Int
   switch request["type"] as? String {
   case "check":
     if request["prompt"] as? Bool == true {
@@ -140,40 +260,41 @@ func handle(_ request: [String: Any]) {
       reply(["trusted": AXIsProcessTrusted()])
     }
   case "find":
-    guard let pid else { return reply(["found": false]) }
-    guard AXIsProcessTrusted() else { return reply(["found": false, "reason": "untrusted"]) }
-    guard let window = axWindow(pid: pid), let f = frame(of: window) else {
-      return reply(["found": false])
+    guard let pid else { return reply(["found": false, "windows": []]) }
+    guard AXIsProcessTrusted() else {
+      return reply(["found": false, "reason": "untrusted", "windows": []])
     }
-    selectionLock.lock()
-    selectedWindows[pid] = window
-    selectionLock.unlock()
-    var message: [String: Any] = ["found": true, "frame": rectJSON(f)]
-    if let top = contentTop(of: window, windowFrame: f) { message["contentTop"] = top }
+    let result = candidateWindows(pid: pid)
+    guard !result.windows.isEmpty else {
+      return reply(["found": false, "windows": []])
+    }
+    var message: [String: Any] = ["found": true, "windows": result.windows]
+    if let firstFrame = result.firstFrame {
+      message["frame"] = rectJSON(firstFrame)
+      if let firstElement = result.firstElement,
+        let top = contentTop(of: firstElement, windowFrame: firstFrame)
+      {
+        message["contentTop"] = top
+      }
+    }
     reply(message)
   case "watch":
-    if let pid { startWatching(pid: pid) }
+    if let pid, let windowId { startWatching(pid: pid, windowId: windowId) }
   case "unwatch":
-    if let pid {
-      selectionLock.lock()
-      selectedWindows[pid] = nil
-      selectionLock.unlock()
-      watchLock.lock()
-      watched[pid] = nil
-      watchLock.unlock()
-    }
+    if let pid { stopWatching(pid: pid, windowId: windowId) }
   case "setFrame":
-    guard let pid, let window = axWindow(pid: pid),
+    guard let pid, let windowId, let window = ownedWindow(pid: pid, windowId: windowId),
       let x = request["x"] as? Double, let y = request["y"] as? Double,
       let w = request["width"] as? Double, let h = request["height"] as? Double
     else { return }
     setFrame(window, CGRect(x: x, y: y, width: w, height: h))
   case "minimize":
-    guard let pid, let window = axWindow(pid: pid), let minimized = request["minimized"] as? Bool
+    guard let pid, let windowId, let window = ownedWindow(pid: pid, windowId: windowId),
+      let minimized = request["minimized"] as? Bool
     else { return }
     AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, minimized as CFBoolean)
   case "raise":
-    guard let pid, let window = axWindow(pid: pid) else { return }
+    guard let pid, let windowId, let window = ownedWindow(pid: pid, windowId: windowId) else { return }
     AXUIElementPerformAction(window, kAXRaiseAction as CFString)
   default:
     reply(["error": "unknown command"])
