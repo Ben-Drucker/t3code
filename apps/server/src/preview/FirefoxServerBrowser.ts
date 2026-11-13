@@ -50,11 +50,7 @@ export type FirefoxLaunchPlan =
       readonly kind: "attach";
       readonly port: number;
       readonly bidiPort: number | undefined;
-      /**
-       * Only an explicit non-default port (used by isolated `FirefoxProcess.launch` test fixtures)
-       * may report a dockable PID; attaching to default port 2828 or explicit `T3CODE_FIREFOX_MODE=attach`
-       * never docks so personal Firefox windows are untouched.
-       */
+      /** Docking requires a uniquely marked, T3-created window. */
       readonly allowDocking: boolean;
     };
 

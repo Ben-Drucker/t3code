@@ -143,7 +143,7 @@ it("reuses an isolated initial window and docks a dedicated marked window in per
   assert.deepStrictEqual(dockedCalls, [{ tabId: "tab-1", pid: 4242 }]);
   assert.deepStrictEqual(revealCalls, []);
 
-  // Attached Firefox (`ownedProcessId` undefined) must NEVER invoke `opened` to dock personal windows.
+  // Personal windows remain outside the set of handles managed by this backend.
   const personal = fakeMarionette(["personal-window"]);
   const personalDocked: number[] = [];
   const attachedBrowser = new FirefoxBrowser(personal.connection, {
@@ -156,6 +156,16 @@ it("reuses an isolated initial window and docks a dedicated marked window in per
   });
   await attachedBrowser.execute({
     requestId: "r2",
+    threadId: ThreadId.make("t1"),
+    agentSessionId: "agent-1",
+    operation: "open",
+    input: { open: false },
+    timeoutMs: 5_000,
+  });
+  assert.deepStrictEqual(personalDocked, []);
+  assert.isFalse(attachedBrowser.liveTabs[0]?.visible);
+  await attachedBrowser.execute({
+    requestId: "r3",
     threadId: ThreadId.make("t1"),
     agentSessionId: "agent-1",
     operation: "open",

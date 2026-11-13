@@ -13,10 +13,11 @@ Full-screen T3 windows hide the docked browser. Moving the pair between Spaces i
 
 ## Firefox and 1Password
 
-T3 Code launches a separate Firefox instance with its own profile, so your personal Firefox
-windows and profile stay untouched. Install the 1Password extension in that Firefox window once
-and sign in. T3 starts its Firefox profile with Marionette, WebDriver BiDi, and system access
-enabled automatically.
+T3 Code connects to your running Firefox and opens a dedicated window using your normal profile,
+extensions, saved logins, and passkeys. Start Firefox with Marionette, WebDriver BiDi, and system
+access enabled (see the [development guide](../operations/development.md#firefox-server-preview)).
+T3 docks only its dedicated window. Your other Firefox windows stay where you left them.
+If Firefox is unavailable or T3 cannot identify its window unambiguously, T3 uses the built-in preview.
 
 Open a preview and ask the agent to use `preview_autofill`, optionally with an exact username
 and entry title. Keep 1Password unlocked. T3 clicks the inline 1Password banner from inside its
@@ -24,8 +25,8 @@ Firefox window, so your cursor and other apps are untouched. It reports the sele
 title and username and the URL after the click; passwords and verification codes stay in
 1Password.
 
-Only one Firefox instance can use T3 Code's profile; if it is already open, quit that window and
-try again. Firefox supports snapshots and browser actions; video recording and the streamed
+An isolated Firefox profile is available with `T3CODE_FIREFOX_MODE=isolated`; install and sign in
+to extensions separately in that profile. Firefox supports snapshots and browser actions; video recording and the streamed
 preview are unavailable. Use the docked Firefox window to view the page. Autofill requires macOS.
 
 ## Chrome and 1Password

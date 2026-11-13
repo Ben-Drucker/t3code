@@ -536,8 +536,10 @@ const make = Effect.gen(function* () {
   let previewBrowserMode: PreviewBrowserMode = DEFAULT_PREVIEW_BROWSER_MODE;
   // A dock the desktop refused (no permission, no window) stays off until the mode is reported again.
   let dockedRefused = false;
+  let firefoxFallbackMessage: string | undefined;
   const firefoxDockedUsable = () =>
     previewBrowserMode === "firefox-docked" &&
+    !dockedRefused &&
     desktopChannel.available &&
     host.platform === "darwin";
   const firefoxKeys = new Set<string>();
@@ -2577,9 +2579,23 @@ const make = Effect.gen(function* () {
         ? firefoxKeys.has(tabKey(request.threadId, request.tabId))
         : forceFirefox || firefoxDockedUsable();
       try {
-        return await (useFirefox
-          ? firefox.execute(request)
-          : runOperation(request, performance.now() + request.timeoutMs));
+        if (useFirefox) {
+          try {
+            return await firefox.execute(request);
+          } catch (cause) {
+            if (forceFirefox || request.operation !== "open" || firefox.liveTabs.length > 0)
+              throw cause;
+            dockedRefused = true;
+            firefoxFallbackMessage =
+              "Firefox could not open a dedicated preview window. Using the built-in preview. Check Marionette and Firefox system access.";
+            await runPromise(Effect.logWarning(firefoxFallbackMessage, { cause }));
+          }
+        }
+        const result = await runOperation(request, performance.now() + request.timeoutMs);
+        return firefoxFallbackMessage &&
+          (request.operation === "status" || request.operation === "open")
+          ? { ...(result as PreviewAutomationStatus), capabilityMessage: firefoxFallbackMessage }
+          : result;
       } finally {
         markUsed(request);
         reportLiveTabs();
@@ -3105,9 +3121,32 @@ const make = Effect.gen(function* () {
 
   yield* desktopChannel.dockChanges.pipe(
     Stream.runForEach((change) =>
-      Effect.sync(() => {
+      Effect.promise(async () => {
         if (firefoxKeys.has(tabKey(change.key.threadId, change.key.tabId))) {
-          if (change.type === "closed") void firefox.closeTab(change.key.tabId);
+          if (change.type === "closed") await firefox.closeTab(change.key.tabId);
+          else {
+            dockedRefused = true;
+            firefoxFallbackMessage =
+              "Firefox's preview window could not be uniquely identified or positioned. Using the built-in preview.";
+            const listed = await runPromise(
+              manager.list({ threadId: ThreadId.make(change.key.threadId) }),
+            );
+            const snapshot = listed.sessions.find((session) => session.tabId === change.key.tabId);
+            await firefox.closeTab(change.key.tabId);
+            await runPromise(Effect.logWarning(firefoxFallbackMessage));
+            if (snapshot)
+              await runPromise(
+                manager.open({
+                  threadId: ThreadId.make(snapshot.threadId),
+                  runtime: "server",
+                  ...("url" in snapshot.navStatus ? { url: snapshot.navStatus.url } : {}),
+                  ...(snapshot.automationOwner === undefined
+                    ? {}
+                    : { automationOwner: snapshot.automationOwner }),
+                  reveal: true,
+                }),
+              );
+          }
           return;
         }
         const tab = tabs.get(tabKey(change.key.threadId, change.key.tabId));

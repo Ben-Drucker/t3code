@@ -22,6 +22,34 @@ import {
 } from "./WindowDockGeometry.ts";
 import type { ScreenRect, WindowDockCandidateWindow } from "./WindowDockProtocol.ts";
 
+it("does not touch any window when the preview marker is missing or ambiguous", async () => {
+  for (const titles of [
+    ["Personal Firefox"],
+    ["T3 Preview marker page", "T3 Preview marker other"],
+  ]) {
+    const t = setup({
+      windowsForPid: (pid) =>
+        titles.map((title, index) => ({
+          pid,
+          windowId: index + 1,
+          title,
+          standard: true,
+          minimized: false,
+          frame: { x: 0, y: 0, width: 900, height: 700 },
+        })),
+    });
+    await t.controller.dock(key, 42, "T3 Preview marker ");
+    assert.deepStrictEqual(
+      t.calls.filter((call) =>
+        ["watch", "setFrame", "raise", "minimize"].includes(String(call[0])),
+      ),
+      [],
+    );
+    assert.deepStrictEqual(t.events, [{ type: "failed", key, reason: "no-window" }]);
+    t.controller.dispose();
+  }
+});
+
 function setup(
   options: {
     trusted?: boolean;
@@ -444,8 +472,14 @@ it("selects only the owned standard window, ignores other windows of the same ap
   // Controller targets only bound windowId 3, ignores events for windowId 4 or other pids, and emits no-window if none owned.
   vi.useFakeTimers();
   try {
-    const t = setup({ windowsForPid: () => candidates });
-    await t.controller.dock(key, 42);
+    const t = setup({
+      windowsForPid: () =>
+        candidates.map((candidate) => ({
+          ...candidate,
+          title: candidate.windowId === 3 ? "T3 Preview marker page" : "Personal Firefox",
+        })),
+    });
+    await t.controller.dock(key, 42, "T3 Preview marker ");
     t.controller.setPanelRect(key, panel);
     assert.deepStrictEqual(
       t.calls.filter((c) => c[0] === "watch"),

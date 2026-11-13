@@ -682,7 +682,9 @@ export class FirefoxBrowser implements ServerBrowserBackend {
               focus: false,
             });
           opensWindow =
-            (this.options.docked?.() === true && this.tabs.size === 0) || handles.length === 0;
+            (this.options.docked?.() === true &&
+              ![...this.tabs.values()].some((existing) => handles.includes(existing.handle))) ||
+            handles.length === 0;
           const opened = value<{ handle: string }>(
             await this.connection.command("WebDriver:NewWindow", {
               type: opensWindow ? "window" : "tab",
@@ -714,20 +716,22 @@ export class FirefoxBrowser implements ServerBrowserBackend {
         await this.switchTo(tab);
         const dockPid = this.options.ownedProcessId;
         const reveal = input.open ?? input.show;
-        if (reveal !== false && this.options.docked?.() && dockPid !== undefined) {
+        if (this.options.docked?.() && dockPid !== undefined) {
           await this.connection.command("Marionette:SetContext", { value: "chrome" });
           try {
             await this.script(
-              "document.documentElement.setAttribute('titlepreface', arguments[0]); window.gBrowser.updateTitlebar();",
-              [this.windowMarker],
+              "const root=document.documentElement,marker=arguments[0]; if (!arguments[1] && root.getAttribute('titlepreface') !== marker) throw new Error('The preview tab left its owned Firefox window. Open a new preview.'); root.setAttribute('titlepreface', marker); window.gBrowser.updateTitlebar();",
+              [this.windowMarker, created && opensWindow],
               false,
               false,
             );
           } finally {
             await this.connection.command("Marionette:SetContext", { value: "content" });
           }
-          await this.options.opened?.(tab, dockPid, this.windowMarker);
-          this.visibleTabs.add(tab.tabId);
+          if (reveal !== false) {
+            await this.options.opened?.(tab, dockPid, this.windowMarker);
+            this.visibleTabs.add(tab.tabId);
+          }
         }
         // New tabs allocated through `allocateTab` or `openManaged` already opened the panel once;
         // revealing again after `opened` would reopen the panel that docking just closed.

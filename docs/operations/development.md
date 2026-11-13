@@ -213,8 +213,15 @@ and console/network diagnostics. Launch mode enables this automatically. With Ma
 dialogs remain resolvable but report the generic type `dialog` and an empty default value.
 
 Firefox has no Marionette/BiDi screencast stream, so recording and the streamed Browser panel
-are unavailable. On macOS desktop, choose **Firefox (docked)** in Settings → Browser to launch a dedicated
-`--no-remote` Firefox profile positioned beside T3 without `T3CODE_SERVER_BROWSER`; the env var
+are unavailable. On macOS desktop, choose **Firefox (docked)** in Settings → Browser to attach to
+your running Firefox and create a dedicated window without `T3CODE_SERVER_BROWSER`. Start Firefox
+with `--marionette --remote-debugging-port=0 --remote-allow-system-access`. A unique title prefix
+identifies T3's window to the native helper; all later operations target its recorded window ID.
+Missing or ambiguous matches leave other windows untouched and use the built-in preview.
+An unreachable Marionette listener also falls back to the built-in preview. Set
+`T3CODE_FIREFOX_MODE=isolated` to opt into the persistent `--no-remote` profile instead; this
+profile needs its own extensions and logins. `T3CODE_FIREFOX_MODE=launch` remains the temporary
+headless fixture mode. The env var `T3CODE_SERVER_BROWSER`
 still selects Firefox for headless and non-desktop hosts. See the
 [browser setup guide](../user/docked-browser.md) for docked profile behavior, 1Password autofill,
 and permissions. Set
