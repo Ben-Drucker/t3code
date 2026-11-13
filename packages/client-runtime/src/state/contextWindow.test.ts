@@ -14,7 +14,7 @@ import {
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
-import { compactBeforeSendTokens } from "./contextWindow.ts";
+import { compactBeforeSendTokens, latestProviderTurnTokenUsage } from "./contextWindow.ts";
 import type { ThreadStructure } from "./models.ts";
 import { v2Projection } from "./orchestrationV2TestFixtures.ts";
 
@@ -261,4 +261,21 @@ describe("compactBeforeSendTokens", () => {
       expected ? 293_611 : null,
     );
   });
+});
+
+it("keeps newer child usage out of the active parent meter", () => {
+  const parent = ProviderThreadId.make("parent");
+  const parentUsage = { usedTokens: 100, updatedAt: lastTurnAt };
+  expect(
+    latestProviderTurnTokenUsage(
+      [
+        { providerThreadId: parent, tokenUsage: parentUsage },
+        {
+          providerThreadId: ProviderThreadId.make("child"),
+          tokenUsage: { usedTokens: 900, updatedAt: returnedAt },
+        },
+      ],
+      { ...v2Projection, thread: { ...v2Projection.thread, activeProviderThreadId: parent } },
+    ),
+  ).toEqual(parentUsage);
 });
