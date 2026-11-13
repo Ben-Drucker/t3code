@@ -6,7 +6,11 @@ import {
   type ProviderOptionSelection,
   type ServerProviderModel,
 } from "@t3tools/contracts";
-import { getComposerProviderState, getComposerReasoningStep } from "./composerProviderState";
+import {
+  getAgentConfigOptions,
+  getComposerProviderState,
+  getComposerReasoningStep,
+} from "./composerProviderState";
 import { readPromptUltrathink } from "./TraitsPicker";
 
 const PROVIDER: ProviderDriverKind = ProviderDriverKind.make("codex");
@@ -57,6 +61,31 @@ function selections(
 }
 
 describe("getComposerProviderState", () => {
+  it("captures picker defaults and overrides in model references", () => {
+    expect(
+      getAgentConfigOptions({
+        provider: PROVIDER,
+        model: MODEL,
+        models: modelWith([
+          selectDescriptor("reasoningEffort", [
+            { id: "medium", label: "Medium", isDefault: true },
+            { id: "high", label: "High" },
+          ]),
+          selectDescriptor("serviceTier", [{ id: "priority", label: "Priority", isDefault: true }]),
+          selectDescriptor("contextLimit", [{ id: "default", label: "Default", isDefault: true }]),
+          selectDescriptor("compactBuffer", [{ id: "default", label: "Default", isDefault: true }]),
+        ]),
+        modelOptions: selections(["reasoningEffort", "high"]),
+      }),
+    ).toEqual(
+      selections(
+        ["reasoningEffort", "high"],
+        ["serviceTier", "priority"],
+        ["contextLimit", "default"],
+        ["compactBuffer", "default"],
+      ),
+    );
+  });
   it("uses descriptor defaults for display without dispatching them as overrides", () => {
     const state = getComposerProviderState({
       provider: PROVIDER,

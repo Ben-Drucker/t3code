@@ -226,7 +226,7 @@ import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
 import {
   getComposerPromptInjectionState,
-  getComposerProviderState,
+  getAgentConfigOptions,
   getComposerReasoningStep,
 } from "./composerProviderState";
 import { readPromptUltrathink, type TraitsSelectionInput } from "./TraitsPicker";
@@ -2050,13 +2050,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (!agentConfigDraft || !agentConfigEntry) return;
     const snapshot = readComposerSnapshot();
     const insertAt = Math.min(agentConfigDraft.rangeStart, snapshot.value.length);
-    const options =
-      getComposerProviderState({
-        provider: agentConfigEntry.driverKind,
-        model: agentConfigDraft.model,
-        models: agentConfigEntry.snapshot.models,
-        modelOptions: agentConfigDraft.options,
-      }).modelOptionsForDispatch ?? [];
+    const options = getAgentConfigOptions({
+      provider: agentConfigEntry.driverKind,
+      model: agentConfigDraft.model,
+      models: agentConfigEntry.snapshot.models,
+      modelOptions: agentConfigDraft.options,
+    });
     const replacement = `${formatAgentConfigChip({
       instanceId: agentConfigDraft.instanceId,
       model: agentConfigDraft.model,

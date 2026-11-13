@@ -9,6 +9,7 @@ import {
 } from "@t3tools/contracts";
 import {
   buildExplicitProviderOptionSelectionsFromDescriptors,
+  buildProviderOptionSelectionsFromDescriptors,
   getProviderOptionCurrentValue,
   getProviderOptionDescriptors,
   isClaudeUltrathinkPrompt,
@@ -75,6 +76,23 @@ function resolveComposerOptionSelections(
 } {
   const caps = getProviderModelCapabilities(models, model, provider, includePlanAgent);
   return { caps, selections: withImplicitFastModeDefault(caps, modelOptions) };
+}
+
+export function getAgentConfigOptions(input: ComposerProviderStateInput) {
+  const { caps, selections } = resolveComposerOptionSelections(
+    input.models,
+    input.model,
+    input.provider,
+    input.modelOptions,
+    input.includePlanAgent,
+  );
+  return (
+    buildProviderOptionSelectionsFromDescriptors(
+      getProviderOptionDescriptors({ caps, selections }),
+    ) ??
+    input.modelOptions ??
+    []
+  );
 }
 
 export function getComposerProviderState(input: ComposerProviderStateInput): ComposerProviderState {
