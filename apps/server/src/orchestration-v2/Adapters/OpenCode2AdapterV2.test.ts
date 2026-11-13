@@ -4589,6 +4589,12 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
       const usage =
         settled?.type === "provider_turn.updated" ? settled.providerTurn.turnTokenUsage : undefined;
       assert.deepInclude(usage, { usageStatus: "complete", inputTokens: 20, outputTokens: 2 });
+      assert.equal(
+        settled?.type === "provider_turn.updated"
+          ? settled.providerTurn.tokenUsage?.usedTokens
+          : undefined,
+        11,
+      );
       assert.notProperty(usage, "models");
     }).pipe(Effect.scoped),
   );
@@ -4607,26 +4613,35 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
         }),
         event("session.execution.succeeded", { sessionID: SESSION }),
       ]);
-      const turn = yield* runtime.events.pipe(
-        Stream.filter(
+      const events = yield* runtime.events.pipe(
+        Stream.takeUntil(
           (event) =>
-            event.type === "provider_turn.updated" && event.providerTurn.status === "running" &&
-            event.providerTurn.tokenUsage != null,
+            event.type === "provider_turn.updated" && event.providerTurn.completedAt !== null,
         ),
-        Stream.runHead,
+        Stream.runCollect,
         Effect.forkScoped,
       );
       yield* runtime.startTurn(turnInput(thread));
-      const settled = Option.getOrUndefined(yield* Fiber.join(turn));
+      const updates = (yield* Fiber.join(events)).filter(
+        (event) => event.type === "provider_turn.updated",
+      );
       assert.deepInclude(
-        settled?.type === "provider_turn.updated" ? settled.providerTurn.tokenUsage : undefined,
+        updates.find(
+          (event) => event.providerTurn.status === "running" && event.providerTurn.tokenUsage,
+        )?.providerTurn.tokenUsage,
         {
-          inputTokens: 1200 + 300 + 2500,
-          cachedInputTokens: 300,
           usedTokens: 4040,
+          inputTokens: 4000,
+          cachedInputTokens: 300,
           outputTokens: 40,
         },
       );
+      assert.deepInclude(updates.at(-1)?.providerTurn.turnTokenUsage, {
+        inputTokens: 4000,
+        cachedInputTokens: 300,
+        cacheCreationTokens: 2500,
+        outputTokens: 40,
+      });
     }).pipe(Effect.scoped),
   );
 

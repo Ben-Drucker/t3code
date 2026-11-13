@@ -2181,7 +2181,11 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       state.lastContextTokens =
         lastStep === undefined
           ? undefined
-          : lastStep.input + lastStep.cache.read + lastStep.cache.write + lastStep.output + lastStep.reasoning;
+          : lastStep.input +
+            lastStep.cache.read +
+            lastStep.cache.write +
+            lastStep.output +
+            lastStep.reasoning;
       yield* emitProviderTurn(state, turn, {
         ...turn.providerTurn,
         status: terminal.status,
@@ -2192,7 +2196,11 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
           : {
               tokenUsage: {
                 usedTokens:
-                  lastStep.input + lastStep.cache.read + lastStep.cache.write + lastStep.output + lastStep.reasoning,
+                  lastStep.input +
+                  lastStep.cache.read +
+                  lastStep.cache.write +
+                  lastStep.output +
+                  lastStep.reasoning,
                 maxTokens,
                 ...(threshold === null ? {} : { autoCompactThreshold: threshold }),
                 inputTokens: lastStep.input + lastStep.cache.read + lastStep.cache.write,
@@ -2771,7 +2779,12 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
             turn.input.modelSelection,
             windowOf(turn.input.runtimePolicy.cwd, turn.input.modelSelection.model),
           );
-          const usedTokens = tokens.input + tokens.cache.read + tokens.cache.write + tokens.output + tokens.reasoning;
+          const usedTokens =
+            tokens.input +
+            tokens.cache.read +
+            tokens.cache.write +
+            tokens.output +
+            tokens.reasoning;
           state.lastContextTokens = usedTokens;
           yield* emitProviderTurn(state, turn, {
             ...turn.providerTurn,

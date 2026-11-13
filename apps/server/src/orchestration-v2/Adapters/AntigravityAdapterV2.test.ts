@@ -1,3 +1,4 @@
+import { throttleContextUsage } from "../ContextUsageThrottle.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
@@ -271,6 +272,7 @@ describe("AntigravityAdapterV2 compaction", () => {
             }),
           );
           const events = yield* session.events.pipe(
+            throttleContextUsage,
             Stream.takeUntil((event) => event.type === "turn.terminal"),
             Stream.runCollect,
           );

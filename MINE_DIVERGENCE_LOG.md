@@ -12,6 +12,8 @@ BACKLOG.md holds unfinished items. Once a feature, fix, or change is completed, 
 
 ### Composer and conversation tools
 
+- **Live context usage.** OpenCode publishes the newest request occupancy at each completed model step. A shared 1000 ms usage throttle before normalized ingestion retains the latest snapshot and flushes at lifecycle boundaries; billing totals remain separate. Claude, Codex, Kimi, and Antigravity retain their existing live sources. Areas: OpenCode v2 adapter, `ContextUsageThrottle.ts`, `ProviderSessionManager.ts`. Real-client verification remains for Ben.
+
 - **Model reference settings snapshot.** Inserted references capture displayed defaults as well as explicit overrides, including reasoning effort, service tier, context limit, and compaction buffer. Areas: `ChatComposer.tsx`, `composerProviderState.tsx`; history: `edfd1d451d`. Focused provider-state tests pass.
 - **Kimi QQ verification.** The registry ACP forwarding path already wraps `/qq` as user text. The existing native-command table passes all five cases, including `/qq`; the stale backlog report is removed. History: `953c09e94e`.
 
