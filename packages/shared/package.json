@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./tasksPanel": {
+      "types": "./src/tasksPanel.ts",
+      "import": "./src/tasksPanel.ts"
+    },
     "./contextWindow": {
       "types": "./src/contextWindow.ts",
       "import": "./src/contextWindow.ts"

@@ -4,7 +4,7 @@ import { memo } from "react";
 
 import { cn } from "~/lib/utils";
 import { useQuietThreadProjection } from "~/state/entities";
-import { deriveTasksPanelModel, formatStepDuration } from "./tasksPanel.logic";
+import { deriveTasksPanelModel, formatStepDuration } from "@t3tools/shared/tasksPanel";
 
 const STATUS_LABEL = {
   pending: "Pending",

@@ -1,11 +1,7 @@
 import type { OrchestrationV2PlanArtifact } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import {
-  deriveTasksPanelModel,
-  formatStepDuration,
-  selectLatestTodoList,
-} from "./tasksPanel.logic";
+import { deriveTasksPanelModel, formatStepDuration, selectLatestTodoList } from "./tasksPanel.ts";
 
 const todo = (
   id: string,

@@ -21,6 +21,7 @@ export function ThreadHeader(props: {
   readonly hasThreadCwd: boolean;
   readonly inspectorMode: ThreadInspectorMode | null;
   readonly onOpenFilesInspector: () => void;
+  readonly onOpenTasks?: () => void;
 }) {
   const goBack = useWorkspaceBackNavigation("threads");
   const { toggleAuxiliaryPane, startNewTask } = useAdaptiveWorkspaceLayout();
@@ -41,6 +42,14 @@ export function ThreadHeader(props: {
       ]
     : [];
   const menus = [gitMenu, terminalMenu].filter((menu): menu is AppBarMenu => menu !== null);
+  if (props.onOpenTasks) {
+    actions.unshift({
+      accessibilityLabel: "Open tasks",
+      icon: "list.number",
+      onPress: props.onOpenTasks,
+      separateBackground: false,
+    });
+  }
 
   return (
     <AppBar

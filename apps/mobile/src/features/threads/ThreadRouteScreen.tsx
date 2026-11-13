@@ -983,6 +983,12 @@ function ThreadRouteContent(
                 hasThreadCwd={selectedThreadCwd !== null}
                 inspectorMode={inspectorMode}
                 onOpenFilesInspector={handleOpenFilesInspector}
+                onOpenTasks={() =>
+                  navigation.navigate("ThreadTasks", {
+                    environmentId: selectedThread.environmentId,
+                    threadId: selectedThread.id,
+                  })
+                }
                 onReturnToThread={props.onReturnToThread}
               />
             )
