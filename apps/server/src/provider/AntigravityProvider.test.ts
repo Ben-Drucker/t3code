@@ -564,9 +564,8 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
         yield* harness.provider.onSessionStarted({
           ...started,
           sessionSetupResult: {
-            ...started.sessionSetupResult,
+            sessionId: started.sessionSetupResult.sessionId,
             configOptions: [],
-            models: undefined,
           },
         });
         expect((yield* harness.provider.snapshot.getSnapshot).models).toEqual(
