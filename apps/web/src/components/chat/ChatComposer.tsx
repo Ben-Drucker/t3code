@@ -277,7 +277,7 @@ import {
   type ComposerDispatchMode,
 } from "@t3tools/client-runtime/state/composer-dispatch";
 import { deriveLatestContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
-import { resolveContextBreakdown } from "../../lib/contextBreakdown";
+import { resolveContextBreakdown } from "@t3tools/client-runtime/context-breakdown";
 import {
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,

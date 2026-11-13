@@ -1,4 +1,4 @@
-import type { ThreadStructureTurnItem } from "@t3tools/client-runtime/state/shell";
+import type { ThreadStructureTurnItem } from "./state/models.ts";
 import type { ThreadTokenUsageSnapshot } from "@t3tools/contracts";
 
 const CONTEXT_BREAKDOWN_CATEGORIES = ["reasoning", "messages", "skills", "system"] as const;

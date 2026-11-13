@@ -4,6 +4,7 @@ import {
 } from "@t3tools/client-runtime/model-traits";
 import * as Dialog from "../../components/ui/Dialog";
 import { tokenThroughput } from "@t3tools/shared/tokenThroughput";
+import { ThreadContextUsage } from "./ThreadContextUsage";
 import { useSelectedThreadProjection } from "../../state/use-thread-detail";
 import { createV5StackNavigator as createNativeStackNavigator } from "../../native/createV5StackNavigator";
 import { useSheetStackOptions } from "../layout/nested-stacks";
@@ -1427,7 +1428,12 @@ export function ExistingThreadSettingsRouteScreen({
 
   return (
     <ThreadSettingsPickerScreen
-      threadDetails={<ThreadDetailsMetrics />}
+      threadDetails={
+        <>
+          <ThreadContextUsage />
+          <ThreadDetailsMetrics />
+        </>
+      }
       environmentId={selectedThread.environmentId}
       projectId={selectedThread.projectId}
       cwd={selectedThreadCwd}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { estimateContextBreakdown, resolveContextBreakdown } from "./contextBreakdown";
+import { estimateContextBreakdown, resolveContextBreakdown } from "./contextBreakdown.ts";
 
 const entry = (item: Record<string, unknown>) => ({ item }) as never;
 

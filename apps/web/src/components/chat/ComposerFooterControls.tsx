@@ -2,7 +2,7 @@ import type { ModelSelection, ProviderInstanceId, RuntimeMode } from "@t3tools/c
 import { createModelSelection } from "@t3tools/shared/model";
 import { type ComponentProps, memo, useId, useRef, useState } from "react";
 
-import type { ContextBreakdown } from "../../lib/contextBreakdown";
+import type { ContextBreakdown } from "@t3tools/client-runtime/context-breakdown";
 import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";

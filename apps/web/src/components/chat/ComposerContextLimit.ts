@@ -1,7 +1,7 @@
 import type { ProviderOptionDescriptor } from "@t3tools/contracts";
 import { getDescriptorStringValue } from "@t3tools/client-runtime/model-traits";
 import { createContext, useContext } from "react";
-import { formatContextWindowTokens } from "../../lib/contextWindow";
+import { formatContextWindowTokens } from "@t3tools/shared/contextWindow";
 
 /** The thread's current context limit in tokens, so pickers can show what a choice leaves free. */
 const ComposerContextLimitContext = createContext<number | null>(null);

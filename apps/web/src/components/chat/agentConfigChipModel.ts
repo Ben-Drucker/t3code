@@ -2,7 +2,7 @@ import { ProviderDriverKind, type ServerProviderModel } from "@t3tools/contracts
 import { parseAgentConfigChip, parseAgentToolChip } from "@t3tools/shared/composerInlineTokens";
 import { getProviderOptionDescriptors } from "@t3tools/shared/model";
 
-import { formatContextWindowTokens } from "../../lib/contextWindow";
+import { formatContextWindowTokens } from "@t3tools/shared/contextWindow";
 import type { ProviderInstanceEntry } from "../../providerInstances";
 import { getTriggerDisplayModelName } from "./providerIconUtils";
 

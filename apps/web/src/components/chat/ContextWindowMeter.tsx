@@ -1,6 +1,6 @@
 import { Button } from "../ui/button";
 import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
-import { formatContextWindowTokens } from "~/lib/contextWindow";
+import { formatContextWindowTokens } from "@t3tools/shared/contextWindow";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import {
   formatContextWindowCompactionMessage,
@@ -8,7 +8,10 @@ import {
 } from "./ContextWindowMeter.logic";
 import { Minimize2Icon } from "lucide-react";
 import { composerFloatingLayerProps } from "./composerEventScope";
-import { CONTEXT_BREAKDOWN_LABELS, type ContextBreakdown } from "~/lib/contextBreakdown";
+import {
+  CONTEXT_BREAKDOWN_LABELS,
+  type ContextBreakdown,
+} from "@t3tools/client-runtime/context-breakdown";
 
 function formatPercentage(value: number | null): string | null {
   if (value === null || !Number.isFinite(value)) {
