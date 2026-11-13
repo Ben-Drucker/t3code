@@ -110,7 +110,7 @@ These entries extend or replace a capability already present in the canonical ni
 
 ## Coverage and limits
 
-The comparison contains 395 changed files (30,587 inserted and 2,649 deleted lines, plus binary screenshots), and the fork-only range contains 141 non-merge commits. The 64 aspects above group that history by retained behavior and include smaller fixes, tests supporting those behaviors, documentation, generated schema, dependencies, and tooling/configuration; only behavior retained in the comparison tree belongs here.
+The comparison contains 395 changed files (30,587 inserted and 2,649 deleted lines, plus binary screenshots), and the fork-only range contains 141 non-merge commits. The 71 aspects above group that history by retained behavior and include smaller fixes, tests supporting those behaviors, documentation, generated schema, dependencies, and tooling/configuration; only behavior retained in the comparison tree belongs here.
 
 Evidence combines `git diff bc647ed53595888efacdd8ca435967d48888a952 c400ab00c34604828f9e3457519863b3ccfff431` with the non-merge fork history in that range and source inspection of the listed areas. The latest nightly tag reachable from mine is the selected tag; older merges include the November 6 and November 2 nightlies, so their retained fork additions are included rather than discarded at the latest merge boundary.
 
