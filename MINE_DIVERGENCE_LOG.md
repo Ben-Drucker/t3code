@@ -2,7 +2,7 @@
 
 ## Comparison and maintenance
 
-Canonical incorporated upstream nightly: `bc647ed53595888efacdd8ca435967d48888a952` (`v0.1.10-nightly.20261112.4564`). Mine comparison: `c400ab00c34604828f9e3457519863b3ccfff431`.
+Canonical incorporated upstream nightly: `bc647ed53595888efacdd8ca435967d48888a952` (`v0.1.10-nightly.20261112.4564`). Mine comparison: `fc18d6484a5a52b30ff72a9a04a25762ca341514`.
 
 The nightly is the second parent of merge `1b92f55f099b2ac9d1fc4fde53a62d8567b7bb85`, which is in mine's first-parent history. This inventory compares that nightly's entire tree with mine, including fork work predating that merge; it is not a list of commits made after the merge.
 
@@ -68,6 +68,10 @@ BACKLOG.md holds unfinished items. Once a feature, fix, or change is completed, 
 - **Native profile integration.** Docked Chrome copies 1Password native-messaging manifests into its dedicated profile, while browser mode changes select the appropriate backend and preserve the ordinary built-in path. Areas: `ServerBrowserDockedChrome.ts`, `ServerBrowserContexts.ts`, `ServerBrowser.ts`; history: `eaad139683`.
 - **Local HTML opening.** Local HTML files open by `file://` in the chosen browser, with URL validation and desktop support for those file links. Areas: `localHtmlFile.ts`, `openFileInPreview.ts`, `FilePreviewPanel.tsx`, `DesktopWebLinkCoordinator.tsx`, `ElectronShell.ts`, shared preview URL helpers; history: `7225708fe0`.
 
+### Mobile ports of fork features
+
+- **Mobile parity for fork composer and thread tools.** Mobile gains long-press parent-only Stop (shown only with running delegated children), the thread throughput row, a Custom answer row on question cards, a Quick Question toggle, a context meter, and a Tasks sheet. Shared logic (`contextWindow`, `tokenThroughput`, `tasksPanel`) moved from `apps/web` to `packages/shared` so web and mobile use one copy. Areas: `ThreadComposer.tsx`, `ThreadSettingsSheet.tsx`, `PendingUserInputCard.tsx`, `packages/shared/src/`; history: `3f158ccfc0`, `d27a5ee3d2`, `7d2687be45`, `146ccdf504`, `b81d9335ba`, `fc18d6484a5a52b30ff72a9a04a25762ca341514`. Typecheck, unit tests, lint and React compiler checks pass; real-device behavior is unverified.
+
 ### Fork operations and maintained artifacts
 
 - **Fork setup and deployment.** `scripts/fork.sh` provides setup, upstream status, build/install, detached deployment, measured progress and log output, with toolchain detection and noninteractive setup defaults. Areas: `scripts/fork.sh`, `.gitignore`; history: `529b79f6fe`, `6286cd70bc`, `9e4b42630c`, `6691c0d7f5`, `7cb9a60365`, `293c85890e`, `0e52d3128d`.
@@ -110,9 +114,9 @@ These entries extend or replace a capability already present in the canonical ni
 
 ## Coverage and limits
 
-The comparison contains 395 changed files (30,587 inserted and 2,649 deleted lines, plus binary screenshots), and the fork-only range contains 141 non-merge commits. The 71 aspects above group that history by retained behavior and include smaller fixes, tests supporting those behaviors, documentation, generated schema, dependencies, and tooling/configuration; only behavior retained in the comparison tree belongs here.
+The comparison contains 406 changed files (31,030 inserted and 2,672 deleted lines, plus binary screenshots), and the fork-only range contains 149 non-merge commits. The 72 aspects above group that history by retained behavior and include smaller fixes, tests supporting those behaviors, documentation, generated schema, dependencies, and tooling/configuration; only behavior retained in the comparison tree belongs here.
 
-Evidence combines `git diff bc647ed53595888efacdd8ca435967d48888a952 c400ab00c34604828f9e3457519863b3ccfff431` with the non-merge fork history in that range and source inspection of the listed areas. The latest nightly tag reachable from mine is the selected tag; older merges include the November 6 and November 2 nightlies, so their retained fork additions are included rather than discarded at the latest merge boundary.
+Evidence combines `git diff bc647ed53595888efacdd8ca435967d48888a952 fc18d6484a5a52b30ff72a9a04a25762ca341514` with the non-merge fork history in that range and source inspection of the listed areas. The latest nightly tag reachable from mine is the selected tag; older merges include the November 6 and November 2 nightlies, so their retained fork additions are included rather than discarded at the latest merge boundary.
 
 Tests beside the changed modules provide additional behavioral specifications, including streaming, Kimi usage/session parsing, context thresholds, sidebar nesting/attention, dock geometry/controller, Firefox integration, Mini QQ lifecycle, rich citations, and composer menus. This research did not run builds, tests, browser sessions, or provider turns; “completed” here means an implemented change retained in the comparison tree, not a fresh runtime certification.
 
