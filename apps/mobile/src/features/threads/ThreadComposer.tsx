@@ -247,6 +247,7 @@ export interface ThreadComposerProps {
   readonly onNativePasteText: (paste: ComposerTextPaste) => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
+  readonly onStopParentThread?: () => void;
   /** Present while the thread's queue is held. */
   readonly onResumeQueue: (() => Promise<void>) | null;
   /** `stillSendable` reports whether the draft is unchanged after any wait before sending. */
@@ -301,6 +302,35 @@ const FOLLOW_UP_ACTION_LABEL = {
   steer: "Steer now",
   restart: "Restart turn",
 } as const;
+
+function StopActionButton(props: {
+  readonly size: "regular" | "large";
+  readonly disabled: boolean;
+  readonly onStop: () => void;
+  readonly onStopParent?: () => void;
+}) {
+  const button = (
+    <ComposerActionButton
+      size={props.size}
+      accessibilityLabel="Stop agent"
+      icon="stop.fill"
+      variant="danger"
+      disabled={props.disabled}
+      onPress={props.onStop}
+    />
+  );
+  if (!props.onStopParent || props.disabled) return button;
+  return (
+    <Menu
+      accessibilityLabel="Stop options"
+      shouldOpenOnLongPress
+      actions={[{ id: "parent", title: "Stop parent only" }]}
+      onPressAction={() => props.onStopParent?.()}
+    >
+      {button}
+    </Menu>
+  );
+}
 
 const FOLLOW_UP_ACTION_SUBTITLE = {
   queue: "Run after the current turn",
@@ -1106,13 +1136,11 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                   onCancel={voiceInput.cancel}
                 />
                 {showStopAction ? (
-                  <ComposerActionButton
+                  <StopActionButton
                     size={usesLargeControls ? "large" : "regular"}
-                    accessibilityLabel="Stop agent"
-                    icon="stop.fill"
-                    variant="danger"
                     disabled={!props.canOperateThread}
-                    onPress={props.onStopThread}
+                    onStop={props.onStopThread}
+                    onStopParent={props.onStopParentThread}
                   />
                 ) : showResumeAction ? (
                   <ComposerActionButton
@@ -1174,13 +1202,11 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                     onCancel={voiceInput.cancel}
                   />
                   {showStopAction ? (
-                    <ComposerActionButton
+                    <StopActionButton
                       size={usesLargeControls ? "large" : "regular"}
-                      accessibilityLabel="Stop agent"
-                      icon="stop.fill"
-                      variant="danger"
                       disabled={!props.canOperateThread}
-                      onPress={props.onStopThread}
+                      onStop={props.onStopThread}
+                      onStopParent={props.onStopParentThread}
                     />
                   ) : showResumeAction && voicePresentation.showsSend ? (
                     <ComposerActionButton

@@ -659,7 +659,7 @@ function ThreadRouteContent(
   const handleOpenConnectionEditor = () => {
     void navigation.navigate("Connections");
   };
-  const handleStopThread = () => {
+  const handleStopThread = (parentOnly = false) => {
     if (
       !selectedThread ||
       !readEnvironmentScope(selectedThread.environmentId, AuthOrchestrationOperateScope) ||
@@ -672,6 +672,7 @@ function ThreadRouteContent(
       input: {
         threadId: selectedThread.id,
         runId: composer.interruptibleRunId,
+        ...(parentOnly ? { parentOnly: true } : {}),
       },
     });
   };
@@ -1071,6 +1072,18 @@ function ThreadRouteContent(
           onRemoveDraftImage={composer.onRemoveDraftImage}
           serverConfig={serverConfig}
           onStopThread={awaitingBootstrapTurn ? handleCancelWorktreeSetup : handleStopThread}
+          onStopParentThread={
+            !awaitingBootstrapTurn &&
+            selectedThreadDetail?.subagents.some(
+              (child) =>
+                child.origin === "app_owned" &&
+                (child.status === "pending" ||
+                  child.status === "running" ||
+                  child.status === "waiting"),
+            )
+              ? () => void handleStopThread(true)
+              : undefined
+          }
           onResumeQueue={
             composer.queueHeld || composer.resumableRunId !== null ? handleResumeQueue : null
           }
