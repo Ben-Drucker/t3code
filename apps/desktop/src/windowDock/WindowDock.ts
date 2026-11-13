@@ -91,10 +91,20 @@ export const layer = Layer.effect(
         "native/window-dock/build",
         HELPER_NAME,
       );
-      if (yield* fileSystem.exists(output).pipe(Effect.orElseSucceed(() => false))) {
+      const source = environment.path.join(environment.rootDir, "native/window-dock/main.swift");
+      const [outputStat, sourceStat] = yield* Effect.all([
+        fileSystem.stat(output).pipe(Effect.option),
+        fileSystem.stat(source).pipe(Effect.option),
+      ]);
+      if (
+        Option.isSome(outputStat) &&
+        Option.isSome(sourceStat) &&
+        Option.isSome(outputStat.value.mtime) &&
+        Option.isSome(sourceStat.value.mtime) &&
+        outputStat.value.mtime.value.getTime() >= sourceStat.value.mtime.value.getTime()
+      ) {
         return Option.some(output);
       }
-      const source = environment.path.join(environment.rootDir, "native/window-dock/main.swift");
       yield* fileSystem.makeDirectory(environment.path.dirname(output), { recursive: true });
       return yield* Effect.tryPromise({
         try: () => execFile("swiftc", ["-O", source, "-o", output]),

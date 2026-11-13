@@ -541,9 +541,15 @@ const make = Effect.gen(function* () {
     desktopChannel.available &&
     host.platform === "darwin";
   const firefoxKeys = new Set<string>();
+  const profilesDir = NodePath.join(config.stateDir, "server-browser", "profiles");
   const firefox = yield* FirefoxServerBrowser.makeBrowser({
+    profilesDir,
     docked: firefoxDockedUsable,
     allocateTab: async (request) => {
+      const openInput = request.input as
+        | { readonly open?: boolean; readonly show?: boolean }
+        | undefined;
+      const reveal = (openInput?.open ?? openInput?.show) !== false;
       const snapshot = await runPromise(
         manager.open({
           threadId: request.threadId,
@@ -552,7 +558,7 @@ const make = Effect.gen(function* () {
           ...(request.agentSessionId === undefined
             ? {}
             : { automationOwner: request.agentSessionId }),
-          reveal: true,
+          reveal,
           beforePublish: (snapshot) => firefoxKeys.add(tabKey(snapshot.threadId, snapshot.tabId)),
         }),
       );
@@ -595,7 +601,7 @@ const make = Effect.gen(function* () {
   let viewerResizeOrder = 0;
 
   const contexts = new ServerBrowserContexts({
-    profilesDir: NodePath.join(config.stateDir, "server-browser", "profiles"),
+    profilesDir,
     idleBrowserMs: 5 * 60_000,
     executable: () => runPromise(previewBrowser.executable),
     // An agent scope keeps Chrome out of the server's memory protection and OOM score.

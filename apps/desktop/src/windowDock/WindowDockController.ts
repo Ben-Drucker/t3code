@@ -1,8 +1,24 @@
-// @effect-diagnostics globalTimers:off -- Retries run at helper callback boundaries outside Effect fibers.
+// @effect-diagnostics globalTimers:off -- Retries and trailing debounces run at helper callback boundaries outside Effect fibers.
 import type { WindowDockClient } from "./WindowDockClient.ts";
 
-import { clipToWorkArea, panelWidthToDips, sameFrame, sideFrame } from "./WindowDockGeometry.ts";
-import type { ScreenRect } from "./WindowDockProtocol.ts";
+import {
+  approxSameFrame,
+  BROWSER_MIN_WINDOW_WIDTH,
+  clipToWorkArea,
+  createTrailingDebounce,
+  defaultDebounceTimers,
+  DOCK_REARRANGE_DEBOUNCE_MS,
+  isWindowMaximizedToWorkArea,
+  panelWidthToDips,
+  sameFrame,
+  selectOwnedWindow,
+  settledExcessWidth,
+  sideFrame,
+  type DebounceTimers,
+} from "./WindowDockGeometry.ts";
+import type { ScreenRect, WindowDockCandidateWindow } from "./WindowDockProtocol.ts";
+
+export { DOCK_REARRANGE_DEBOUNCE_MS };
 
 export interface DockKey {
   readonly threadId: string;
@@ -37,22 +53,28 @@ interface DockDeps {
   readonly mainWindow: () => DockWindow | undefined;
   readonly emit: (event: DockEvent) => void;
   readonly sleep?: (ms: number) => Promise<void>;
+  readonly timers?: DebounceTimers;
 }
 
 interface Dock {
   readonly key: DockKey;
   readonly pid: number;
-  /** Width the T3 window gave up to Chrome, once the first panel measurement arrived. */
+  /** Width the T3 window gave up to the docked browser, once the panel measurement arrived. */
   side: number | null;
-  /** Chrome's share of the combined width, kept when the window is maximized. */
+  /** Browser's share of the combined width, kept when T3 is maximized. */
   ratio: number;
-  /** The panel closed after docking, so its next measurement asks for more room. */
+  /** The panel closed after docking, so its next measurement updates the split to the new panel width. */
   reopened: boolean;
 }
 
 interface PidState {
+  readonly windowId: number;
   frame: ScreenRect | null;
   minimized: boolean;
+  /** User maximized the docked browser; T3 reclaimed its width and leaves the browser maximized until unmaximized or T3 is resized/moved. */
+  detachedByBrowserMaximize: boolean;
+  pendingExternalFrame: ScreenRect | null;
+  readonly browserDebounce: ReturnType<typeof createTrailingDebounce>;
 }
 
 const idOf = ({ threadId, tabId }: DockKey) => `${threadId}\u0000${tabId}`;
@@ -62,24 +84,36 @@ const SETTLE_ATTEMPTS = 10;
 const SETTLE_DELAY_MS = 100;
 
 /**
- * Chrome sits beside the T3 window, in the width the preview panel used to take. The panel's
- * first measurement sets that width; after that the renderer closes the panel and the window
- * itself is the layout.
+ * The docked browser sits beside the T3 window in the width the preview panel used to take.
+ * Rearrangements caused by moving, resizing, or maximizing either window wait for 1500 ms of
+ * stability so drags and macOS zoom animations never lag or fight the user.
  */
 export class WindowDockController {
   private readonly docks = new Map<string, Dock>();
-  /** The panel can be measured before the dock command arrives, since Chrome takes a moment to open. */
+  /** The panel can be measured before the dock command arrives, since the browser takes a moment to open. */
   private readonly earlyWidths = new Map<string, number>();
   private readonly pids = new Map<number, PidState>();
   private unsubscribeWindow: (() => void) | undefined;
   private readonly unsubscribeClosed: () => void;
+  private readonly unsubscribeFrameChanged: () => void;
   private readonly settling = new Set<Promise<void>>();
+  private readonly timers: DebounceTimers;
+  private readonly windowBoundsDebounce: ReturnType<typeof createTrailingDebounce>;
+  private readonly raiseTimers = new Set<unknown>();
+  private applyingWindowBounds = false;
 
   private readonly deps: DockDeps;
 
   constructor(deps: DockDeps) {
     this.deps = deps;
-    this.unsubscribeClosed = deps.helper.onClosed((pid) => this.windowClosed(pid));
+    this.timers = deps.timers ?? defaultDebounceTimers;
+    this.windowBoundsDebounce = createTrailingDebounce(DOCK_REARRANGE_DEBOUNCE_MS, this.timers);
+    this.unsubscribeClosed = deps.helper.onClosed(({ pid, windowId }) =>
+      this.windowClosed(pid, windowId),
+    );
+    this.unsubscribeFrameChanged = deps.helper.onFrameChanged(({ pid, windowId, frame }) =>
+      this.browserFrameChanged(pid, windowId, frame),
+    );
   }
 
   async dock(key: DockKey, pid: number): Promise<void> {
@@ -90,12 +124,14 @@ export class WindowDockController {
       return this.deps.emit({ type: "failed", key, reason: "no-permission" });
     }
     const sleep = this.deps.sleep ?? ((ms) => new Promise<void>((done) => setTimeout(done, ms)));
-    let found = false;
-    for (let attempt = 0; attempt < FIND_ATTEMPTS && !found; attempt++) {
+    const existingPidState = this.pids.get(pid);
+    let selected: WindowDockCandidateWindow | null = null;
+    for (let attempt = 0; attempt < FIND_ATTEMPTS && !selected; attempt++) {
       if (attempt > 0) await sleep(FIND_DELAY_MS);
-      found = (await helper.find(pid)).found;
+      const reply = await helper.find(pid);
+      selected = selectOwnedWindow(reply.windows, pid, existingPidState?.windowId ?? null);
     }
-    if (!found) return this.deps.emit({ type: "failed", key, reason: "no-window" });
+    if (!selected) return this.deps.emit({ type: "failed", key, reason: "no-window" });
     const id = idOf(key);
     const existing = [...this.docks.values()].find((dock) => dock.pid === pid);
     const dock: Dock = {
@@ -108,14 +144,26 @@ export class WindowDockController {
     this.docks.set(id, dock);
     const early = this.earlyWidths.get(id);
     this.earlyWidths.delete(id);
-    if (early !== undefined && dock.side === null) this.enterSide(dock, early);
     if (!this.pids.has(pid)) {
-      this.pids.set(pid, { frame: null, minimized: false });
-      helper.watch(pid);
+      this.pids.set(pid, {
+        windowId: selected.windowId,
+        frame: null,
+        minimized: false,
+        detachedByBrowserMaximize: false,
+        pendingExternalFrame: null,
+        browserDebounce: createTrailingDebounce(DOCK_REARRANGE_DEBOUNCE_MS, this.timers),
+      });
+      helper.watch(pid, selected.windowId);
     }
+    if (early !== undefined && dock.side === null) this.setSideWidth(dock, early);
     this.unsubscribeWindow ??= this.deps.mainWindow()?.subscribe((event) => {
       if (event === "focus") this.raiseAll();
-      else this.applyAll();
+      else if (event === "visibility") {
+        this.windowBoundsDebounce.cancel();
+        this.applyVisibilityAll();
+      } else if (!this.applyingWindowBounds) {
+        this.windowBoundsDebounce.schedule(() => this.rearrangeForWindowBounds());
+      }
     });
     this.apply(pid);
   }
@@ -128,7 +176,7 @@ export class WindowDockController {
     this.release(id, dock);
   }
 
-  /** Returns true once the T3 window has made room for Chrome, so the panel can close. */
+  /** Returns true once the T3 window has made room for the docked browser, so the panel can close. */
   setPanelRect(key: DockKey, panel: ScreenRect | null): boolean {
     const id = idOf(key);
     const dock = this.docks.get(id);
@@ -137,10 +185,15 @@ export class WindowDockController {
         dock.reopened = true;
         return true;
       }
-      // Measurements of the panel that just made room arrive before it closes; only a reopened panel grows the split.
+      // Measurements of the panel that just made room arrive before it closes; only a reopened panel updates the split.
       if (dock.reopened) {
         dock.reopened = false;
-        this.enterSide(
+        const pidState = this.pids.get(dock.pid);
+        if (pidState?.detachedByBrowserMaximize) {
+          pidState.detachedByBrowserMaximize = false;
+          dock.side = null;
+        }
+        this.setSideWidth(
           dock,
           panelWidthToDips(panel.width, this.deps.mainWindow()?.getZoomFactor() ?? 1),
         );
@@ -157,7 +210,7 @@ export class WindowDockController {
       this.earlyWidths.set(id, width);
       return false;
     }
-    this.enterSide(dock, width);
+    this.setSideWidth(dock, width);
     this.apply(dock.pid);
     return dock.side !== null;
   }
@@ -168,48 +221,84 @@ export class WindowDockController {
   }
 
   dispose(): void {
+    this.windowBoundsDebounce.cancel();
+    this.clearRaiseTimers();
     for (const [id, dock] of this.docks) this.release(id, dock);
     this.detachWindow();
     this.unsubscribeClosed();
+    this.unsubscribeFrameChanged();
     this.docks.clear();
     this.pids.clear();
   }
 
-  private enterSide(dock: Dock, width: number) {
+  private setWindowBounds(window: DockWindow, bounds: ScreenRect) {
+    this.applyingWindowBounds = true;
+    try {
+      window.setBounds(bounds);
+    } finally {
+      this.applyingWindowBounds = false;
+    }
+  }
+
+  private setSideWidth(dock: Dock, desiredWidth: number) {
     const window = this.deps.mainWindow();
-    if (!window || width < 1) return;
+    if (!window || desiredWidth < 1) return;
     const before = window.getBounds();
-    window.setBounds({ ...before, width: before.width - width });
-    // The window may refuse to shrink all the way, so Chrome takes what was actually freed.
-    const freed = before.width - window.getBounds().width;
     const previousSide = dock.side ?? 0;
-    // A window already at its minimum frees nothing; only the first measurement may still claim room for the browser.
-    dock.side = previousSide + (freed >= 1 ? freed : previousSide === 0 ? width : 0);
-    dock.ratio = dock.side / (before.width + previousSide || 1);
-    for (const other of this.docks.values())
+    const delta = desiredWidth - previousSide;
+    if (delta !== 0) {
+      this.setWindowBounds(window, { ...before, width: before.width - delta });
+    }
+    // The window may refuse to shrink past its minimum width, so the browser takes what was actually freed.
+    const actualDelta = before.width - window.getBounds().width;
+    const nextSide =
+      actualDelta !== 0
+        ? Math.max(1, previousSide + actualDelta)
+        : previousSide === 0
+          ? desiredWidth
+          : previousSide;
+    dock.side = nextSide;
+    dock.ratio = nextSide / (window.getBounds().width + nextSide || 1);
+    for (const other of this.docks.values()) {
       if (other.pid === dock.pid) {
         other.side = dock.side;
         other.ratio = dock.ratio;
       }
+    }
   }
 
   private release(id: string, dock: Dock) {
     this.docks.delete(id);
+    const stillDockedForPid = [...this.docks.values()].some((other) => other.pid === dock.pid);
+    const pidState = this.pids.get(dock.pid);
     const window = this.deps.mainWindow();
     if (
       window &&
       dock.side &&
+      !pidState?.detachedByBrowserMaximize &&
       !window.isFullScreen() &&
-      ![...this.docks.values()].some((other) => other.pid === dock.pid)
+      !stillDockedForPid
     ) {
       const bounds = window.getBounds();
-      window.setBounds({ ...bounds, width: bounds.width + dock.side });
+      this.setWindowBounds(window, { ...bounds, width: bounds.width + dock.side });
     }
-    if (![...this.docks.values()].some((other) => other.pid === dock.pid)) {
+    if (!stillDockedForPid) {
+      pidState?.browserDebounce.cancel();
       this.pids.delete(dock.pid);
-      this.deps.helper.unwatch(dock.pid);
-    } else this.apply(dock.pid);
-    if (this.docks.size === 0) this.detachWindow();
+      this.deps.helper.unwatch(dock.pid, pidState?.windowId);
+    } else {
+      this.apply(dock.pid);
+    }
+    if (this.docks.size === 0) {
+      this.windowBoundsDebounce.cancel();
+      this.clearRaiseTimers();
+      this.detachWindow();
+    }
+  }
+
+  private clearRaiseTimers() {
+    for (const timer of this.raiseTimers) this.timers.clear(timer);
+    this.raiseTimers.clear();
   }
 
   private detachWindow() {
@@ -217,13 +306,59 @@ export class WindowDockController {
     this.unsubscribeWindow = undefined;
   }
 
-  private windowClosed(pid: number) {
+  private windowClosed(pid: number, windowId: number | undefined) {
+    const state = this.pids.get(pid);
+    if (!state) return;
+    if (windowId !== undefined && windowId !== state.windowId) return;
+    state.browserDebounce.cancel();
     for (const [id, dock] of this.docks) {
       if (dock.pid !== pid) continue;
       this.deps.emit({ type: "closed", key: dock.key });
       this.release(id, dock);
     }
     this.pids.delete(pid);
+  }
+
+  private browserFrameChanged(pid: number, windowId: number, frame: ScreenRect) {
+    const state = this.pids.get(pid);
+    if (!state || state.windowId !== windowId || state.minimized) return;
+    if (state.frame && approxSameFrame(frame, state.frame)) return;
+    state.pendingExternalFrame = frame;
+    state.browserDebounce.schedule(() => this.rearrangeForBrowserFrame(pid));
+  }
+
+  private rearrangeForBrowserFrame(pid: number) {
+    const state = this.pids.get(pid);
+    const window = this.deps.mainWindow();
+    if (!state || !window) return;
+    const latest = state.pendingExternalFrame;
+    state.pendingExternalFrame = null;
+    if (!latest || state.minimized) return;
+    if (state.frame && approxSameFrame(latest, state.frame)) return;
+    const dock = [...this.docks.values()].find(
+      (candidate) => candidate.pid === pid && candidate.side,
+    );
+    if (!dock?.side) return;
+    if (isWindowMaximizedToWorkArea(latest, window.getWorkArea())) {
+      // Respect the user maximizing the browser: leave its frame maximized and restore T3's width.
+      if (!state.detachedByBrowserMaximize) {
+        state.detachedByBrowserMaximize = true;
+        if (!window.isFullScreen() && !window.isMaximized()) {
+          const bounds = window.getBounds();
+          this.setWindowBounds(window, { ...bounds, width: bounds.width + dock.side });
+        }
+      }
+      state.frame = latest;
+      return;
+    }
+    if (state.detachedByBrowserMaximize) {
+      state.detachedByBrowserMaximize = false;
+      const savedSide = dock.side;
+      dock.side = null;
+      this.setSideWidth(dock, savedSide);
+    }
+    state.frame = null;
+    this.apply(pid);
   }
 
   /** A maximized window has no room beside it, so the split is redrawn inside the same width. */
@@ -236,28 +371,57 @@ export class WindowDockController {
       if (!dock.side) continue;
       fitted.add(dock.pid);
       const bounds = window.getBounds();
-      const chrome = Math.round(bounds.width * dock.ratio);
-      window.setBounds({ ...bounds, width: bounds.width - chrome });
-      dock.side = chrome;
-      for (const other of this.docks.values()) if (other.pid === dock.pid) other.side = chrome;
+      const browserWidth = Math.round(bounds.width * dock.ratio);
+      this.setWindowBounds(window, { ...bounds, width: bounds.width - browserWidth });
+      dock.side = browserWidth;
+      for (const other of this.docks.values())
+        if (other.pid === dock.pid) other.side = browserWidth;
     }
   }
 
-  private applyAll() {
+  private rearrangeForWindowBounds() {
+    const window = this.deps.mainWindow();
+    if (!window) return;
+    for (const [pid, state] of this.pids) {
+      if (!state.detachedByBrowserMaximize) continue;
+      state.detachedByBrowserMaximize = false;
+      state.browserDebounce.cancel();
+      state.pendingExternalFrame = null;
+      const dock = [...this.docks.values()].find(
+        (candidate) => candidate.pid === pid && candidate.side,
+      );
+      if (dock?.side && !window.isMaximized() && !window.isFullScreen()) {
+        const savedSide = dock.side;
+        dock.side = null;
+        this.setSideWidth(dock, savedSide);
+      }
+      state.frame = null;
+    }
     this.fitMaximized();
+    for (const pid of this.pids.keys()) this.apply(pid);
+  }
+
+  private applyVisibilityAll() {
     for (const pid of this.pids.keys()) this.apply(pid);
   }
 
   private raiseAll() {
     const raise = () => {
-      for (const pid of this.pids.keys()) {
-        if (this.pids.get(pid)?.minimized === false) this.deps.helper.raise(pid);
+      for (const [pid, state] of this.pids) {
+        if (!state.minimized && !state.detachedByBrowserMaximize) {
+          this.deps.helper.raise(pid, state.windowId);
+        }
       }
     };
     raise();
     // macOS reorders T3's windows after the focus event, so the first raise can land underneath.
-    setTimeout(raise, 60);
-    setTimeout(raise, 250);
+    for (const delay of [60, 250]) {
+      const handle = this.timers.set(() => {
+        this.raiseTimers.delete(handle);
+        raise();
+      }, delay);
+      this.raiseTimers.add(handle);
+    }
   }
 
   private apply(pid: number) {
@@ -266,53 +430,76 @@ export class WindowDockController {
     const { helper } = this.deps;
     const window = this.deps.mainWindow();
     const side = [...this.docks.values()].find((dock) => dock.pid === pid && dock.side)?.side;
-    const frame =
-      side && window && window.isVisible() && !window.isMinimized() && !window.isFullScreen()
-        ? clipToWorkArea(sideFrame(window.getBounds(), side), window.getWorkArea())
-        : null;
-    if (!frame) {
-      if (!state.minimized) helper.setMinimized(pid, true);
+    const visible = Boolean(
+      side && window && window.isVisible() && !window.isMinimized() && !window.isFullScreen(),
+    );
+    if (!visible || !side || !window) {
+      state.browserDebounce.cancel();
+      state.pendingExternalFrame = null;
+      if (!state.minimized) helper.setMinimized(pid, state.windowId, true);
       state.minimized = true;
       state.frame = null;
       return;
     }
+    if (state.detachedByBrowserMaximize) {
+      if (state.minimized) {
+        helper.setMinimized(pid, state.windowId, false);
+        state.minimized = false;
+      }
+      return;
+    }
+    const frame = clipToWorkArea(sideFrame(window.getBounds(), side), window.getWorkArea());
     const reveal = state.minimized || state.frame === null;
-    if (state.minimized) helper.setMinimized(pid, false);
+    if (state.minimized) helper.setMinimized(pid, state.windowId, false);
     state.minimized = false;
     if (!sameFrame(state.frame, frame)) {
-      helper.setFrame(pid, frame);
-      const check = this.settle(pid, frame).finally(() => this.settling.delete(check));
-      this.settling.add(check);
+      helper.setFrame(pid, state.windowId, frame);
+      if (frame.width < BROWSER_MIN_WINDOW_WIDTH) {
+        const check = this.settle(pid, state.windowId, frame).finally(() =>
+          this.settling.delete(check),
+        );
+        this.settling.add(check);
+      }
     }
     state.frame = frame;
-    if (reveal) helper.raise(pid);
+    if (reveal) helper.raise(pid, state.windowId);
   }
 
-  /** A browser window has a minimum width. When it is wider than its slot, the T3 window gives up the difference so the two sit edge to edge instead of overlapping. */
-  private async settle(pid: number, requested: ScreenRect) {
+  /**
+   * When the requested slot is narrower than a browser's minimum window width (~500 DIPs), the
+   * T3 window gives up only the difference up to `BROWSER_MIN_WINDOW_WIDTH` so the two sit edge
+   * to edge without ever inflating to an unresized default window width.
+   */
+  private async settle(pid: number, windowId: number, requested: ScreenRect) {
     const sleep = this.deps.sleep ?? ((ms) => new Promise<void>((done) => setTimeout(done, ms)));
-    // The resize lands asynchronously, so only a width that stops changing is the browser's real one.
-    let reply = await this.deps.helper.find(pid);
+    await sleep(SETTLE_DELAY_MS);
+    let owned = selectOwnedWindow((await this.deps.helper.find(pid)).windows, pid, windowId);
     for (let attempt = 0; attempt < SETTLE_ATTEMPTS; attempt++) {
       await sleep(SETTLE_DELAY_MS);
-      const next = await this.deps.helper.find(pid);
-      const stable = reply.found && next.found && next.frame.width === reply.frame.width;
-      reply = next;
+      const next = selectOwnedWindow((await this.deps.helper.find(pid)).windows, pid, windowId);
+      const stable =
+        owned !== null &&
+        next !== null &&
+        next.frame.width === owned.frame.width &&
+        next.frame.width <= BROWSER_MIN_WINDOW_WIDTH;
+      owned = next;
       if (stable) break;
     }
+    const state = this.pids.get(pid);
     const window = this.deps.mainWindow();
-    if (!reply.found || !window || !this.pids.has(pid)) return;
-    const excess = Math.round(reply.frame.width - requested.width);
+    if (!owned || !state || state.windowId !== windowId || !window) return;
+    const excess = settledExcessWidth(requested.width, owned.frame.width);
     if (excess < 1) return;
     const before = window.getBounds();
-    window.setBounds({ ...before, width: before.width - excess });
+    this.setWindowBounds(window, { ...before, width: before.width - excess });
     const freed = before.width - window.getBounds().width;
     if (freed < 1) return;
-    for (const dock of this.docks.values())
+    for (const dock of this.docks.values()) {
       if (dock.pid === pid && dock.side) {
         dock.side += freed;
         dock.ratio = dock.side / (window.getBounds().width + dock.side);
       }
+    }
     this.apply(pid);
   }
 }

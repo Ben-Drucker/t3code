@@ -115,6 +115,13 @@ export class FirefoxBrowser implements ServerBrowserBackend {
   readonly connection: MarionetteConnection;
   readonly options: {
     readonly bidiPort?: number;
+    /**
+     * PID of the isolated Firefox child T3 itself launched (`--no-remote` + dedicated profile).
+     * Never set for attached user Firefox instances, so T3 never docks or moves personal windows.
+     */
+    readonly ownedProcessId?: number | undefined;
+    /** True when Firefox was started specifically for T3 and its initial blank window belongs to T3. */
+    readonly reuseInitialWindow?: boolean | undefined;
     /** `click` is replaced only by tests; Firefox's own native click is the default. */
     readonly autofill?: Omit<AutofillOptions, "click"> & Partial<Pick<AutofillOptions, "click">>;
     readonly docked?: () => boolean;
@@ -646,28 +653,45 @@ export class FirefoxBrowser implements ServerBrowserBackend {
         const handles = value<string[]>(
           await this.connection.command("WebDriver:GetWindowHandles"),
         );
-        const current =
-          [...this.tabs.values()].find((tab) => handles.includes(tab.handle))?.handle ??
-          (this.originalHandle && handles.includes(this.originalHandle)
+        const reusableInitialHandle =
+          this.options.reuseInitialWindow === true &&
+          this.tabs.size === 0 &&
+          this.originalHandle !== undefined &&
+          handles.includes(this.originalHandle)
             ? this.originalHandle
-            : handles[0]);
-        if (current)
-          await this.connection.command("WebDriver:SwitchToWindow", {
-            handle: current,
-            focus: false,
-          });
-        opensWindow = this.options.docked?.() === true && this.tabs.size === 0;
-        const opened = value<{ handle: string }>(
-          await this.connection.command("WebDriver:NewWindow", {
-            type: opensWindow ? "window" : "tab",
-            focus: false,
-          }),
-        );
+            : undefined;
+        let targetHandle: string;
+        if (reusableInitialHandle !== undefined) {
+          // T3's dedicated Firefox starts with one blank window; claim it instead of leaving a second window open.
+          this.originalHandle = undefined;
+          opensWindow = this.options.docked?.() === true;
+          targetHandle = reusableInitialHandle;
+        } else {
+          const current =
+            [...this.tabs.values()].find((existing) => handles.includes(existing.handle))?.handle ??
+            (this.originalHandle && handles.includes(this.originalHandle)
+              ? this.originalHandle
+              : handles[0]);
+          if (current)
+            await this.connection.command("WebDriver:SwitchToWindow", {
+              handle: current,
+              focus: false,
+            });
+          opensWindow =
+            (this.options.docked?.() === true && this.tabs.size === 0) || handles.length === 0;
+          const opened = value<{ handle: string }>(
+            await this.connection.command("WebDriver:NewWindow", {
+              type: opensWindow ? "window" : "tab",
+              focus: false,
+            }),
+          );
+          targetHandle = opened.handle;
+        }
         tab = {
           threadId: request.threadId,
           tabId:
             managedTabId ?? (await this.options.allocateTab?.(request)) ?? NodeCrypto.randomUUID(),
-          handle: opened.handle,
+          handle: targetHandle,
           owner: request.agentSessionId,
           refs: new Map(),
           consoleEntries: [],
@@ -684,11 +708,13 @@ export class FirefoxBrowser implements ServerBrowserBackend {
       }
       try {
         await this.switchTo(tab);
-        if (created && this.options.docked?.() && this.connection.processId)
-          await this.options.opened?.(tab, this.connection.processId);
-        // The dock takes its rectangle from the T3 preview panel, so the window's first tab shows it; later tabs share the window.
+        const dockPid = this.options.ownedProcessId;
+        if (created && this.options.docked?.() && dockPid !== undefined)
+          await this.options.opened?.(tab, dockPid);
         const reveal = input.open ?? input.show;
-        if (opensWindow && reveal !== false) await this.options.reveal?.(tab, reveal === true);
+        // New tabs allocated through `allocateTab` or `openManaged` already opened the panel once;
+        // revealing again after `opened` would reopen the panel that docking just closed.
+        if (!created && reveal !== false) await this.options.reveal?.(tab, reveal === true);
         if (input.url) await this.navigate(tab, { url: input.url }, request.timeoutMs);
         return await this.status(tab, request);
       } catch (cause) {
@@ -1022,7 +1048,7 @@ export class FirefoxBrowser implements ServerBrowserBackend {
     await this.connection.command("Marionette:SetContext", { value: "chrome" });
     try {
       await this.script(
-        "const w=Services.wm.getMostRecentWindow('navigator:browser'),[x,y]=arguments,d=w.devicePixelRatio,el=w.document.documentElement,px=Math.round(x*d),py=Math.round(y*d);for(const message of [5,1,2])w.windowUtils.sendNativeMouseEvent(px,py,message,0,0,el,null);",
+        "const w=typeof window!=='undefined'&&window?.windowUtils?window:Services.wm.getMostRecentWindow('navigator:browser'),[x,y]=arguments,d=w.devicePixelRatio,el=w.document.documentElement,px=Math.round(x*d),py=Math.round(y*d);for(const message of [5,1,2])w.windowUtils.sendNativeMouseEvent(px,py,message,0,0,el,null);",
         [x, y],
         false,
         false,
