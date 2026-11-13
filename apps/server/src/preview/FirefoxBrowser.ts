@@ -681,10 +681,9 @@ export class FirefoxBrowser implements ServerBrowserBackend {
               handle: current,
               focus: false,
             });
-          opensWindow =
-            (this.options.docked?.() === true &&
-              ![...this.tabs.values()].some((existing) => handles.includes(existing.handle))) ||
-            handles.length === 0;
+          opensWindow = ![...this.tabs.values()].some((existing) =>
+            handles.includes(existing.handle),
+          );
           const opened = value<{ handle: string }>(
             await this.connection.command("WebDriver:NewWindow", {
               type: opensWindow ? "window" : "tab",
