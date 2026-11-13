@@ -2406,6 +2406,31 @@ export const layerWithOptions = (
         let lastSessionStatus = entry.runtime.providerSession.status;
         const retryStalls = makeRetryStallWatch(entry);
         return entry.runtime.events.pipe(
+          Stream.tap((event) => {
+            if (shutdownSignal.received) return Effect.void;
+            if (event.type === "command_output.delta" || event.type === "prompt_suggestion.updated")
+              return Effect.void;
+            // Activity must be observed before usage buffering changes event delivery timing.
+            const metadataOnly =
+              event.type === "provider_session.updated" &&
+              event.providerSession.status === lastSessionStatus;
+            if (event.type === "provider_session.updated") {
+              lastSessionStatus = event.providerSession.status;
+              if (lastSessionStatus === "stopped") stoppedByProvider = true;
+            }
+            return observeActivity(
+              entry.runtime.providerSessionId,
+              event.type === "turn.terminal"
+                ? markIdle(
+                    entry.runtime.providerSessionId,
+                    event.providerThreadId,
+                    event.runOrdinal,
+                  )
+                : metadataOnly
+                  ? Effect.void
+                  : touchActivity(entry.runtime.providerSessionId, { providerActivity: true }),
+            );
+          }),
           throttleContextUsage,
           Stream.runForEach((nativeEvent) => {
             if (shutdownSignal.received) return Effect.void;
@@ -2440,27 +2465,7 @@ export const layerWithOptions = (
                     itemId: event.turnItem.id,
                   })
                 : Effect.void;
-            // Metadata can change while idle without extending the runtime's lifetime.
-            const metadataOnly =
-              event.type === "provider_session.updated" &&
-              event.providerSession.status === lastSessionStatus;
-            if (event.type === "provider_session.updated") {
-              lastSessionStatus = event.providerSession.status;
-              if (lastSessionStatus === "stopped") stoppedByProvider = true;
-            }
-            return observeActivity(
-              entry.runtime.providerSessionId,
-              event.type === "turn.terminal"
-                ? markIdle(
-                    entry.runtime.providerSessionId,
-                    event.providerThreadId,
-                    event.runOrdinal,
-                  )
-                : metadataOnly
-                  ? Effect.void
-                  : touchActivity(entry.runtime.providerSessionId, { providerActivity: true }),
-            ).pipe(
-              Effect.andThen(armRetryStall),
+            return armRetryStall.pipe(
               Effect.andThen(
                 event.type === "provider_session.updated"
                   ? persistProviderSessionUpdate(entry, event)
