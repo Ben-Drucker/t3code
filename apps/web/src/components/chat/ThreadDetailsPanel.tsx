@@ -20,6 +20,8 @@ import { memo, useState, type ComponentProps } from "react";
 import { ThreadDetailsCard } from "./ThreadDetailsCard";
 import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
+import { Tooltip, TooltipTrigger, TooltipPopup } from "../ui/tooltip";
+import type { tokenThroughput } from "./tokenThroughput";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 import { ThreadServersPanel } from "./ThreadServersPanel";
@@ -85,6 +87,7 @@ interface ThreadDetailsPanelProps extends Pick<
   ) => Promise<ProjectScriptActionResult>;
   onDeleteProjectScript: (scriptId: string) => Promise<ProjectScriptActionResult>;
   usage: ThreadDetailsUsageInput;
+  throughput: ReturnType<typeof tokenThroughput>;
 }
 
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
@@ -261,6 +264,26 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               ) : null}
 
               {visible.usage ? <ThreadDetailsUsage {...props.usage} /> : null}
+              {visible.throughput ? (
+                <ThreadDetailsSection
+                  headingId="thread-throughput-heading"
+                  title="Tokens per second"
+                  showHeading={false}
+                >
+                  <div className="flex justify-between gap-3 text-xs">
+                    <Tooltip>
+                      <TooltipTrigger render={<span />}>Tokens/s</TooltipTrigger>
+                      <TooltipPopup>
+                        Main-agent output tokens divided by turn duration, including tool time
+                      </TooltipPopup>
+                    </Tooltip>
+                    <span>
+                      Chat {props.throughput.average?.toFixed(1) ?? "N/A"} · Last{" "}
+                      {props.throughput.last?.toFixed(1) ?? "N/A"}
+                    </span>
+                  </div>
+                </ThreadDetailsSection>
+              ) : null}
 
               {visible.context && props.usage.contextWindow ? (
                 <ThreadDetailsContext usage={props.usage.contextWindow} />

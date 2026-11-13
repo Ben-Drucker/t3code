@@ -15,7 +15,6 @@ Keep unfinished items here. Once a feature, fix, or change is completed, move it
 - Quick explainer (mermaid diagram): how device connect works through a private server, how it reaches the phone, and whether/how the iOS version code needs to change. Ben has a paid Apple developer account ($99/yr).
 - Investigate only: how dictation works or doesn't in T3. Do providers such as Claude Code (subscription) offer it over ACP or their SDKs? What about small free local models?
 - Clarify Kimi's extra modes (such as yolo), which seem to overlap with permissions. Separate permission defaults are implemented and recorded in MINE_DIVERGENCE_LOG.md; retain this explanatory follow-up until its completion is established.
-- Tokens-per-second meter, added as the 13th sidebar meter option. It shows two numbers: the average over the current chat and the rate for the last message.
 - Compaction progress bar, shown next to the compaction indicator.
   - Research the industry-standard formula that maps the current context size to the expected size after compaction.
   - Use the tokens per second from the last turn to estimate how long it takes to write that many output tokens.

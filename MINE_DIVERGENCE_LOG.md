@@ -12,6 +12,8 @@ BACKLOG.md holds unfinished items. Once a feature, fix, or change is completed, 
 
 ### Composer and conversation tools
 
+- **Thread throughput row.** The customizable Thread details list offers tokens per second with a duration-weighted chat average and latest measured turn. It uses complete main-agent output counts, excludes local commands, and includes tool time in duration. Areas: thread details, `tokenThroughput.ts`, `ChatView.tsx`; focused throughput and visibility tests pass.
+
 - **Parent-only Stop.** Holding Option shows Parent beside Stop and sends a parent-only interruption, preserving delegated tasks and their completion state. Areas: composer actions, `ChatView.tsx`, client commands, interruption contract and orchestrator; focused ThreadStop regression passes.
 
 - **Working composer tracer.** Running and connecting turns outline the composer, with two opacity passes on arrival and a persistent quiet border afterward; reduced motion stays static. Areas: `ChatComposer.tsx`, `index.css`. Real-client appearance remains for Ben to test.
