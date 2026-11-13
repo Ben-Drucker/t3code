@@ -1079,7 +1079,7 @@ export class FirefoxBrowser implements ServerBrowserBackend {
       );
     } catch (cause) {
       throw new Error(
-        "Firefox refused the browser-level click. Restart Firefox with --remote-allow-system-access (plus --marionette --remote-debugging-port=9333).",
+        "Firefox refused the browser-level click. Restart Firefox with MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1 in its launch environment, plus --marionette and --remote-debugging-port=0. Older Firefox also needs --remote-allow-system-access.",
         { cause },
       );
     } finally {

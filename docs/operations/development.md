@@ -215,7 +215,8 @@ dialogs remain resolvable but report the generic type `dialog` and an empty defa
 Firefox has no Marionette/BiDi screencast stream, so recording and the streamed Browser panel
 are unavailable. On macOS desktop, choose **Firefox (docked)** in Settings → Browser to attach to
 your running Firefox and create a dedicated window without `T3CODE_SERVER_BROWSER`. Start Firefox
-with `--marionette --remote-debugging-port=0 --remote-allow-system-access`. A unique title prefix
+with `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1` in its launch environment and
+`--marionette --remote-debugging-port=0` (older Firefox also needs `--remote-allow-system-access`). A unique title prefix
 identifies T3's window to the native helper; all later operations target its recorded window ID.
 Missing or ambiguous matches leave other windows untouched and use the built-in preview.
 An unreachable Marionette listener also falls back to the built-in preview. Set

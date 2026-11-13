@@ -107,7 +107,13 @@ export const start = async (options: FirefoxLaunchOptions): Promise<StartedFiref
     const child = NodeChildProcess.spawn(
       options.executable,
       buildFirefoxLaunchArgs(directory, options),
-      { stdio: ["ignore", "pipe", "pipe"] },
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          ...(options.allowSystemAccess ? { MOZ_REMOTE_ALLOW_SYSTEM_ACCESS: "1" } : {}),
+        },
+      },
     );
     const exited = new Promise<void>((resolve) => {
       if (child.exitCode !== null || child.signalCode !== null) resolve();
