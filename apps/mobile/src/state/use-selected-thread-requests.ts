@@ -320,12 +320,29 @@ export function useSelectedThreadRequests() {
     return result;
   };
 
-  const onSubmitUserInput = async () => {
+  const onSubmitUserInput = async (customAnswer?: { questionId: string; text: string }) => {
+    if (customAnswer && activePendingUserInput) {
+      onChangeUserInputCustomAnswer(
+        activePendingUserInput.requestId,
+        customAnswer.questionId,
+        customAnswer.text,
+      );
+    }
+    const answers =
+      activePendingUserInput && customAnswer
+        ? buildPendingUserInputAnswers(activePendingUserInput.questions, {
+            ...activePendingUserInputDrafts,
+            [customAnswer.questionId]: {
+              ...activePendingUserInputDrafts[customAnswer.questionId],
+              customAnswer: customAnswer.text,
+            },
+          })
+        : activePendingUserInputAnswers;
     if (
       !selectedThreadShell ||
       !activePendingUserInput ||
       activePendingUserInput.responseCapability === "not_resumable" ||
-      !activePendingUserInputAnswers ||
+      !answers ||
       !readEnvironmentScope(selectedThreadShell.environmentId, AuthOrchestrationOperateScope)
     ) {
       return;
@@ -383,7 +400,7 @@ export function useSelectedThreadRequests() {
       input: {
         threadId: selectedThreadShell.id,
         requestId: activePendingUserInput.requestId,
-        answers: activePendingUserInputAnswers,
+        answers,
         ...(attachmentsByQuestionId.size > 0
           ? { attachmentsByQuestionId: Object.fromEntries(attachmentsByQuestionId) }
           : {}),

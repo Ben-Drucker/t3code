@@ -46,6 +46,7 @@ export interface PendingUserInputCardProps {
   readonly maxHeight: DerivedValue<number>;
   readonly collapsed: boolean;
   readonly onToggleCollapsed: () => void;
+  readonly onCustomAnswer?: (questionId: string) => void;
   readonly onStopThread?: () => void;
   readonly cardProgress: SharedValue<number>;
   readonly cardCoverage: SharedValue<number>;
@@ -318,6 +319,14 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
                     </Pressable>
                   );
                 })}
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={responseDisabled || !props.canOperateThread}
+                  className="min-h-12 justify-center rounded-2xl border border-border bg-input px-3.5 py-3"
+                  onPress={() => props.onCustomAnswer?.(question.id)}
+                >
+                  <Text className="text-sm text-foreground-secondary">Custom answer</Text>
+                </Pressable>
               </View>
               {question.allowCustomAnswer !== false ? (
                 <QuestionAttachments

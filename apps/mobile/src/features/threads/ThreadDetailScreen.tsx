@@ -322,7 +322,10 @@ export interface ThreadDetailScreenProps {
     questionId: string,
     customAnswer: string,
   ) => void;
-  readonly onSubmitUserInput: () => Promise<unknown>;
+  readonly onSubmitUserInput: (customAnswer?: {
+    questionId: string;
+    text: string;
+  }) => Promise<unknown>;
   readonly onDismissUserInput: () => Promise<unknown>;
   readonly showContent?: boolean;
 }
@@ -512,6 +515,13 @@ function ThreadDetailBody(
   const agentsSegment = resolveSubagentPillSegment(turnSubagents);
   const defaultComposerEditorRef = useRef<ComposerEditorHandle>(null);
   const composerEditorRef = props.draftMode?.editorRef ?? defaultComposerEditorRef;
+  const [customAnswerTarget, setCustomAnswerTarget] = useState<{
+    requestId: RuntimeRequestId;
+    questionId: string;
+  } | null>(null);
+  const editingCustomAnswer =
+    customAnswerTarget !== null &&
+    customAnswerTarget.requestId === props.activePendingUserInput?.requestId;
   const isProviderSubagent = isProviderNativeSubagentThread(props.selectedThread.source);
   const editingRunId = props.queuedRunEdit?.runId ?? null;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- focuses the composer editor on the next animation frame when a queued run edit starts
@@ -1190,6 +1200,10 @@ function ThreadDetailBody(
       return;
     }
     if (userInputCollapsed) {
+      if (editingCustomAnswer) {
+        setCustomAnswerTarget(null);
+        props.onChangeDraftMessage("");
+      }
       setUserInputToggle({ requestId: activeUserInputRequestId, collapsed: false });
     } else {
       Keyboard.dismiss();
@@ -1268,6 +1282,32 @@ function ThreadDetailBody(
     stillSendable?: () => boolean,
   ) => {
     const scope = threadScope.current.signal;
+    if (editingCustomAnswer) {
+      if (customAnswerTarget === null || scope.aborted || stillSendable?.() === false) return null;
+      const draft = getComposerDraftSnapshot(props.composerDraftKey ?? selectedThreadKey);
+      if (draft.attachments.length > 0 || draft.context) {
+        Dialog.alert("Answer attachments", "Add attachments in the question card.");
+        return null;
+      }
+      const result = await props.onSubmitUserInput({
+        questionId: customAnswerTarget.questionId,
+        text: draft.text,
+      });
+      if (
+        scope.aborted ||
+        getComposerDraftSnapshot(props.composerDraftKey ?? selectedThreadKey).text !== draft.text
+      )
+        return null;
+      if (result && typeof result === "object" && "_tag" in result && result._tag === "Success") {
+        props.onChangeDraftMessage("");
+        setCustomAnswerTarget(null);
+      } else if (props.activePendingUserInput) {
+        props.onChangeDraftMessage("");
+        setCustomAnswerTarget(null);
+        setUserInputToggle({ requestId: props.activePendingUserInput.requestId, collapsed: false });
+      }
+      return null;
+    }
     const targetThreadKey = selectedThreadKey;
     const hasUserMessage = selectedThreadFeed.some(
       (entry) => entry.type === "message" && entry.message.role === "user",
@@ -1800,6 +1840,29 @@ function ThreadDetailBody(
                             maxHeight={pendingUserInputMaxHeight}
                             collapsed={userInputCollapsed}
                             onToggleCollapsed={handleToggleUserInputCollapsed}
+                            onCustomAnswer={(questionId) => {
+                              const draft = getComposerDraftSnapshot(
+                                props.composerDraftKey ?? selectedThreadKey,
+                              );
+                              if (
+                                (!editingCustomAnswer && draft.text.trim()) ||
+                                draft.attachments.length > 0 ||
+                                draft.context
+                              ) {
+                                Dialog.alert(
+                                  "Current draft",
+                                  "Send or clear your draft before writing a custom answer.",
+                                );
+                                return;
+                              }
+                              const requestId = props.activePendingUserInput!.requestId;
+                              setCustomAnswerTarget({ requestId, questionId });
+                              props.onChangeDraftMessage(
+                                props.activePendingUserInputDrafts[questionId]?.customAnswer ?? "",
+                              );
+                              setUserInputToggle({ requestId, collapsed: true });
+                              composerEditorRef.current?.focus();
+                            }}
                             onStopThread={props.onStopThread}
                             cardProgress={userInputCardProgress}
                             cardCoverage={userInputCardCoverage}
@@ -1867,11 +1930,13 @@ function ThreadDetailBody(
                         reportedModelSelection={reportedModelSelection}
                         editorRef={composerEditorRef}
                         placeholder={
-                          props.activePendingApproval
-                            ? props.activePendingApproval.supportsFeedback
-                              ? "Send feedback to decline this request"
-                              : "Send a message to decline and redirect the agent"
-                            : "Ask anything"
+                          editingCustomAnswer
+                            ? "Write a custom answer"
+                            : props.activePendingApproval
+                              ? props.activePendingApproval.supportsFeedback
+                                ? "Send feedback to decline this request"
+                                : "Send a message to decline and redirect the agent"
+                              : "Ask anything"
                         }
                         contentMaxWidth={contentMaxWidth}
                         draftControls={props.draftMode?.controls(draftViewportHeight)}
@@ -1929,7 +1994,16 @@ function ThreadDetailBody(
                               }
                         }
                         bottomInset={composerBottomInset}
-                        onChangeDraftMessage={props.onChangeDraftMessage}
+                        onChangeDraftMessage={(text) => {
+                          props.onChangeDraftMessage(text);
+                          if (editingCustomAnswer && customAnswerTarget) {
+                            props.onChangeUserInputCustomAnswer(
+                              customAnswerTarget.requestId,
+                              customAnswerTarget.questionId,
+                              text,
+                            );
+                          }
+                        }}
                         onPickDraftMedia={props.onPickDraftMedia}
                         onPickDraftFiles={props.onPickDraftFiles}
                         onNativePasteImages={props.onNativePasteImages}
