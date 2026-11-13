@@ -746,6 +746,7 @@ export class FirefoxBrowser implements ServerBrowserBackend {
             .command("WebDriver:SwitchToWindow", { handle: tab.handle, focus: false })
             .then(() => this.connection.command("WebDriver:CloseWindow"))
             .catch(() => undefined);
+          await this.options.closed?.(tab);
         }
         throw cause;
       }
@@ -804,6 +805,7 @@ export class FirefoxBrowser implements ServerBrowserBackend {
       case "close":
         await this.connection.command("WebDriver:CloseWindow");
         this.tabs.delete(tab.tabId);
+        this.visibleTabs.delete(tab.tabId);
         await this.options.closed?.(tab);
         return {};
       case "autofill":
@@ -1140,6 +1142,7 @@ export class FirefoxBrowser implements ServerBrowserBackend {
       const tab = this.tabs.get(tabId);
       if (!tab) return;
       this.tabs.delete(tabId);
+      this.visibleTabs.delete(tabId);
       await this.connection
         .command("WebDriver:SwitchToWindow", { handle: tab.handle, focus: false })
         .then(() => this.connection.command("WebDriver:CloseWindow"))
@@ -1165,6 +1168,7 @@ export class FirefoxBrowser implements ServerBrowserBackend {
             .catch(() => undefined);
       }
       this.tabs.clear();
+      this.visibleTabs.clear();
       await this.bidi?.command("session.end", {}).catch(() => undefined);
       this.bidi?.close();
     });
