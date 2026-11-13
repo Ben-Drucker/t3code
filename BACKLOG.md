@@ -2,6 +2,7 @@
 
 Keep unfinished items here. Once a feature, fix, or change is completed, move it to MINE_DIVERGENCE_LOG.md and remove its corresponding backlog entry only with evidence of completion.
 
+- Model-chip regression: inserting a model through `%` no longer includes the selected settings in its `%[model: …]` token. Preserve the selected reasoning effort, service tier, context limit, and compaction buffer. Reported example: `%[model: codex/gpt-6.1-sol, reasoningEffort=medium, serviceTier=priority, contextLimit=default, compactBuffer=default]`; accompanying screenshot shows Medium, 400K context, and 10% free compaction buffer.
 - Mini QQ: a global hotkey (opt+opt, plus a reliable chord such as Opt+Space as the fallback) opens a small floating window with an exact copy of the composer, QQ on by default. The answer streams into a stripped-down sheet above it. Esc or the hotkey again dismisses it.
   - Starts in the "No project" option. Each question is a normal saved thread, hidden from the sidebar, with an "Open in T3" action.
   - Reopening within 10 minutes (timer starts at the hotkey press) keeps the previous conversation. After that, or on Cmd+N, it starts a fresh "No project" session.
@@ -9,6 +10,7 @@ Keep unfinished items here. Once a feature, fix, or change is completed, move it
   - Riskiest part, test first: taking keyboard focus over a full-screen app without switching Spaces (non-activating panel window). opt+opt needs Accessibility permission and goes dead during macOS secure input (password fields), so keep the chord as the fallback.
   - Other pitfalls: the two windows share draft storage and would overwrite each other (use a separate key), and keep a warm provider session so the first answer is not slow.
   - Estimate: MVP 3-4 days, polished 7-10 days.
+- Fix `/qq` on the Kimi harness: it answers "Unknown ACP command: /qq. Use /help to see available commands." (screenshot: attachment 4bbfbc05-8177-4a3b-b6b7-df38844723d0-80938358-c49b-47bf-9a5b-71f665df0bc8).
 - OpenCode models ignore the chosen context window unevenly: some (e.g. Haiku) respect it, others (Gemini 4 Carbon via the API, the 1.05M-context kind, not Antigravity) do not. Find out why.
 - Quick explainer (mermaid diagram): how device connect works through a private server, how it reaches the phone, and whether/how the iOS version code needs to change. Ben has a paid Apple developer account ($99/yr).
 - Investigate only: how dictation works or doesn't in T3. Do providers such as Claude Code (subscription) offer it over ACP or their SDKs? What about small free local models?
