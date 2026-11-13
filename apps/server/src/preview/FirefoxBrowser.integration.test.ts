@@ -311,7 +311,10 @@ firefoxTest(
   () =>
     Effect.gen(function* () {
       const fixture = yield* Effect.acquireDisposable(Effect.promise(harness));
-      const running = yield* FirefoxProcess.launch({ executable: executable! });
+      const running = yield* FirefoxProcess.launch({
+        executable: executable!,
+        allowSystemAccess: true,
+      });
       const broker = yield* Broker.PreviewAutomationBroker;
       const connected = yield* Deferred.make<void>();
       const docks = yield* Queue.unbounded<{ threadId: string; tabId: string; pid: number }>();
