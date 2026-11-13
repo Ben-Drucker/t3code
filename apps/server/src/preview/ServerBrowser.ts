@@ -564,7 +564,7 @@ const make = Effect.gen(function* () {
       );
       return snapshot.tabId;
     },
-    opened: (key, pid) => runPromise(desktopChannel.dock(key, pid)),
+    opened: (key, pid, titleMarker) => runPromise(desktopChannel.dock(key, pid, titleMarker)),
     reveal: (key, force) =>
       runPromise(
         manager.requestReveal({ threadId: ThreadId.make(key.threadId), tabId: key.tabId, force }),

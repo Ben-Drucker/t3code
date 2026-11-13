@@ -116,7 +116,7 @@ export class WindowDockController {
     );
   }
 
-  async dock(key: DockKey, pid: number): Promise<void> {
+  async dock(key: DockKey, pid: number, titleMarker?: string): Promise<void> {
     if (this.docks.get(idOf(key))?.pid === pid) return;
     const { helper } = this.deps;
     const trusted = await helper.checkTrusted(false);
@@ -129,7 +129,14 @@ export class WindowDockController {
     for (let attempt = 0; attempt < FIND_ATTEMPTS && !selected; attempt++) {
       if (attempt > 0) await sleep(FIND_DELAY_MS);
       const reply = await helper.find(pid);
-      selected = selectOwnedWindow(reply.windows, pid, existingPidState?.windowId ?? null);
+      const candidates =
+        titleMarker === undefined
+          ? reply.windows
+          : reply.windows.filter((candidate) => candidate.title?.startsWith(titleMarker));
+      selected =
+        titleMarker !== undefined && candidates.length !== 1
+          ? null
+          : selectOwnedWindow(candidates, pid, existingPidState?.windowId ?? null);
     }
     if (!selected) return this.deps.emit({ type: "failed", key, reason: "no-window" });
     const id = idOf(key);

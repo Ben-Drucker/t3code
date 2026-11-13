@@ -47,7 +47,12 @@ export const DesktopBrowserCommand = Schema.Union([
     y: Schema.Finite,
   }),
   /** Browser process `pid` owns the window that should follow this tab's preview panel. */
-  Schema.Struct({ type: Schema.Literal("dock"), ...TabKey, pid: Schema.Int }),
+  Schema.Struct({
+    type: Schema.Literal("dock"),
+    ...TabKey,
+    pid: Schema.Int,
+    titleMarker: Schema.optional(Schema.String),
+  }),
   Schema.Struct({ type: Schema.Literal("undock"), ...TabKey }),
   /** Whether an agent turn runs on the thread, so the tabs it uses stay focused between steps. */
   Schema.Struct({

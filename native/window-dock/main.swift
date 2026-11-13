@@ -151,6 +151,7 @@ func candidateWindows(pid: pid_t) -> (windows: [[String: Any]], firstElement: AX
     }
     list.append([
       "windowId": wid,
+      "title": stringAttr(element, kAXTitleAttribute as String) ?? "",
       "pid": Int(pid),
       "standard": standard,
       "minimized": minimized,

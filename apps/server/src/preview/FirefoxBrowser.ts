@@ -115,10 +115,7 @@ export class FirefoxBrowser implements ServerBrowserBackend {
   readonly connection: MarionetteConnection;
   readonly options: {
     readonly bidiPort?: number;
-    /**
-     * PID of the isolated Firefox child T3 itself launched (`--no-remote` + dedicated profile).
-     * Never set for attached user Firefox instances, so T3 never docks or moves personal windows.
-     */
+    /** Browser PID; attached instances require a unique window title marker before docking. */
     readonly ownedProcessId?: number | undefined;
     /** True when Firefox was started specifically for T3 and its initial blank window belongs to T3. */
     readonly reuseInitialWindow?: boolean | undefined;
@@ -126,7 +123,11 @@ export class FirefoxBrowser implements ServerBrowserBackend {
     readonly autofill?: Omit<AutofillOptions, "click"> & Partial<Pick<AutofillOptions, "click">>;
     readonly docked?: () => boolean;
     readonly allocateTab?: (request: PreviewAutomationRequest) => Promise<string>;
-    readonly opened?: (key: { threadId: string; tabId: string }, pid: number) => Promise<void>;
+    readonly opened?: (
+      key: { threadId: string; tabId: string },
+      pid: number,
+      titleMarker?: string,
+    ) => Promise<void>;
     readonly reveal?: (key: { threadId: string; tabId: string }, force: boolean) => Promise<void>;
     readonly closed?: (key: { threadId: string; tabId: string }) => Promise<void>;
     readonly status?: (
@@ -143,9 +144,12 @@ export class FirefoxBrowser implements ServerBrowserBackend {
     return [...this.tabs.values()].map(({ threadId, tabId }) => ({
       threadId,
       tabId,
-      visible: false,
+      visible: this.visibleTabs.has(tabId),
     }));
   }
+
+  private readonly visibleTabs = new Set<string>();
+  private readonly windowMarker = `T3 Preview ${NodeCrypto.randomUUID()} `;
 
   private serial<A>(run: () => Promise<A>) {
     const pending = this.queue.then(run);
@@ -441,7 +445,7 @@ export class FirefoxBrowser implements ServerBrowserBackend {
           url: tab.url,
           owner: "agent" as const,
           ownedByCaller: tab.owner === request.agentSessionId,
-          visible: false,
+          visible: this.visibleTabs.has(tab.tabId),
           profileId: "firefox",
         })),
     });
@@ -487,7 +491,7 @@ export class FirefoxBrowser implements ServerBrowserBackend {
     return {
       ...common(),
       available: true,
-      visible: false,
+      visible: this.visibleTabs.has(tab.tabId),
       tabId: tab.tabId,
       url: tab.url,
       title: tab.title,
@@ -709,12 +713,26 @@ export class FirefoxBrowser implements ServerBrowserBackend {
       try {
         await this.switchTo(tab);
         const dockPid = this.options.ownedProcessId;
-        if (created && this.options.docked?.() && dockPid !== undefined)
-          await this.options.opened?.(tab, dockPid);
         const reveal = input.open ?? input.show;
+        if (reveal !== false && this.options.docked?.() && dockPid !== undefined) {
+          await this.connection.command("Marionette:SetContext", { value: "chrome" });
+          try {
+            await this.script(
+              "document.documentElement.setAttribute('titlepreface', arguments[0]); window.gBrowser.updateTitlebar();",
+              [this.windowMarker],
+              false,
+              false,
+            );
+          } finally {
+            await this.connection.command("Marionette:SetContext", { value: "content" });
+          }
+          await this.options.opened?.(tab, dockPid, this.windowMarker);
+          this.visibleTabs.add(tab.tabId);
+        }
         // New tabs allocated through `allocateTab` or `openManaged` already opened the panel once;
         // revealing again after `opened` would reopen the panel that docking just closed.
-        if (!created && reveal !== false) await this.options.reveal?.(tab, reveal === true);
+        if (!created && reveal !== false && !this.options.docked?.())
+          await this.options.reveal?.(tab, reveal === true);
         if (input.url) await this.navigate(tab, { url: input.url }, request.timeoutMs);
         return await this.status(tab, request);
       } catch (cause) {

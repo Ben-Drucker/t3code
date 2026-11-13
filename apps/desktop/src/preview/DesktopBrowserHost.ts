@@ -43,7 +43,12 @@ export interface DesktopBrowserTabDebugger {
 }
 
 export type DockCommand =
-  | { readonly type: "dock"; readonly key: DesktopBrowserTabKey; readonly pid: number }
+  | {
+      readonly type: "dock";
+      readonly key: DesktopBrowserTabKey;
+      readonly pid: number;
+      readonly titleMarker?: string;
+    }
   | { readonly type: "undock"; readonly key: DesktopBrowserTabKey };
 
 const keyOf = ({ threadId, tabId }: DesktopBrowserTabKey) => `${threadId}\u0000${tabId}`;
@@ -562,7 +567,14 @@ export const make = Effect.gen(function* () {
         const key = { threadId, tabId };
         const dockCommand: DockCommand =
           command.value.type === "dock"
-            ? { type: "dock", key, pid: command.value.pid }
+            ? {
+                type: "dock",
+                key,
+                pid: command.value.pid,
+                ...(command.value.titleMarker === undefined
+                  ? {}
+                  : { titleMarker: command.value.titleMarker }),
+              }
             : { type: "undock", key };
         runFork(PubSub.publish(dockCommands, dockCommand));
         return;

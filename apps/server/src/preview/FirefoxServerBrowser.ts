@@ -77,8 +77,8 @@ export const resolveFirefoxLaunchPlan = (input: {
     throw new Error("T3CODE_FIREFOX_PORT must be an integer from 1 to 65535.");
   }
   const rawMode = env.T3CODE_FIREFOX_MODE;
-  if (rawMode !== undefined && rawMode !== "attach" && rawMode !== "launch") {
-    throw new Error("T3CODE_FIREFOX_MODE must be attach or launch.");
+  if (rawMode !== undefined && !["attach", "launch", "isolated"].includes(rawMode)) {
+    throw new Error("T3CODE_FIREFOX_MODE must be attach, launch, or isolated.");
   }
   const executable = resolveFirefoxExecutable(env, platform);
   if (rawMode === "launch") {
@@ -91,20 +91,12 @@ export const resolveFirefoxLaunchPlan = (input: {
       allowSystemAccess: platform === "darwin",
     };
   }
-  if (rawMode === "attach" || (rawMode === undefined && env.T3CODE_SERVER_BROWSER === "firefox")) {
+  if (rawMode !== "isolated") {
     return {
       kind: "attach",
       port: configuredPort,
       bidiPort,
-      allowDocking: false,
-    };
-  }
-  if (env.T3CODE_FIREFOX_PORT !== undefined) {
-    return {
-      kind: "attach",
-      port: configuredPort,
-      bidiPort,
-      allowDocking: configuredPort !== 2828,
+      allowDocking: true,
     };
   }
   return {
@@ -285,25 +277,14 @@ export const makeBrowser = Effect.fn("FirefoxServerBrowser.makeBrowser")(functio
   }
 
   const connection = yield* client.connection({ port: plan.port });
-  const { opened: originalOpened, ...restBrowserOptions } = browserOptions;
   const browser = new FirefoxBrowser(connection, {
-    ...restBrowserOptions,
+    ...browserOptions,
     ...(plan.bidiPort === undefined ? {} : { bidiPort: plan.bidiPort }),
     autofill: { supported: platform === "darwin" },
-    ...(plan.allowDocking && originalOpened ? { opened: originalOpened } : {}),
+    get ownedProcessId() {
+      return connection.processId;
+    },
   });
-  if (plan.allowDocking) {
-    // Test fixture on a dedicated ephemeral port: forward the test-launched Firefox process ID once connected.
-    Object.assign(browser, {
-      options: {
-        ...browser.options,
-        get ownedProcessId() {
-          return connection.processId;
-        },
-        ...(originalOpened ? { opened: originalOpened } : {}),
-      },
-    });
-  }
   return yield* Effect.acquireRelease(Effect.succeed(browser), (instance) =>
     Effect.promise(() => instance.close()),
   );

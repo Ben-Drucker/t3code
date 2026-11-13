@@ -10,6 +10,7 @@ export type ScreenRect = typeof ScreenRect.Type;
 
 export const WindowDockCandidateWindow = Schema.Struct({
   windowId: Schema.Number,
+  title: Schema.optional(Schema.String),
   pid: Schema.Number,
   standard: Schema.Boolean,
   minimized: Schema.Boolean,

@@ -8,7 +8,6 @@ import * as NodePath from "node:path";
 import { FirefoxBrowser } from "./FirefoxBrowser.ts";
 import {
   buildFirefoxLaunchArgs,
-  DOCKED_FIREFOX_PROFILE_NAME,
   parseFirefoxLockTarget,
   readFirefoxProfileOwnerPid,
 } from "./FirefoxProcess.ts";
@@ -62,18 +61,17 @@ function fakeMarionette(initialHandles: string[] = ["initial-window"]) {
   return { connection, commands, handles };
 }
 
-it("launches docked Firefox in an isolated --no-remote profile instead of attaching to port 2828", () => {
+it("attaches docked Firefox to the personal profile by default", () => {
   const plan = resolveFirefoxLaunchPlan({
     env: {},
     platform: "darwin",
     profilesDir: "/tmp/t3-profiles",
   });
   assert.deepStrictEqual(plan, {
-    kind: "lazy-isolated",
-    executable: "/Applications/Firefox.app/Contents/MacOS/firefox",
-    profileDir: `/tmp/t3-profiles/${DOCKED_FIREFOX_PROFILE_NAME}`,
+    kind: "attach",
+    port: 2828,
     bidiPort: undefined,
-    allowSystemAccess: true,
+    allowDocking: true,
   });
 
   const args = buildFirefoxLaunchArgs("/tmp/t3-profiles/firefox-docked", {
@@ -87,13 +85,12 @@ it("launches docked Firefox in an isolated --no-remote profile instead of attach
   assert.include(args, "--remote-allow-system-access");
   assert.notInclude(args, "--headless");
 
-  // Explicit attach mode never allows docking an unowned user Firefox process.
   const attached = resolveFirefoxLaunchPlan({
     env: { T3CODE_FIREFOX_MODE: "attach" },
     platform: "darwin",
   });
   assert.strictEqual(attached.kind, "attach");
-  if (attached.kind === "attach") assert.isFalse(attached.allowDocking);
+  if (attached.kind === "attach") assert.isTrue(attached.allowDocking);
 });
 
 it("parses Firefox profile lock symlinks", async () => {
@@ -110,7 +107,7 @@ it("parses Firefox profile lock symlinks", async () => {
   }
 });
 
-it("reuses T3's owned initial window, docks only ownedProcessId, and never docks an attached Firefox", async () => {
+it("reuses an isolated initial window and docks a dedicated marked window in personal Firefox", async () => {
   const marionette = fakeMarionette(["owned-initial"]);
   // Prime connection as disconnected first so `connected()` captures `originalHandle`.
   (marionette.connection as { connected: boolean }).connected = false;
@@ -150,6 +147,7 @@ it("reuses T3's owned initial window, docks only ownedProcessId, and never docks
   const personal = fakeMarionette(["personal-window"]);
   const personalDocked: number[] = [];
   const attachedBrowser = new FirefoxBrowser(personal.connection, {
+    ownedProcessId: 9999,
     docked: () => true,
     allocateTab: async () => "tab-personal",
     opened: async (_key, pid) => {
@@ -164,5 +162,16 @@ it("reuses T3's owned initial window, docks only ownedProcessId, and never docks
     input: {},
     timeoutMs: 5_000,
   });
-  assert.deepStrictEqual(personalDocked, []);
+  assert.deepStrictEqual(personalDocked, [9999]);
+  assert.deepStrictEqual(personal.commands.find((c) => c.name === "WebDriver:NewWindow")?.params, {
+    type: "window",
+    focus: false,
+  });
+  assert.isTrue(
+    personal.commands.some(
+      (c) =>
+        c.name === "WebDriver:ExecuteScript" && String(c.params.script).includes("titlepreface"),
+    ),
+  );
+  assert.isTrue(attachedBrowser.liveTabs[0]?.visible);
 });

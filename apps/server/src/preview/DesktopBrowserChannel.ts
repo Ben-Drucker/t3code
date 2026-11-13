@@ -63,7 +63,7 @@ export class DesktopBrowserChannel extends Context.Service<
       pointer: { readonly phase: "move" | "click"; readonly x: number; readonly y: number },
     ) => Effect.Effect<void>;
     /** Asks the desktop to glue the window of Chrome process `pid` to the tab's preview panel. */
-    readonly dock: (key: DesktopTabKey, pid: number) => Effect.Effect<void>;
+    readonly dock: (key: DesktopTabKey, pid: number, titleMarker?: string) => Effect.Effect<void>;
     readonly undock: (key: DesktopTabKey) => Effect.Effect<void>;
     /** The user closed the docked window, or the desktop could not dock it. */
     readonly dockChanges: Stream.Stream<DockChange>;
@@ -279,8 +279,13 @@ const make = Effect.gen(function* () {
     }),
     isShown: (key) => shownTabs.get(keyOf(key)) ?? true,
     loadFailure: (key) => loadFailures.get(keyOf(key)),
-    dock: Effect.fn("DesktopBrowserChannel.dock")(function (key, pid) {
-      return command({ type: "dock", ...key, pid });
+    dock: Effect.fn("DesktopBrowserChannel.dock")(function (key, pid, titleMarker) {
+      return command({
+        type: "dock",
+        ...key,
+        pid,
+        ...(titleMarker === undefined ? {} : { titleMarker }),
+      });
     }),
     undock: Effect.fn("DesktopBrowserChannel.undock")(function (key) {
       return command({ type: "undock", ...key });

@@ -178,7 +178,8 @@ export const layer = Layer.effect(
             return;
           }
           await runPromise(refreshMain);
-          if (command.type === "dock") await docks.dock(command.key, command.pid);
+          if (command.type === "dock")
+            await docks.dock(command.key, command.pid, command.titleMarker);
           else docks.undock(command.key);
         }),
       ),
