@@ -2,6 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   collectComposerInlineTokens,
+  composerQuickQuestionTokens,
+  toggleComposerQuickQuestion,
   composerMathRanges,
   formatAgentConfigChip,
   formatAgentToolChip,
@@ -11,6 +13,15 @@ import {
 import { serializeComposerFileLink } from "./composerTrigger.ts";
 
 describe("collectComposerInlineTokens", () => {
+  it("toggles quick question tokens without changing surrounding text or similarly named skills", () => {
+    expect(toggleComposerQuickQuestion("Ask $qq about /qq-more")).toBe(
+      "/qq Ask $qq about /qq-more",
+    );
+    expect(toggleComposerQuickQuestion("/qq Ask /qq now")).toBe("Ask now");
+    expect(toggleComposerQuickQuestion("/qq")).toBe("");
+    expect(composerQuickQuestionTokens("Ask /qq")).toHaveLength(1);
+    expect(composerQuickQuestionTokens("Use $qq")).toHaveLength(0);
+  });
   it("round-trips an agent configuration chip through its readable form", () => {
     const chip = formatAgentConfigChip({
       instanceId: "claudeAgent",

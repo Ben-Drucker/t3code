@@ -203,6 +203,23 @@ export function composerMathRanges(
 
 const SLASH_QQ_TOKEN_REGEX = /(^|\s)\/(qq)(?=\s)/g;
 
+export function composerQuickQuestionTokens(text: string) {
+  return collectComposerInlineTokens(`${text} `).filter(
+    (token) => token.type === "skill" && token.value === "qq" && token.source === "/qq",
+  );
+}
+
+export function toggleComposerQuickQuestion(text: string): string {
+  const tokens = composerQuickQuestionTokens(text);
+  if (tokens.length === 0) return `/qq ${text}`;
+  let value = text;
+  for (const token of [...tokens].reverse()) {
+    const end = token.end + (value[token.end] === " " ? 1 : 0);
+    value = value.slice(0, token.start) + value.slice(end);
+  }
+  return value;
+}
+
 export function collectComposerInlineTokens(
   text: string,
   options: CollectComposerInlineTokensOptions = {},

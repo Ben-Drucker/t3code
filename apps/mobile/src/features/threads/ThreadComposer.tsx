@@ -109,6 +109,11 @@ import { useComposerCommandMenu } from "./use-composer-command-menu";
 import type { ComposerEnvironmentCandidate } from "@t3tools/client-runtime/composerThreadItems";
 import { offersLinkedEnvironments } from "@t3tools/client-runtime/link-request";
 import {
+  composerQuickQuestionTokens,
+  toggleComposerQuickQuestion,
+} from "@t3tools/shared/composerInlineTokens";
+import { ComposerInlineControl } from "../../components/ComposerToolbar";
+import {
   ComposerDictationCancelAction,
   ComposerDictationDraftContent,
   ComposerDictationError,
@@ -491,6 +496,19 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     draftAttachments.length > 0 ||
     (queuedEdit?.existingAttachments.length ?? 0) > 0;
   const stripAttachments = composerStripAttachments(draftAttachments);
+  const quickQuestionControl = (
+    <ComposerInlineControl
+      label="QQ"
+      accessibilityLabel="Quick question"
+      selected={composerQuickQuestionTokens(draftMessage).length > 0}
+      disabled={!props.canOperateThread || props.interactionLocked}
+      showChevron={false}
+      onPress={() => {
+        props.onChangeDraftMessage(toggleComposerQuickQuestion(draftMessage));
+        inputRef.current?.focus();
+      }}
+    />
+  );
   const showStopAction = !hasContent && props.canStopThread && queuedEdit === null;
   const onResumeQueue = props.onResumeQueue;
   const [resumingQueue, setResumingQueue] = useState(false);
@@ -1127,6 +1145,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 }
               >
                 {modelControl}
+                {quickQuestionControl}
                 <ComposerDictationStartAction
                   size={usesLargeControls ? "large" : "regular"}
                   state={voiceInput.state}
