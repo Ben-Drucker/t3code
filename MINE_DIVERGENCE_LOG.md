@@ -12,6 +12,8 @@ BACKLOG.md holds unfinished items. Once a feature, fix, or change is completed, 
 
 ### Composer and conversation tools
 
+- **Working composer tracer.** Running and connecting turns outline the composer, with two opacity passes on arrival and a persistent quiet border afterward; reduced motion stays static. Areas: `ChatComposer.tsx`, `index.css`. Real-client appearance remains for Ben to test.
+
 - **Model references in prompts.** The `%` menu opens a provider/model picker and inserts a `%[model: …]` reference, with shared parsing and readable rendering in the editor, user messages, assistant messages, and plain-text previews. Areas: `ChatComposer.tsx`, `ComposerCommandMenu.tsx`, `AgentConfigChip.tsx`, `agentConfigChipModel.ts`, `SkillInlineText.tsx`, `packages/shared/src/composerInlineTokens.ts`; history: `4ca2823e19`, `1c59e97fed`, `163db590d9` (the selected-option insertion regression is tracked in BACKLOG.md).
 - **Tool references in prompts.** The `%` menu also inserts tool references grouped by source, including T3 tools, provider transcript tools, and configured MCP servers with probe status. Areas: `apps/server/src/composerTools/`, MCP registration, `agentToolMenu.ts`, composer menu hooks, `packages/contracts/src/composerTools.ts`, RPC authorization and client-runtime atoms; history: `af5a7899b0`, `1c59e97fed`.
 - **Focused model/tool search.** Opening `%` focuses a detached search field; searching does not put the trigger or query into the prompt, and dismissal restores the editor cursor. Areas: `ChatComposer.tsx`, `ComposerCommandMenuLayer.tsx`, `ComposerCommandMenu.tsx`; history: `b534254cba`.

@@ -3690,7 +3690,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             <ComposerSurface.Main
               ref={composerMainSurfaceRef}
               data-inline-resting-controls="true"
-              className={composerProviderState.composerFrameClassName}
+              className={cn(
+                composerProviderState.composerFrameClassName,
+                (phase === "running" || phase === "connecting") && "composer-working-frame",
+              )}
             >
               <div
                 ref={composerSurfaceRef}

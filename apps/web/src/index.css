@@ -2347,6 +2347,33 @@ code {
   color: var(--code-foreground) !important;
 }
 
+.composer-working-frame {
+  position: relative;
+}
+
+.composer-working-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--primary);
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0.45;
+  animation: composer-working-arrival 1.2s ease-out 2;
+}
+
+@keyframes composer-working-arrival {
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-working-frame::after {
+    animation: none;
+  }
+}
+
 .ultrathink-frame {
   --ultrathink-spectrum: linear-gradient(
     120deg,
