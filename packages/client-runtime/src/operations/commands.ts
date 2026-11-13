@@ -199,6 +199,7 @@ export interface StartThreadTurnInput extends ThreadCommandInput {
 }
 
 export interface InterruptThreadTurnInput extends ThreadCommandInput {
+  readonly parentOnly?: boolean;
   readonly runId?: RunId;
   readonly subagentId?: NodeId;
   readonly turnId?: string;
@@ -885,7 +886,7 @@ export const interruptThreadTurn = Effect.fn("EnvironmentCommands.interruptThrea
     threadId === input.threadId ? (input.runId ?? (input.turnId as RunId | undefined)) : undefined;
   if (runId === undefined) {
     const config = yield* getInitialServerConfig();
-    if (config.environment.capabilities.threadStop === true) {
+    if (config.environment.capabilities.threadStop === true && !input.parentOnly) {
       // A paginated projection can omit commands still running from earlier turns.
       return yield* dispatch({
         type: "thread.stop",
@@ -941,6 +942,7 @@ export const interruptThreadTurn = Effect.fn("EnvironmentCommands.interruptThrea
     threadId,
     runId,
     holdQueue: true,
+    ...(input.parentOnly ? { parentOnly: true } : {}),
   });
 });
 

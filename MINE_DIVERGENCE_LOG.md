@@ -12,6 +12,8 @@ BACKLOG.md holds unfinished items. Once a feature, fix, or change is completed, 
 
 ### Composer and conversation tools
 
+- **Parent-only Stop.** Holding Option shows Parent beside Stop and sends a parent-only interruption, preserving delegated tasks and their completion state. Areas: composer actions, `ChatView.tsx`, client commands, interruption contract and orchestrator; focused ThreadStop regression passes.
+
 - **Working composer tracer.** Running and connecting turns outline the composer, with two opacity passes on arrival and a persistent quiet border afterward; reduced motion stays static. Areas: `ChatComposer.tsx`, `index.css`. Real-client appearance remains for Ben to test.
 
 - **Model references in prompts.** The `%` menu opens a provider/model picker and inserts a `%[model: …]` reference, with shared parsing and readable rendering in the editor, user messages, assistant messages, and plain-text previews. Areas: `ChatComposer.tsx`, `ComposerCommandMenu.tsx`, `AgentConfigChip.tsx`, `agentConfigChipModel.ts`, `SkillInlineText.tsx`, `packages/shared/src/composerInlineTokens.ts`; history: `4ca2823e19`, `1c59e97fed`, `163db590d9` (the selected-option insertion regression is tracked in BACKLOG.md).

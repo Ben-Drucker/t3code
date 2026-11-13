@@ -12404,29 +12404,31 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     );
     const completionCohortRunId = completionMessage?.delegatedCompletion?.parentRunId ?? run.id;
     const stopRemainingWork = () =>
-      command.holdQueue === true
-        ? holdStoppedThread({
-            command,
-            events,
-            projection,
-            cohortRunIds: [completionCohortRunId],
-            now,
-          })
-        : Effect.gen(function* () {
-            for (const parentRunId of new Set([completionCohortRunId, run.id])) {
-              yield* disposeDelegatedCompletionCohort({
-                command,
-                events,
-                projection: yield* getProjectionWithPendingEvents(command.threadId, events),
-                parentRunId,
-                disposition: "stopped",
-                now,
-                ...(parentRunId !== run.id && completionMessage?.delegatedCompletion !== undefined
-                  ? { interruptedWakeTaskIds: completionMessage.delegatedCompletion.taskIds }
-                  : {}),
-              });
-            }
-          });
+      command.parentOnly === true
+        ? Effect.void
+        : command.holdQueue === true
+          ? holdStoppedThread({
+              command,
+              events,
+              projection,
+              cohortRunIds: [completionCohortRunId],
+              now,
+            })
+          : Effect.gen(function* () {
+              for (const parentRunId of new Set([completionCohortRunId, run.id])) {
+                yield* disposeDelegatedCompletionCohort({
+                  command,
+                  events,
+                  projection: yield* getProjectionWithPendingEvents(command.threadId, events),
+                  parentRunId,
+                  disposition: "stopped",
+                  now,
+                  ...(parentRunId !== run.id && completionMessage?.delegatedCompletion !== undefined
+                    ? { interruptedWakeTaskIds: completionMessage.delegatedCompletion.taskIds }
+                    : {}),
+                });
+              }
+            });
 
     const emitEvent = emit(events, command);
     const interruptRequestItem: OrchestrationV2TurnItem = {
@@ -14291,7 +14293,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "run.interrupt":
         cancelUnsettledEffects = yield* dispatchRunInterrupt(command, events, effects);
-        if (command.holdQueue === true) {
+        if (command.holdQueue === true && command.parentOnly !== true) {
           // Stop must still commit when a child can't be read, so a failed repair's
           // partial events are dropped.
           const repairEvents = yield* Ref.make(yield* Ref.get(events));

@@ -60,7 +60,7 @@ interface ComposerPrimaryActionsProps {
   onSubmitMessage?: MouseEventHandler<HTMLButtonElement>;
   onResume?: () => void;
   onPreviousPendingQuestion: () => void;
-  onInterrupt: () => void;
+  onInterrupt: (parentOnly?: boolean) => void;
   compactBeforeSendTokens?: number | null;
   hideCompactToggle?: boolean;
   keepFullHistory?: boolean;
@@ -162,6 +162,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
 
   const renderStopGenerationButton = (insidePendingAction: boolean) => (
     <Tooltip key="interrupt">
+      {shortcutModifiers.altKey && <span className="text-xs text-muted-foreground">Parent</span>}
       <TooltipTrigger
         render={
           <button
@@ -175,7 +176,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             onClick={() => {
               if (!canOperateThread || isStopDisabled) return;
               setStopPhase("pending");
-              onInterrupt();
+              onInterrupt(shortcutModifiers.altKey);
             }}
             aria-label={stopLabel}
           />

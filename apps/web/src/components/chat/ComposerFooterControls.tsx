@@ -227,7 +227,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   onSubmitMessage: React.MouseEventHandler<HTMLButtonElement>;
   onResume: () => void;
   onPreviousPendingQuestion: () => void;
-  onInterrupt: () => void;
+  onInterrupt: (parentOnly?: boolean) => void;
   compactBeforeSendTokens: number | null;
   hideCompactToggle: boolean;
   keepFullHistory: boolean;

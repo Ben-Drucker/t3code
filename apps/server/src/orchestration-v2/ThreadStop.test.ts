@@ -530,6 +530,39 @@ it.effect("Stop still stops the thread when a delegated child cannot be read", (
   }).pipe(Effect.provide(layerTest)),
 );
 
+it.effect("parent-only interruption leaves delegated tasks running", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const sql = yield* SqlClient.SqlClient;
+    const parentThreadId = ThreadId.make("thread:parent-only-stop");
+    yield* createWatchingThread(parentThreadId, 1);
+    yield* send(parentThreadId, "first", "start_immediately");
+    const childThreadId = yield* delegate(parentThreadId, "child task");
+    const before = yield* orchestrator.getThreadProjection(parentThreadId);
+    const childBefore = yield* threadState(childThreadId);
+    const commandId = CommandId.make("parent-only-stop");
+    yield* orchestrator.dispatch({
+      type: "run.interrupt",
+      commandId,
+      threadId: parentThreadId,
+      runId: before.runs.at(-1)!.id,
+      holdQueue: true,
+      parentOnly: true,
+    });
+    const after = yield* orchestrator.getThreadProjection(parentThreadId);
+    assert.equal(after.runs.at(-1)?.status, "interrupted");
+    assert.deepEqual(after.subagents, before.subagents);
+    assert.deepEqual(yield* threadState(childThreadId), childBefore);
+    const effects = yield* sql<{ readonly effect_type: string }>`
+      SELECT effect_type FROM orchestration_v2_effect_outbox WHERE command_id = ${commandId}
+    `;
+    assert.notInclude(
+      effects.map((row) => row.effect_type),
+      "delegated-tasks.stop",
+    );
+  }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect.each(["run.interrupt", "thread.stop"] as const)(
   "%s Stop ends watches, holds queues, and stops the delegated tasks under the thread",
   (type) =>
