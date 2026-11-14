@@ -254,6 +254,22 @@ describe("acpPerTurnPromptUsage", () => {
         outputTokens: 10,
       },
     );
+    assert.deepEqual(acpPerTurnPromptUsage(undefined, false, "completed", false, true), {
+      usageScope: "main_agent",
+      usageStatus: "unavailable",
+      hasSubagents: false,
+      localCommand: true,
+    });
+    assert.deepInclude(
+      acpPerTurnPromptUsage(
+        { inputTokens: 9, outputTokens: 0, totalTokens: 9 },
+        false,
+        "completed",
+        false,
+        true,
+      ),
+      { usageStatus: "complete", localCommand: true },
+    );
     assert.deepEqual(acpPerTurnPromptUsage(undefined, false, "completed"), {
       usageScope: "main_agent",
       usageStatus: "unavailable",

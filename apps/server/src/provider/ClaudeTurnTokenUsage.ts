@@ -129,6 +129,8 @@ export interface ClaudeTurnObservations {
   readonly rootModels?: ReadonlySet<string>;
   // Ledger growth across every result this turn consumed, including steered segments.
   readonly ledger?: ClaudeLedgerUsage | undefined;
+  // A /compact turn summarizes history; it is not a reply and must not enter throughput.
+  readonly compaction?: boolean;
 }
 
 export function normalizeClaudeTurnTokenUsage(
@@ -148,7 +150,8 @@ export function normalizeClaudeTurnTokenUsage(
     ...(observed.rootModels !== undefined && observed.rootModels.size > 0
       ? { models: [...observed.rootModels] }
       : {}),
-    ...(typeof result?.local_command === "string" && result.local_command.length > 0
+    ...((typeof result?.local_command === "string" && result.local_command.length > 0) ||
+    observed.compaction === true
       ? { localCommand: true }
       : {}),
   };

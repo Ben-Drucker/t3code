@@ -142,11 +142,16 @@ export function completeCodexTurnTokenUsage(
   turnId: string,
   completed: boolean,
   model?: string,
+  // A /compact turn summarizes history; it is not a reply and must not enter throughput.
+  compaction = false,
 ): TurnTokenUsage {
   const usage = state.byTurnId.get(turnId);
   state.byTurnId.delete(turnId);
   if (state.activeTurnId === turnId) state.activeTurnId = undefined;
-  const models = model === undefined ? {} : { models: [model] };
+  const models = {
+    ...(model === undefined ? {} : { models: [model] }),
+    ...(compaction ? { localCommand: true } : {}),
+  };
   if (!usage?.observed) {
     return {
       usageStatus: "unavailable",
