@@ -35,4 +35,53 @@ it("weights chat throughput by duration and selects the latest measured turn", (
       },
     ]),
   ).toEqual({ average: null, last: null });
+  const live = {
+    ...sample(10_000, 12_000, 40),
+    completedAt: null,
+    tokenUsage: { updatedAt: "1970-01-01T00:00:12.000Z" },
+    turnTokenUsage: { ...sample(0, 1, 40).turnTokenUsage, usageStatus: "partial" as const },
+  };
+  expect(tokenThroughput([sample(0, 1000, 10), live])).toEqual({ average: 50 / 3, last: 20 });
+  const nextStep = {
+    ...live,
+    tokenUsage: { updatedAt: "1970-01-01T00:00:14.000Z" },
+    turnTokenUsage: { ...live.turnTokenUsage, outputTokens: 120 },
+  };
+  expect(tokenThroughput([sample(0, 1000, 10), nextStep])).toEqual({ average: 26, last: 30 });
+  const finished = { ...nextStep, completedAt: DateTime.makeUnsafe(16_000) };
+  expect(tokenThroughput([sample(0, 1000, 10), finished])).toEqual({ average: 130 / 7, last: 20 });
+  expect(
+    tokenThroughput([
+      {
+        ...finished,
+        tokenUsage: { updatedAt: "1970-01-02T00:00:00.000Z" },
+      },
+    ]),
+  ).toEqual({ average: 20, last: 20 });
+  expect(
+    tokenThroughput([
+      {
+        ...live,
+        tokenUsage: undefined,
+        turnTokenUsage: { ...live.turnTokenUsage, updatedAt: "1970-01-01T00:00:12.000Z" },
+      },
+    ]),
+  ).toEqual({ average: 20, last: 20 });
+  expect(
+    tokenThroughput([
+      sample(0, 1000, 10),
+      {
+        ...nextStep,
+        turnTokenUsage: { ...nextStep.turnTokenUsage, localCommand: true },
+      },
+    ]),
+  ).toEqual({ average: 10, last: 10 });
+  expect(tokenThroughput([sample(0, 1000, 10), { ...live, turnTokenUsage: undefined }])).toEqual({
+    average: 10,
+    last: null,
+  });
+  expect(tokenThroughput([{ ...live, tokenUsage: { updatedAt: "invalid" } }])).toEqual({
+    average: null,
+    last: null,
+  });
 });

@@ -4684,6 +4684,7 @@ interface ActiveClaudeTurnContext {
     requestedAt?: DateTime.Utc;
     usage: ClaudeMessageUsage | null;
   } | null;
+  readonly liveMessageUsage: Map<string, ClaudeMessageUsage>;
   compactionTokens: number | undefined;
   readonly toolCalls: Map<string, ActiveClaudeToolCall>;
   // A successful status can precede the boundary that supplies its token counts.
@@ -5930,6 +5931,14 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           if (typeof usage !== "number") {
             if (claudeMessageInputTokens(usage) <= 0) return;
             context.compactionTokens = undefined;
+            const messageId = context.streamUsage?.messageId;
+            if (messageId !== undefined) {
+              const previous = context.liveMessageUsage.get(messageId);
+              context.liveMessageUsage.set(
+                messageId,
+                previous === undefined ? usage : mergeClaudeStreamUsage(previous, usage),
+              );
+            }
           }
           yield* emitProviderEvent({
             type: "provider_turn.updated",
@@ -5950,6 +5959,18 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               startedAt: context.startedAt,
               completedAt: null,
               tokenUsage,
+              turnTokenUsage: normalizeClaudeTurnTokenUsage(
+                undefined,
+                context.subagentsByTaskId.size > 0 || context.subagentsByToolUseId.size > 0,
+                "running",
+                [...context.steeredSegmentUsage, ...context.liveMessageUsage.values()],
+                {
+                  compaction: isCompactionCommandMessage({
+                    role: "user",
+                    ...context.input.message,
+                  }),
+                },
+              ),
               ...(context.executedModel === undefined ? {} : { model: context.executedModel }),
             },
           });
@@ -8802,7 +8823,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     input.context.subagentsByTaskId.size > 0 ||
                       input.context.subagentsByToolUseId.size > 0,
                     input.status,
-                    input.context.steeredSegmentUsage,
+                    input.result === undefined
+                      ? [
+                          ...input.context.steeredSegmentUsage,
+                          ...input.context.liveMessageUsage.values(),
+                        ]
+                      : input.context.steeredSegmentUsage,
                     {
                       rootModels: input.context.rootModels,
                       compaction: isCompactionCommandMessage({
@@ -10963,6 +10989,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 });
               }
               context.steeredSegmentUsage.push(message.usage);
+              context.liveMessageUsage.clear();
               context.steeredLedgerUsage = addClaudeLedgerUsage(
                 context.steeredLedgerUsage,
                 resultLedgerUsage.get(message),
@@ -12269,6 +12296,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 blocks: new Map(),
               },
               streamUsage: null,
+              liveMessageUsage: new Map(),
               compactionTokens: undefined,
               toolCalls: new Map(),
               compaction: null,

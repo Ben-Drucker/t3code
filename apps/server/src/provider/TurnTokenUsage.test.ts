@@ -7,6 +7,7 @@ import {
 import {
   accumulateCodexTurnTokenUsage,
   completeCodexTurnTokenUsage,
+  snapshotCodexTurnTokenUsage,
   getCodexTurnAccumulator,
   makeCodexTurnTokenUsageState,
 } from "./CodexTurnTokenUsage.ts";
@@ -31,6 +32,14 @@ describe("billable native turn usage", () => {
     const first = update(breakdown(1010, 505, 102), breakdown(10, 5, 2));
     accumulateCodexTurnTokenUsage(state, "turn", first);
     accumulateCodexTurnTokenUsage(state, "turn", first);
+    expect(snapshotCodexTurnTokenUsage(state, "turn")).toMatchObject({
+      usageStatus: "partial",
+      outputTokens: 2,
+    });
+    expect(snapshotCodexTurnTokenUsage(state, "turn", undefined, true)).toMatchObject({
+      localCommand: true,
+      outputTokens: 2,
+    });
     accumulateCodexTurnTokenUsage(
       state,
       "turn",

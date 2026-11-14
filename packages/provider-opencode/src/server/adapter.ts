@@ -226,6 +226,8 @@ interface OpenCodeTurnTokenUsageAccumulator {
   reasoningTokens: number;
   hasSubagents: boolean;
   complete: boolean;
+  updatedAt?: string;
+  localCommand?: boolean;
 }
 
 function makeOpenCodeTurnTokenUsageAccumulator(): OpenCodeTurnTokenUsageAccumulator {
@@ -1153,7 +1155,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                 : providerRef(turn.nativeUserMessageId, "weak"),
             status,
             completedAt,
-            ...(completedAt === null
+            ...(completedAt === null && turn.usage.partIds.size === 0
               ? {}
               : {
                   turnTokenUsage:
@@ -1162,9 +1164,14 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                           usageScope: "main_agent" as const,
                           usageStatus: "unavailable" as const,
                           hasSubagents: turn.usage.hasSubagents,
+                          ...(turn.usage.localCommand ? { localCommand: true } : {}),
                         }
                       : {
                           usageScope: "main_agent" as const,
+                          ...(turn.usage.localCommand ? { localCommand: true } : {}),
+                          ...(completedAt === null && turn.usage.updatedAt !== undefined
+                            ? { updatedAt: turn.usage.updatedAt }
+                            : {}),
                           usageStatus:
                             status === "completed" &&
                             turn.usage.complete &&
@@ -2421,6 +2428,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                     : "other";
             usage.assistantOwnershipByMessageId.set(message.id, ownership);
             if (ownership !== "unknown") {
+              const count = usage.partIds.size;
               if (ownership === "owned") {
                 for (const step of usage.unresolvedStepsByMessageId.get(message.id)?.values() ??
                   []) {
@@ -2428,6 +2436,10 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                 }
               }
               usage.unresolvedStepsByMessageId.delete(message.id);
+              if (usage.partIds.size !== count && state.activeTurn !== null) {
+                usage.updatedAt = DateTime.formatIso(yield* DateTime.now);
+                yield* emitProviderTurn(state, state.activeTurn, "running", null);
+              }
             }
             return;
           }
@@ -2468,8 +2480,14 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
           if (part.type === "step-finish") {
             const usage = turn.usage;
             const ownership = usage.assistantOwnershipByMessageId.get(part.messageID);
-            if (ownership === "owned") accumulateOpenCodeStepUsage(usage, part);
-            else if (
+            if (ownership === "owned") {
+              const count = usage.partIds.size;
+              accumulateOpenCodeStepUsage(usage, part);
+              if (usage.partIds.size !== count) {
+                usage.updatedAt = DateTime.formatIso(yield* DateTime.now);
+                yield* emitProviderTurn(state, turn, "running", null);
+              }
+            } else if (
               ownership === "unknown" ||
               (ownership === undefined && !state.messageRoles.has(part.messageID))
             ) {
@@ -3270,7 +3288,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                 runOrdinal: turnInput.runOrdinal,
                 startedAt,
                 itemOrdinals: new Map(),
-                usage: makeOpenCodeTurnTokenUsageAccumulator(),
+                usage: { ...makeOpenCodeTurnTokenUsageAccumulator(), localCommand: isCompaction },
                 parts: new Map(),
                 partIdsByMessage: new Map(),
                 toolNamesByCallId: new Map(),

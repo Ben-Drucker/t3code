@@ -900,6 +900,18 @@ describe("OpenCodeAdapterV2", () => {
           );
         }
         const events = yield* Fiber.join(received);
+        if (ending !== "unavailable") {
+          assert.deepEqual(
+            events.flatMap((event) =>
+              event.type === "provider_turn.updated" &&
+              event.providerTurn.status === "running" &&
+              event.providerTurn.turnTokenUsage?.usageStatus === "partial"
+                ? [event.providerTurn.turnTokenUsage.outputTokens]
+                : [],
+            ),
+            [7, 14],
+          );
+        }
         const completed = events.findLast((event) => event.type === "provider_turn.updated");
         assert.deepEqual(
           completed?.providerTurn.turnTokenUsage,
@@ -1058,6 +1070,8 @@ describe("OpenCodeAdapterV2", () => {
       yield* harness.startTurn("/compact");
 
       const events = Array.from(yield* Fiber.join(received));
+      const completed = events.findLast((event) => event.type === "provider_turn.updated");
+      assert.isTrue(completed?.providerTurn.turnTokenUsage?.localCommand);
       const terminal = events.find((event) => event.type === "turn.terminal");
       assert.equal(terminal?.status, "failed");
       assert.equal(

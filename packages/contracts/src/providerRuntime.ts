@@ -65,6 +65,8 @@ export type ThreadTokenUsageSnapshot = typeof ThreadTokenUsageSnapshot.Type;
 // Input includes cache reads/writes; output includes the optional reasoningTokens subset.
 const TurnTokenUsageCommonFields = {
   usageScope: Schema.Literal("main_agent"),
+  // Timestamp of the measured counters, for event-driven live throughput.
+  updatedAt: Schema.optional(Schema.String),
   cachedInputTokens: Schema.optional(NonNegativeInt),
   cacheCreationTokens: Schema.optional(NonNegativeInt),
   reasoningTokens: Schema.optional(NonNegativeInt),

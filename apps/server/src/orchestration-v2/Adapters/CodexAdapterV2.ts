@@ -12,6 +12,7 @@ import {
   getCodexTurnAccumulator,
   accumulateCodexTurnTokenUsage,
   completeCodexTurnTokenUsage,
+  snapshotCodexTurnTokenUsage,
   type CodexTurnTokenUsageState,
 } from "../../provider/CodexTurnTokenUsage.ts";
 import type { ManagedServerProvider } from "@t3tools/provider-core/server/snapshot";
@@ -4744,6 +4745,12 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   payload.tokenUsage,
                   DateTime.formatIso(now),
                   usageStateForThread(payload.threadId).reasoningAtCompaction,
+                ),
+                turnTokenUsage: snapshotCodexTurnTokenUsage(
+                  usageStateForThread(payload.threadId),
+                  payload.turnId,
+                  reportedTurnModel(payload.threadId, payload.turnId),
+                  isCompactionCommandMessage({ role: "user", ...context.input.message }),
                 ),
               },
             });

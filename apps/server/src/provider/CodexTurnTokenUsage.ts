@@ -145,17 +145,29 @@ export function completeCodexTurnTokenUsage(
   // A /compact turn summarizes history; it is not a reply and must not enter throughput.
   compaction = false,
 ): TurnTokenUsage {
-  const usage = state.byTurnId.get(turnId);
+  const usage = snapshotCodexTurnTokenUsage(state, turnId, model, compaction);
   state.byTurnId.delete(turnId);
   if (state.activeTurnId === turnId) state.activeTurnId = undefined;
+  return usage.usageStatus === "partial" && completed
+    ? { ...usage, usageStatus: "complete" }
+    : usage;
+}
+
+export function snapshotCodexTurnTokenUsage(
+  state: CodexTurnTokenUsageState,
+  turnId: string,
+  model?: string,
+  compaction = false,
+) {
+  const usage = state.byTurnId.get(turnId);
   const models = {
     ...(model === undefined ? {} : { models: [model] }),
     ...(compaction ? { localCommand: true } : {}),
   };
   if (!usage?.observed) {
     return {
-      usageStatus: "unavailable",
-      usageScope: "main_agent",
+      usageStatus: "unavailable" as const,
+      usageScope: "main_agent" as const,
       hasSubagents: usage?.hasSubagents ?? false,
       ...models,
     };
@@ -163,8 +175,8 @@ export function completeCodexTurnTokenUsage(
 
   // Codex counts cache reads and writes inside inputTokens.
   return {
-    usageStatus: completed ? "complete" : "partial",
-    usageScope: "main_agent",
+    usageStatus: "partial" as const,
+    usageScope: "main_agent" as const,
     inputTokens: usage.inputTokens,
     cachedInputTokens: Math.min(usage.inputTokens, usage.cachedInputTokens),
     ...(usage.cacheCreationTokens !== undefined

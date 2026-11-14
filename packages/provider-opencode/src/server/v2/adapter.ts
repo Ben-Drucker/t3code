@@ -21,6 +21,7 @@ import { Mcp } from "@opencode/schema/mcp";
 import {
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   isOrchestrationV2WorkActive,
+  isCompactionCommandMessage,
   parseGoalCommand,
   type ChatAttachment,
   type OrchestrationV2AppThread,
@@ -225,6 +226,7 @@ interface TurnOwner {
 
 interface ActiveTurn {
   readonly input: TurnOwner;
+  readonly localCommand: boolean;
   providerTurn: OrchestrationV2ProviderTurn;
   readonly texts: Map<string, OpenBlock>;
   readonly tools: Map<string, { readonly name: string; input: Record<string, unknown> }>;
@@ -697,15 +699,18 @@ const turnTokenUsage = (turn: ActiveTurn, status: OrchestrationV2ProviderTurn["s
     turn.models.size === 0 || turn.missedEvents || turn.steps > turn.startedSteps
       ? {}
       : { models: [...turn.models] };
+  const command = turn.localCommand ? { localCommand: true } : {};
   return turn.steps === 0
     ? {
         usageScope: "main_agent" as const,
         usageStatus: "unavailable" as const,
         hasSubagents: turn.usedSubagents,
         ...models,
+        ...command,
       }
     : {
         ...models,
+        ...command,
         usageScope: "main_agent" as const,
         usageStatus:
           status === "completed" && !turn.missedEvents && turn.steps >= turn.startedSteps
@@ -1434,9 +1439,14 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
     const makeTurn = (
       owner: TurnOwner,
       providerTurn: OrchestrationV2ProviderTurn,
-      options: { readonly scope: string; readonly awaitingStart: boolean },
+      options: {
+        readonly scope: string;
+        readonly awaitingStart: boolean;
+        readonly localCommand?: boolean;
+      },
     ): ActiveTurn => ({
       input: owner,
+      localCommand: options.localCommand ?? false,
       providerTurn,
       texts: new Map(),
       tools: new Map(),
@@ -2788,6 +2798,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
           state.lastContextTokens = usedTokens;
           yield* emitProviderTurn(state, turn, {
             ...turn.providerTurn,
+            turnTokenUsage: turnTokenUsage(turn, "running"),
             tokenUsage: {
               usedTokens,
               maxTokens,
@@ -4168,7 +4179,11 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         startedAt,
         completedAt: null,
       };
-      const turn = makeTurn(turnInput, providerTurn, { scope: "", awaitingStart });
+      const turn = makeTurn(turnInput, providerTurn, {
+        scope: "",
+        awaitingStart,
+        localCommand: isCompactionCommandMessage({ role: "user", ...turnInput.message }),
+      });
       if (streamFailure !== undefined) {
         return yield* new ProviderAdapter.ProviderAdapterEventStreamError({
           driver,
