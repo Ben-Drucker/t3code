@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   type ProfileReport,
+  profileReportFor,
   type ReportedProfiles,
   takeDueProfileReports,
 } from "./BrowserProfileReporter";
@@ -50,13 +51,37 @@ describe("takeDueProfileReports", () => {
     takeDueProfileReports(reported, targets, input(10));
 
     expect(takeDueProfileReports(reported, targets, input(30))).toEqual([first, second]);
+  });
 
+  it("reports the preview browser mode only for the native environment", () => {
+    const reported: ReportedProfiles = new Map();
+    const targets = new Map([
+      [first, config("a")],
+      [second, config("b")],
+    ]);
     const settings = input(30);
-    for (const previewBrowserMode of ["chrome-docked", "firefox-docked", "builtin"] as const) {
+    takeDueProfileReports(reported, targets, settings, first);
+
+    for (const previewBrowserMode of ["firefox-docked", "builtin"] as const) {
       const next = { ...settings, previewBrowserMode };
-      expect(takeDueProfileReports(reported, targets, next)).toEqual([first, second]);
-      expect(takeDueProfileReports(reported, targets, next)).toEqual([]);
+      expect(takeDueProfileReports(reported, targets, next, first)).toEqual([first]);
+      expect(takeDueProfileReports(reported, targets, next, first)).toEqual([]);
+      expect(profileReportFor(next, first, first).previewBrowserMode).toBe(previewBrowserMode);
+      // A remote or non-desktop environment must keep the mode the desktop reported.
+      expect(profileReportFor(next, second, first)).not.toHaveProperty("previewBrowserMode");
     }
+
+    // With no native environment (a browser tab), no target receives a mode.
+    const browserReported: ReportedProfiles = new Map();
+    takeDueProfileReports(browserReported, targets, settings, null);
+    expect(
+      takeDueProfileReports(
+        browserReported,
+        targets,
+        { ...settings, previewBrowserMode: "builtin" },
+        null,
+      ),
+    ).toEqual([]);
   });
 
   it("reports an environment again once it becomes operable again", () => {

@@ -10,8 +10,10 @@ import {
   subscribeClientSettings,
   subscribeClientSettingsHydration,
 } from "~/hooks/useSettings";
+import { isElectron } from "~/env";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { environmentPresentations } from "~/state/presentation";
+import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
 import { previewEnvironment } from "~/state/preview";
 import { environmentSession, sessionHasScope } from "~/state/session";
 
@@ -19,7 +21,7 @@ export interface ProfileReport {
   readonly profiles: ClientSettings["browserProfiles"];
   readonly defaultProfileId: ClientSettings["browserDefaultProfileId"];
   readonly recordingFrameRate: ClientSettings["browserRecordingFrameRate"];
-  readonly previewBrowserMode: ClientSettings["browserPreviewMode"];
+  readonly previewBrowserMode?: ClientSettings["browserPreviewMode"];
 }
 
 /** Server-browser environments this client may operate, with the config each currently runs. */
@@ -51,17 +53,28 @@ export function startBrowserProfileReporting(): () => void {
       previewBrowserMode: settings.browserPreviewMode,
     };
     const targets = appAtomRegistry.get(reportTargetsAtom);
-    for (const environmentId of takeDueProfileReports(reported, targets, input)) {
+    // Only the desktop app's own server can be docked by this client's native window.
+    const nativeEnvironmentId = isElectron ? appAtomRegistry.get(primaryEnvironmentIdAtom) : null;
+    for (const environmentId of takeDueProfileReports(
+      reported,
+      targets,
+      input,
+      nativeEnvironmentId,
+    )) {
       void runAtomCommand(
         appAtomRegistry,
         previewEnvironment.reportProfiles,
-        { environmentId, input },
+        {
+          environmentId,
+          input: profileReportFor(input, environmentId, nativeEnvironmentId),
+        },
         { reportFailure: false },
       );
     }
   };
   const unsubscribes = [
     appAtomRegistry.subscribe(reportTargetsAtom, report),
+    appAtomRegistry.subscribe(primaryEnvironmentIdAtom, report),
     subscribeClientSettings(report),
     subscribeClientSettingsHydration(report),
   ];
@@ -85,6 +98,7 @@ export function takeDueProfileReports(
   reported: ReportedProfiles,
   targets: ReadonlyMap<EnvironmentId, EnvironmentServerConfig>,
   input: ProfileReport,
+  nativeEnvironmentId: EnvironmentId | null = null,
 ): EnvironmentId[] {
   for (const environmentId of reported.keys()) {
     if (!targets.has(environmentId)) reported.delete(environmentId);
@@ -92,11 +106,27 @@ export function takeDueProfileReports(
   const due: EnvironmentId[] = [];
   for (const [environmentId, config] of targets) {
     const last = reported.get(environmentId);
-    if (last && last.config === config && sameReportInput(last.input, input)) continue;
-    reported.set(environmentId, { config, input });
+    const effective = profileReportFor(input, environmentId, nativeEnvironmentId);
+    if (last && last.config === config && sameReportInput(last.input, effective)) continue;
+    reported.set(environmentId, { config, input: effective });
     due.push(environmentId);
   }
   return due;
+}
+
+/**
+ * The preview browser mode picks how the server opens browsers, and the server keeps the last
+ * mode any client reported. Only the desktop app's own environment can dock a native window, so
+ * every other target omits the mode and keeps the mode the desktop reported.
+ */
+export function profileReportFor(
+  input: ProfileReport,
+  environmentId: EnvironmentId,
+  nativeEnvironmentId: EnvironmentId | null,
+): ProfileReport {
+  if (environmentId === nativeEnvironmentId) return input;
+  const { previewBrowserMode: _omitted, ...rest } = input;
+  return rest;
 }
 
 function sameReportInput(left: ProfileReport, right: ProfileReport): boolean {
