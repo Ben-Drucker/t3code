@@ -138,6 +138,7 @@ const makeHarness = Effect.fn("makeAntigravityProviderHarness")(function* (
     readonly auth?: { readonly type: string; readonly label: string };
     readonly enabled?: boolean;
     readonly safe?: boolean;
+    readonly cacheKey?: string;
     readonly probeUsage?: Effect.Effect<ServerProviderUsageLimits>;
   } = {},
 ) {
@@ -148,7 +149,7 @@ const makeHarness = Effect.fn("makeAntigravityProviderHarness")(function* (
     Deferred.await(initialProbe),
   );
   const safety = yield* Ref.make<Effect.Effect<boolean>>(Effect.succeed(options.safe ?? true));
-  const capabilityCacheKey = yield* Ref.make("agy-binary-v1");
+  const capabilityCacheKey = yield* Ref.make(options.cacheKey ?? "agy-binary-v1");
   const provider = yield* makeAntigravityProvider(
     decodeSettings({ enabled: options.enabled ?? true, customModels: ["do-not-seed-me"] }),
     {
@@ -685,6 +686,23 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
         const upgraded = yield* harness.provider.snapshot.refresh;
         expect(upgraded.models).toEqual([]);
         expect(upgraded.supportedRuntimeModes).not.toContain("auto");
+      }),
+    ),
+  );
+
+  it.effect("keeps live models when an unreadable executable later resolves", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({ cacheKey: "scope:pending" });
+        yield* harness.initialize;
+        yield* harness.provider.onSessionStarted(started, "/workspace");
+        yield* Ref.set(harness.capabilityCacheKey, "scope:agy-binary-v1");
+        const resolved = yield* harness.provider.snapshot.refresh;
+        expect(resolved.models).toEqual(buildAntigravityModelsFromSession(sessionSetupResult));
+        expect(resolved.workspaceSnapshots?.[0]?.cwd).toBe("/workspace");
+        expect(resolved.capabilityCacheKey).toBe("scope:agy-binary-v1");
+        yield* Ref.set(harness.capabilityCacheKey, "scope:agy-binary-v2");
+        expect((yield* harness.provider.snapshot.refresh).models).toEqual([]);
       }),
     ),
   );

@@ -1709,6 +1709,20 @@ it.layer(
           assert.deepStrictEqual(merged.models, []);
           assert.deepStrictEqual(merged.supportedRuntimeModes, lightweight.supportedRuntimeModes);
         }
+        // Resolving an unreadable executable is not a change: its identity was never disproved.
+        const unreadable = { ...cached, capabilityCacheKey: "scope:pending" } as const;
+        const resolved = { ...lightweight, capabilityCacheKey: "scope:agy-binary-v1" } as const;
+        const afterResolve = ProviderRegistry.mergeProviderSnapshot(unreadable, resolved);
+        assert.deepStrictEqual(afterResolve.models, cached.models);
+        assert.deepStrictEqual(afterResolve.supportedRuntimeModes, cached.supportedRuntimeModes);
+        assert.equal(afterResolve.capabilityCacheKey, resolved.capabilityCacheKey);
+        assert.deepStrictEqual(
+          ProviderRegistry.mergeProviderSnapshot(unreadable, {
+            ...resolved,
+            capabilityCacheKey: "other:agy-binary-v1",
+          }).models,
+          [],
+        );
         for (const cleared of [
           { ...lightweight, installed: false, status: "error" },
           { ...lightweight, auth: { status: "unauthenticated" } },

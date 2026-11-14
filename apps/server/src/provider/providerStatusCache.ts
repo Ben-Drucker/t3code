@@ -24,6 +24,25 @@ export const retainProviderCapabilityCacheKey = (
   return executable === "pending" && previous?.startsWith(`${configuration}:`) ? previous : next;
 };
 
+/**
+ * Whether `next` describes the installation `previous` was verified against. An unreadable
+ * executable (`pending`) has no identity, so resolving it later disproves nothing; any
+ * other difference in configuration or executable does.
+ */
+export const isSameProviderCapabilityIdentity = (
+  previous: string | undefined,
+  next: string | undefined,
+): boolean => {
+  if (previous === undefined || next === undefined) return false;
+  if (previous === next) return true;
+  const [previousConfiguration, previousExecutable] = previous.split(":");
+  const [nextConfiguration, nextExecutable] = next.split(":");
+  return (
+    previousConfiguration === nextConfiguration &&
+    (previousExecutable === "pending" || nextExecutable === "pending")
+  );
+};
+
 const mergeProviderModels = (
   fallbackModels: ReadonlyArray<ServerProvider["models"][number]>,
   cachedModels: ReadonlyArray<ServerProvider["models"][number]>,
@@ -99,17 +118,16 @@ export const hydrateCachedProvider = (input: {
   };
 
   if (input.fallbackProvider.driver === "antigravity") {
-    const sameExecutable =
-      input.fallbackProvider.capabilityCacheKey !== undefined &&
-      retainProviderCapabilityCacheKey(
-        input.cachedProvider.capabilityCacheKey,
-        input.fallbackProvider.capabilityCacheKey,
-      ) === input.cachedProvider.capabilityCacheKey;
+    const sameExecutable = isSameProviderCapabilityIdentity(
+      input.cachedProvider.capabilityCacheKey,
+      input.fallbackProvider.capabilityCacheKey,
+    );
     return {
       ...hydratedProvider,
-      capabilityCacheKey: sameExecutable
-        ? input.cachedProvider.capabilityCacheKey
-        : input.fallbackProvider.capabilityCacheKey,
+      capabilityCacheKey: retainProviderCapabilityCacheKey(
+        input.cachedProvider.capabilityCacheKey,
+        input.fallbackProvider.capabilityCacheKey,
+      ),
       models: sameExecutable ? hydratedProvider.models : input.fallbackProvider.models,
       supportedRuntimeModes: sameExecutable
         ? input.cachedProvider.supportedRuntimeModes

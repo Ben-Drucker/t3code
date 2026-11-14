@@ -33,6 +33,7 @@ import * as ProviderInstanceRegistryMutator from "./ProviderInstanceRegistryMuta
 import {
   hydrateCachedProvider,
   isCachedProviderCorrelated,
+  isSameProviderCapabilityIdentity,
   orderProviderSnapshots,
   readProviderStatusCache,
   retainProviderCapabilityCacheKey,
@@ -311,8 +312,10 @@ export const mergeProviderSnapshot = (
   );
   const sameExecutable =
     nextProvider.driver !== "antigravity" ||
-    (nextProvider.capabilityCacheKey !== undefined &&
-      capabilityCacheKey === previousProvider.capabilityCacheKey);
+    isSameProviderCapabilityIdentity(
+      previousProvider.capabilityCacheKey,
+      nextProvider.capabilityCacheKey,
+    );
   const models = mergeProviderModels(
     nextProvider,
     sameExecutable ? previousProvider.models : [],

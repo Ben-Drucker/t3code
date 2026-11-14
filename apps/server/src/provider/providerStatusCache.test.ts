@@ -71,6 +71,22 @@ it.layer(NodeServices.layer)("providerStatusCache", (it) => {
       assert.deepStrictEqual(invalidated.models, []);
       assert.deepStrictEqual(invalidated.supportedRuntimeModes, changed.supportedRuntimeModes);
     }
+    // A cache written while the executable was unreadable has no identity to disprove.
+    const wroteWhileUnreadable = hydrateCachedProvider({
+      cachedProvider: { ...cached, capabilityCacheKey: "configuration:pending" },
+      fallbackProvider: fallback,
+    });
+    assert.deepStrictEqual(wroteWhileUnreadable.models, cached.models);
+    assert.deepStrictEqual(
+      wroteWhileUnreadable.supportedRuntimeModes,
+      cached.supportedRuntimeModes,
+    );
+    assert.equal(wroteWhileUnreadable.capabilityCacheKey, fallback.capabilityCacheKey);
+    const otherConfiguration = hydrateCachedProvider({
+      cachedProvider: { ...cached, capabilityCacheKey: "configuration:pending" },
+      fallbackProvider: { ...fallback, capabilityCacheKey: "other:agy-binary-v1" },
+    });
+    assert.deepStrictEqual(otherConfiguration.models, []);
   });
 
   it("hydrates cached provider status while preserving current settings-derived models", () => {

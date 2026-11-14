@@ -39,7 +39,10 @@ import { resolveUsageLimitsAfterProbe } from "@t3tools/provider-core/server/usag
 
 import { antigravityThinkingConfig } from "./acp/AntigravityAcpSupport.ts";
 import { withAntigravityContextControls } from "./antigravityCompaction.ts";
-import { retainProviderCapabilityCacheKey } from "./providerStatusCache.ts";
+import {
+  isSameProviderCapabilityIdentity,
+  retainProviderCapabilityCacheKey,
+} from "./providerStatusCache.ts";
 
 const EMPTY_MODEL_CAPABILITIES = createModelCapabilities({ optionDescriptors: [] });
 const MAX_WORKSPACE_SNAPSHOTS = 32;
@@ -307,7 +310,10 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
       before.draft.capabilityCacheKey,
       probedCacheKey,
     );
-    if (currentCacheKey !== undefined && currentCacheKey !== before.draft.capabilityCacheKey) {
+    if (
+      currentCacheKey !== undefined &&
+      !isSameProviderCapabilityIdentity(before.draft.capabilityCacheKey, currentCacheKey)
+    ) {
       thinkingLevels.clear();
     }
     const updatedAt = DateTime.formatIso(yield* DateTime.now);
@@ -316,7 +322,8 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
       const { message: _previousMessage, ...draft } = state.draft;
       const authenticated = draft.auth.status === "authenticated";
       const changedExecutable =
-        currentCacheKey !== undefined && currentCacheKey !== draft.capabilityCacheKey;
+        currentCacheKey !== undefined &&
+        !isSameProviderCapabilityIdentity(draft.capabilityCacheKey, currentCacheKey);
       const message =
         errorMessage ??
         (authenticated
@@ -392,7 +399,10 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
       before.draft.capabilityCacheKey,
       yield* options.capabilityCacheKey ?? Effect.undefined,
     );
-    if (currentCacheKey !== undefined && currentCacheKey !== before.draft.capabilityCacheKey) {
+    if (
+      currentCacheKey !== undefined &&
+      !isSameProviderCapabilityIdentity(before.draft.capabilityCacheKey, currentCacheKey)
+    ) {
       thinkingLevels.clear();
     }
     observeThinkingLevels(started.sessionSetupResult.configOptions);
@@ -433,7 +443,8 @@ export const makeAntigravityProvider = Effect.fn("makeAntigravityProvider")(func
           models:
             models.length > 0
               ? models
-              : currentCacheKey === draft.capabilityCacheKey
+              : currentCacheKey === draft.capabilityCacheKey ||
+                  isSameProviderCapabilityIdentity(draft.capabilityCacheKey, currentCacheKey)
                 ? draft.models
                 : [],
           supportsTextGeneration,
