@@ -2,7 +2,7 @@
 
 ## Comparison and maintenance
 
-Canonical incorporated upstream nightly: `bc647ed53595888efacdd8ca435967d48888a952` (`v0.1.10-nightly.20261112.4564`). Mine comparison: `218ae30b0213e61b9bdb84a9c7972d40bc66ebab`.
+Canonical incorporated upstream nightly: `bc647ed53595888efacdd8ca435967d48888a952` (`v0.1.10-nightly.20261112.4564`). Mine comparison: `4f16edb82d19133e774d7e2c82027110065c4a23`.
 
 The nightly is the second parent of merge `1b92f55f099b2ac9d1fc4fde53a62d8567b7bb85`, which is in mine's first-parent history. This inventory compares that nightly's entire tree with mine, including fork work predating that merge; it is not a list of commits made after the merge.
 
@@ -47,7 +47,7 @@ BACKLOG.md holds unfinished items. Once a feature, fix, or change is completed, 
 
 ### Provider context and quota additions
 
-- **Claude context controls.** Model options add context limits and free-space compaction buffers, applied through Claude settings and changeable within a conversation. Areas: `ClaudeModelCatalog.ts`, `ClaudeProvider.ts`, `claudeCompaction.ts`, `ClaudeAdapterV2.ts`; history: `f631ae1f4b`.
+- **Claude context controls.** Model options add context limits and free-space compaction buffers, applied through Claude settings and changeable within a conversation. Context-window and native-compaction tests use an isolated Claude home so personal settings cannot alter their expected limits. Areas: `ClaudeModelCatalog.ts`, `ClaudeProvider.ts`, `claudeCompaction.ts`, `ClaudeAdapterV2.ts`, `ClaudeAdapterV2.test.ts`; history: `f631ae1f4b`, `4f16edb82d`.
 - **Codex context controls.** Context-limit choices reach each model's reported maximum, and compaction-buffer choices translate into Codex launch configuration and meter limits. Areas: `CodexProvider.ts`, `codexCompaction.ts`, `CodexAdapterV2.ts`; history: `bd1ad8f8d9`, `cb53679bee`.
 - **Kimi context controls.** Kimi context limit and compaction reserve are set through launch environment/configuration and locked once the conversation starts; the model-override layout preserves the chosen window across CLI catalog refreshes. Areas: `kimiCompaction.ts`, registry driver/adapter, `kimiSession.ts`, model-option lock contracts; history: `40c0eebaaf`, `47510f6f0d`.
 - **OpenCode context controls.** Models with a known input/context window expose limit and buffer options, fixed once the thread starts; T3 checks settled context and compacts the session before the next turn when its selected threshold is reached. Areas: `openCode2Catalog.ts`, `status.ts`, `openCodeCompaction.ts`, `v2/adapter.ts`; history: `6c04fdb36f` (uneven real-model behavior remains in BACKLOG.md).
@@ -114,9 +114,9 @@ These entries extend or replace a capability already present in the canonical ni
 
 ## Coverage and limits
 
-The comparison contains 410 changed files (31,643 inserted and 2,679 deleted lines, plus binary screenshots), and the fork-only range contains 156 non-merge commits. The 72 aspects above group that history by retained behavior and include smaller fixes, tests supporting those behaviors, documentation, generated schema, dependencies, and tooling/configuration; only behavior retained in the comparison tree belongs here.
+The comparison contains 410 changed files (31,648 inserted and 2,680 deleted lines, plus binary screenshots), and the fork-only range contains 159 non-merge commits. The 72 aspects above group that history by retained behavior and include smaller fixes, tests supporting those behaviors, documentation, generated schema, dependencies, and tooling/configuration; only behavior retained in the comparison tree belongs here.
 
-Evidence combines `git diff bc647ed53595888efacdd8ca435967d48888a952 218ae30b0213e61b9bdb84a9c7972d40bc66ebab` with the non-merge fork history in that range and source inspection of the listed areas. The latest nightly tag reachable from mine is the selected tag; older merges include the November 6 and November 2 nightlies, so their retained fork additions are included rather than discarded at the latest merge boundary.
+Evidence combines `git diff bc647ed53595888efacdd8ca435967d48888a952 4f16edb82d19133e774d7e2c82027110065c4a23` with the non-merge fork history in that range and source inspection of the listed areas. The latest nightly tag reachable from mine is the selected tag; older merges include the November 6 and November 2 nightlies, so their retained fork additions are included rather than discarded at the latest merge boundary.
 
 Tests beside the changed modules provide additional behavioral specifications, including streaming, Kimi usage/session parsing, context thresholds, sidebar nesting/attention, dock geometry/controller, Firefox integration, Mini QQ lifecycle, rich citations, and composer menus. This research did not run builds, tests, browser sessions, or provider turns; “completed” here means an implemented change retained in the comparison tree, not a fresh runtime certification.
 
