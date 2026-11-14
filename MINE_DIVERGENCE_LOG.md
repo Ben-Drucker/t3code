@@ -2,7 +2,7 @@
 
 ## Comparison and maintenance
 
-Canonical incorporated upstream nightly: `bc647ed53595888efacdd8ca435967d48888a952` (`v0.1.10-nightly.20261112.4564`). Mine comparison: `ab3bb417521d30537933424e0126a3312e1a8fc8`.
+Canonical incorporated upstream nightly: `bc647ed53595888efacdd8ca435967d48888a952` (`v0.1.10-nightly.20261112.4564`). Mine comparison: `218ae30b0213e61b9bdb84a9c7972d40bc66ebab`.
 
 The nightly is the second parent of merge `1b92f55f099b2ac9d1fc4fde53a62d8567b7bb85`, which is in mine's first-parent history. This inventory compares that nightly's entire tree with mine, including fork work predating that merge; it is not a list of commits made after the merge.
 
@@ -19,7 +19,7 @@ BACKLOG.md holds unfinished items. Once a feature, fix, or change is completed, 
 - **Model reference settings snapshot.** Inserted references capture displayed defaults as well as explicit overrides, including reasoning effort, service tier, context limit, and compaction buffer. Areas: `ChatComposer.tsx`, `composerProviderState.tsx`; history: `edfd1d451d`. Focused provider-state tests pass.
 - **Kimi QQ verification.** The registry ACP forwarding path already wraps `/qq` as user text. The existing native-command table passes all five cases, including `/qq`; the stale backlog report is removed. History: `953c09e94e`.
 
-- **Thread throughput row.** The customizable Thread details list offers tokens per second with a duration-weighted chat average and latest measured turn. It uses complete main-agent output counts, excludes local commands, and includes tool time in duration. Areas: thread details, `tokenThroughput.ts`, `ChatView.tsx`; focused throughput and visibility tests pass.
+- **Thread throughput row.** The customizable Thread details list offers tokens per second from complete main-agent output counts divided by full-turn duration, including tool time, with a duration-weighted chat average and latest measured reply. Local commands and compaction turns are excluded, so Claude's background idle compaction cannot replace the last reply's rate or lower the average. Areas: web/mobile thread details, `tokenThroughput.ts`, `ChatView.tsx`, Claude/Codex usage normalizers and adapters, ACP adapter; history: `b1520af632`.
 
 - **Parent-only Stop.** Holding Option shows Parent beside Stop and sends a parent-only interruption, preserving delegated tasks and their completion state. Areas: composer actions, `ChatView.tsx`, client commands, interruption contract and orchestrator; focused ThreadStop regression passes.
 
@@ -114,9 +114,9 @@ These entries extend or replace a capability already present in the canonical ni
 
 ## Coverage and limits
 
-The comparison contains 407 changed files (31,578 inserted and 2,676 deleted lines, plus binary screenshots), and the fork-only range contains 154 non-merge commits. The 72 aspects above group that history by retained behavior and include smaller fixes, tests supporting those behaviors, documentation, generated schema, dependencies, and tooling/configuration; only behavior retained in the comparison tree belongs here.
+The comparison contains 410 changed files (31,643 inserted and 2,679 deleted lines, plus binary screenshots), and the fork-only range contains 156 non-merge commits. The 72 aspects above group that history by retained behavior and include smaller fixes, tests supporting those behaviors, documentation, generated schema, dependencies, and tooling/configuration; only behavior retained in the comparison tree belongs here.
 
-Evidence combines `git diff bc647ed53595888efacdd8ca435967d48888a952 ab3bb417521d30537933424e0126a3312e1a8fc8` with the non-merge fork history in that range and source inspection of the listed areas. The latest nightly tag reachable from mine is the selected tag; older merges include the November 6 and November 2 nightlies, so their retained fork additions are included rather than discarded at the latest merge boundary.
+Evidence combines `git diff bc647ed53595888efacdd8ca435967d48888a952 218ae30b0213e61b9bdb84a9c7972d40bc66ebab` with the non-merge fork history in that range and source inspection of the listed areas. The latest nightly tag reachable from mine is the selected tag; older merges include the November 6 and November 2 nightlies, so their retained fork additions are included rather than discarded at the latest merge boundary.
 
 Tests beside the changed modules provide additional behavioral specifications, including streaming, Kimi usage/session parsing, context thresholds, sidebar nesting/attention, dock geometry/controller, Firefox integration, Mini QQ lifecycle, rich citations, and composer menus. This research did not run builds, tests, browser sessions, or provider turns; “completed” here means an implemented change retained in the comparison tree, not a fresh runtime certification.
 
