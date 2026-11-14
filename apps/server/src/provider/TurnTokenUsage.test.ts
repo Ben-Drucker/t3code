@@ -169,6 +169,28 @@ describe("billable native turn usage", () => {
     },
   );
 
+  it("flags compaction turns so throughput skips them", () => {
+    const claudeResult = {
+      subtype: "success",
+      usage: { input_tokens: 5, output_tokens: 0 },
+    } as const;
+    expect(
+      normalizeClaudeTurnTokenUsage(claudeResult, false, "completed", [], { compaction: true }),
+    ).toMatchObject({ usageStatus: "complete", localCommand: true });
+    expect(normalizeClaudeTurnTokenUsage(claudeResult, false, "completed")).not.toHaveProperty(
+      "localCommand",
+    );
+    expect(
+      normalizeClaudeTurnTokenUsage(undefined, false, "completed", [], { compaction: true }),
+    ).toMatchObject({ usageStatus: "unavailable", localCommand: true });
+    const state = makeCodexTurnTokenUsageState();
+    expect(completeCodexTurnTokenUsage(state, "compact", true, undefined, true)).toMatchObject({
+      usageStatus: "unavailable",
+      localCommand: true,
+    });
+    expect(completeCodexTurnTokenUsage(state, "other", true)).not.toHaveProperty("localCommand");
+  });
+
   it("retains measured thinking tokens without a final result", () => {
     expect(
       normalizeClaudeTurnTokenUsage(undefined, false, "failed", [

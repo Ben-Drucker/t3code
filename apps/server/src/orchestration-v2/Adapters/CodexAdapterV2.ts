@@ -38,6 +38,7 @@ import {
   ProviderDriverKind,
   ProviderSetupError,
   type ServerProviderCompatibilityAdvisory,
+  isCompactionCommandMessage,
   isDelegatedAppThread,
 } from "@t3tools/contracts";
 import { SKILL_MENTION_PATTERN } from "@t3tools/shared/composerInlineTokens";
@@ -6503,6 +6504,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   input.nativeTurnId,
                   input.status === "completed",
                   executedModel,
+                  isCompactionCommandMessage({ role: "user", ...input.context.input.message }),
                 ),
                 ...(executedModel === undefined ? {} : { model: executedModel }),
               };

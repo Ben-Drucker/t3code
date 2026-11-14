@@ -8805,6 +8805,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     input.context.steeredSegmentUsage,
                     {
                       rootModels: input.context.rootModels,
+                      compaction: isCompactionCommandMessage({
+                        role: "user",
+                        ...input.context.input.message,
+                      }),
                       ...(input.result === undefined
                         ? {}
                         : {

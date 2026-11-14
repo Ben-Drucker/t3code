@@ -263,9 +263,17 @@ export function acpPerTurnPromptUsage(
   hasSubagents: boolean,
   terminalStatus: OrchestrationV2ProviderTurn["status"],
   geminiUsage = false,
+  // A /compact turn summarizes history; it is not a reply and must not enter throughput.
+  compaction = false,
 ): TurnTokenUsage {
+  const compactionFields = compaction ? ({ localCommand: true } as const) : {};
   if (usage == null) {
-    return { usageScope: "main_agent", usageStatus: "unavailable", hasSubagents };
+    return {
+      usageScope: "main_agent",
+      usageStatus: "unavailable",
+      hasSubagents,
+      ...compactionFields,
+    };
   }
   const inputTokens = geminiUsage
     ? usage.inputTokens + (usage.cachedReadTokens ?? 0)
@@ -289,6 +297,7 @@ export function acpPerTurnPromptUsage(
     usageScope: "main_agent",
     usageStatus: terminalStatus === "completed" ? "complete" : "partial",
     hasSubagents,
+    ...compactionFields,
     inputTokens,
     outputTokens,
     ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
@@ -7698,6 +7707,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   context.subagents.size > 0,
                   status,
                   flavor.geminiPromptUsage,
+                  isCompactionMessage(context.input.message),
                 ),
               }),
         });
