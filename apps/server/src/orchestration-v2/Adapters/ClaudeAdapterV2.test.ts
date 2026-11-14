@@ -3404,13 +3404,15 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     readonly allocateSessionId?: Effect.Effect<string>;
     readonly offer?: (message: SDKUserMessage) => Effect.Effect<void>;
     readonly promptSuggestions?: boolean;
-    readonly modelSelection?: ModelSelection;
   }) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const idAllocator = yield* IdAllocator.IdAllocatorV2;
       const attachmentsDir = yield* fileSystem.makeTempDirectoryScoped({
         prefix: "t3-claude-v2-wake-",
+      });
+      const claudeHome = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-claude-v2-wake-home-",
       });
       const sdkMessages = yield* Queue.unbounded<SDKMessage>();
       const processQueues: Array<Queue.Queue<SDKMessage>> = [];
@@ -3462,7 +3464,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
         settings: options?.settings ?? DEFAULT_CLAUDE_SETTINGS,
         ...(options?.modelCatalog === undefined ? {} : { modelCatalog: options.modelCatalog }),
-        environment: options?.environment ?? {},
+        environment: { CLAUDE_CONFIG_DIR: claudeHome, ...options?.environment },
         attachmentsDir,
         fileSystem,
         path: yield* Path.Path,
@@ -3576,13 +3578,13 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       const runtime = yield* adapter.openSession({
         threadId,
         providerSessionId: ProviderSessionId.make("provider-session-claude-wake"),
-        modelSelection: options?.modelSelection ?? CLAUDE_TEST_MODEL_SELECTION,
+        modelSelection: CLAUDE_TEST_MODEL_SELECTION,
         runtimePolicy: CLAUDE_TEST_RUNTIME_POLICY,
         promptSuggestions: Effect.succeed(options?.promptSuggestions === true),
       });
       const providerThread = yield* runtime.ensureThread({
         threadId,
-        modelSelection: options?.modelSelection ?? CLAUDE_TEST_MODEL_SELECTION,
+        modelSelection: CLAUDE_TEST_MODEL_SELECTION,
         runtimePolicy: CLAUDE_TEST_RUNTIME_POLICY,
       });
       const events: Array<ProviderAdapter.ProviderAdapterV2Event> = [];
@@ -8592,11 +8594,11 @@ describe("ClaudeAdapterV2 background wake turns", () => {
 
   it.effect("measures a model outside the catalog against the window Claude reports", () =>
     Effect.gen(function* () {
+      const harness = yield* makeWakeHarness;
       const modelSelection = {
         instanceId: ProviderInstanceId.make(ClaudeAdapterV2.CLAUDE_PROVIDER),
-        model: "anthropic.claude-sonnet-4-6-v1:0",
+        model: "gateway-model",
       } satisfies ModelSelection;
-      const harness = yield* makeWakeHarnessWithOptions({ modelSelection });
       assert.strictEqual(harness.runtime.getModelContextWindow?.(modelSelection), undefined);
       yield* harness.runtime.startTurn(
         makeClaudeTestTurnInput({
@@ -8616,7 +8618,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           uuid: "00000000-0000-4000-8000-000000000680",
           result: "OK",
           modelUsage: {
-            "anthropic.claude-sonnet-4-6-v1:0": {
+            "gateway-model": {
               inputTokens: 9_667,
               outputTokens: 2,
               cacheReadInputTokens: 0,
@@ -9231,11 +9233,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     "runs native compaction and keeps its context watermark separate from billed usage",
     () =>
       Effect.gen(function* () {
-        const modelSelection = {
-          instanceId: ProviderInstanceId.make(ClaudeAdapterV2.CLAUDE_PROVIDER),
-          model: "anthropic.claude-sonnet-4-6-v1:0",
-        } satisfies ModelSelection;
-        const harness = yield* makeWakeHarnessWithOptions({ modelSelection });
+        const harness = yield* makeWakeHarness;
         const now = yield* DateTime.now;
         const compact = harness.runtime.compactThread;
         assert.isDefined(compact);
@@ -9246,7 +9244,10 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             providerThread: harness.providerThread,
             now,
             attemptId: RunAttemptId.make("claude-native-compact-attempt"),
-            modelSelection,
+            modelSelection: {
+              instanceId: ProviderInstanceId.make(ClaudeAdapterV2.CLAUDE_PROVIDER),
+              model: "gateway-model",
+            },
             text: " /COMPACT ",
             attachments: [],
           }),
@@ -9267,7 +9268,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             uuid: "00000000-0000-4000-8000-000000000202",
             result: "Compacted conversation.",
             modelUsage: {
-              "anthropic.claude-sonnet-4-6-v1:0": {
+              "gateway-model": {
                 inputTokens: 1,
                 outputTokens: 1,
                 cacheReadInputTokens: 0,
@@ -9318,7 +9319,6 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             cachedInputTokens: 0,
             cacheCreationTokens: 0,
             otherUsage: { inputTokens: 0, outputTokens: 0 },
-            // Compaction is a local command, so throughput leaves it out.
             localCommand: true,
           });
         }
