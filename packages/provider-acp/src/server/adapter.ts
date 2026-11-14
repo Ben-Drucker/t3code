@@ -8570,6 +8570,10 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               );
               context.promptSettled = true;
               context.promptSettledStatus = "completed";
+              if (!flavor.deferFinalizeForBackgroundWork) {
+                yield* finalizeTurn(context, "completed");
+                return;
+              }
               if (drainedWakeCount === 0) {
                 if (continuationWasRequested && flavor.deferFinalizeForBackgroundWork === true) {
                   if (hasDeferredBackgroundWork(context)) {

@@ -38,6 +38,7 @@ import { normalizeAntigravitySessionUpdate } from "../../provider/acp/Antigravit
 import { ANTIGRAVITY_SIGN_IN_REQUIRED_MESSAGE } from "../../provider/antigravityAuthSupport.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import {
   makeAntigravityAcpAdapterFlavor,
   makeAntigravityAdapterV2,
@@ -166,6 +167,190 @@ const layerSession = Layer.mergeAll(
 );
 
 describe("AntigravityAdapterV2 compaction", () => {
+  it.effect.each(["before settlement", "after settlement"] as const)(
+    "projects native background completion %s without another prompt",
+    (ordering) =>
+      Effect.gen(function* () {
+        const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const path = yield* Path.Path;
+        const crypto = yield* SecureRandom.SecureRandom;
+        const mockAgentPath = yield* path.fromFileUrl(
+          new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+        );
+        const instanceId = ProviderInstanceId.make("antigravity-background-wake");
+        const threadId = ThreadId.make("thread-background-wake");
+        type RuntimeService = AcpSessionRuntime.AcpSessionRuntime["Service"];
+        let sessionUpdate: Parameters<RuntimeService["handleSessionUpdate"]>[0] | undefined;
+        let prompts = 0;
+        const requests: Array<ProviderContinuationRequests.ProviderContinuationRequest> = [];
+        const complete = Effect.gen(function* () {
+          assert.isDefined(sessionUpdate);
+          yield* sessionUpdate!({
+            sessionId: "mock-session-1",
+            update: {
+              sessionUpdate: "tool_call_update",
+              toolCallId: "background-bash",
+              status: "completed",
+              rawOutput: {
+                commandLine: "vp test run focused.test.ts",
+                combinedOutput: "tests passed",
+                exitCode: 0,
+              },
+            },
+          });
+          yield* sessionUpdate!({
+            sessionId: "mock-session-1",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "The tests passed." },
+            },
+          });
+        });
+        const adapter = yield* makeAntigravityAdapterV2({
+          instanceId,
+          selfInvocation: yield* resolveSelfInvocation(),
+          continuationRequests: {
+            offer: (request) =>
+              Effect.sync(() => {
+                requests.push(request);
+              }),
+          },
+          makeRuntime: (input) =>
+            makeAntigravityAcpRuntime({
+              ...input,
+              childProcessSpawner,
+              spawn: {
+                command: process.execPath,
+                args: [mockAgentPath],
+                cwd: input.cwd,
+                env: { T3_ACP_ANTIGRAVITY: "1" },
+              },
+            }).pipe(
+              Effect.provideService(SecureRandom.SecureRandom, crypto),
+              Effect.map((runtime): RuntimeService => ({
+                ...runtime,
+                handleSessionUpdate: (handler) =>
+                  Effect.sync(() => {
+                    sessionUpdate = handler;
+                  }).pipe(Effect.andThen(runtime.handleSessionUpdate(handler))),
+                prompt: () =>
+                  Effect.gen(function* () {
+                    prompts += 1;
+                    yield* sessionUpdate!({
+                      sessionId: "mock-session-1",
+                      update: {
+                        sessionUpdate: "tool_call",
+                        toolCallId: "background-bash",
+                        kind: "execute",
+                        title: "Run tests",
+                        status: "in_progress",
+                        rawInput: { CommandLine: "vp test run focused.test.ts" },
+                      },
+                    });
+                    if (ordering === "before settlement") yield* complete;
+                    return { stopReason: "end_turn" as const };
+                  }),
+              })),
+            ),
+          withProcess: (_stop, task) => task,
+          defaultModel: Effect.undefined,
+        });
+        const modelSelection = { instanceId, model: "gemini-test-low" };
+        const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: process.cwd(),
+        });
+        const session = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make("background-wake"),
+          modelSelection,
+          runtimePolicy,
+        });
+        const providerThread = yield* session.ensureThread({
+          threadId,
+          modelSelection,
+          runtimePolicy,
+        });
+        const turn = (ordinal: number) =>
+          makeTurnInput({
+            threadId,
+            providerThread,
+            instanceId,
+            modelSelection,
+            runtimePolicy,
+            now: DateTime.makeUnsafe(0),
+            ordinal,
+            ...(ordinal === 1
+              ? {}
+              : {
+                  messageCreatedBy: "agent" as const,
+                  messageCreationSource: "provider" as const,
+                }),
+          });
+        const collect = session.events.pipe(
+          Stream.takeUntil((event) => event.type === "turn.terminal"),
+          Stream.runCollect,
+        );
+        yield* session.startTurn(turn(1));
+        const initial = yield* collect;
+        assert.lengthOf(requests, 0);
+        if (ordering === "after settlement") {
+          yield* complete;
+          assert.lengthOf(requests, 1, "late native output must offer an automatic continuation");
+          yield* sessionUpdate!({
+            sessionId: "mock-session-1",
+            update: {
+              sessionUpdate: "tool_call_update",
+              toolCallId: "background-bash",
+              status: "completed",
+            },
+          });
+          assert.lengthOf(
+            requests,
+            1,
+            "repeated completion while queued must not offer another run",
+          );
+          yield* session.startTurn(turn(2));
+          const continued = yield* collect;
+          const replies = continued.filter(
+            (event) =>
+              event.type === "message.updated" &&
+              event.message.role === "assistant" &&
+              event.message.text === "The tests passed.",
+          );
+          assert.isNotEmpty(replies);
+          const commands = continued.filter(
+            (event) =>
+              event.type === "turn_item.updated" &&
+              event.turnItem.type === "command_execution" &&
+              event.turnItem.status === "completed",
+          );
+          assert.equal(
+            new Set(
+              commands.map((event) =>
+                event.type === "turn_item.updated" ? event.turnItem.id : null,
+              ),
+            ).size,
+            1,
+            "replayed completion must update the same item",
+          );
+          assert.lengthOf(requests, 1, "draining must not offer duplicate continuations");
+        } else {
+          assert.isTrue(
+            initial.some(
+              (event) =>
+                event.type === "message.updated" && event.message.text === "The tests passed.",
+            ),
+          );
+        }
+        assert.equal(
+          prompts,
+          1,
+          "continuation must ingest native output, not ask the model to continue",
+        );
+      }).pipe(Effect.provide(layerSession), Effect.scoped),
+  );
   it.effect.each(["usage_update", "DB poll", "native plus DB"] as const)(
     "emits one detected native compaction with savings from %s across turn endings",
     (source) =>
