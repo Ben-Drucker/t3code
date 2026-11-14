@@ -534,9 +534,21 @@ const make = Effect.gen(function* () {
   const closedSessions = new Set<string>();
   let hostConnectionId: string | null = null;
   let previewBrowserMode: PreviewBrowserMode = DEFAULT_PREVIEW_BROWSER_MODE;
-  // A dock the desktop refused (no permission, no window) stays off until the mode is reported again.
+  // A dock the desktop cannot ever do without the user's help (no permission, unsupported) stays off
+  // until the mode is reported again. A Firefox that failed to open or find its window is retried
+  // by the next open, because it may have been a one-off.
   let dockedRefused = false;
   let firefoxFallbackMessage: string | undefined;
+  // One entry per tab that fell back to the built-in browser and must not be tried in Firefox
+  // again, which would loop. The fallback tab's "opened" event consumes it.
+  const firefoxFallbacks = new Map<string, number>();
+  const expectFirefoxFallback = (threadId: string) =>
+    firefoxFallbacks.set(threadId, (firefoxFallbacks.get(threadId) ?? 0) + 1);
+  const cancelFirefoxFallback = (threadId: string) => {
+    const left = (firefoxFallbacks.get(threadId) ?? 0) - 1;
+    if (left > 0) firefoxFallbacks.set(threadId, left);
+    else firefoxFallbacks.delete(threadId);
+  };
   const firefoxDockedUsable = () =>
     previewBrowserMode === "firefox-docked" &&
     !dockedRefused &&
@@ -1765,7 +1777,11 @@ const make = Effect.gen(function* () {
             if (input.recordingFrameRate !== undefined)
               recordingFrameRate = input.recordingFrameRate;
             if (input.previewBrowserMode !== undefined) {
-              if (input.previewBrowserMode !== previewBrowserMode) dockedRefused = false;
+              // Any report of the mode, including the same one after a reconnect or a fixed
+              // permission, lets Firefox be tried again.
+              dockedRefused = false;
+              firefoxFallbackMessage = undefined;
+              firefoxFallbacks.clear();
               previewBrowserMode = input.previewBrowserMode;
             }
             reportsByClient.delete(client);
@@ -2581,11 +2597,13 @@ const make = Effect.gen(function* () {
       try {
         if (useFirefox) {
           try {
-            return await firefox.execute(request);
+            const result = await firefox.execute(request);
+            if (request.operation === "open") firefoxFallbackMessage = undefined;
+            return result;
           } catch (cause) {
             if (forceFirefox || request.operation !== "open" || firefox.liveTabs.length > 0)
               throw cause;
-            dockedRefused = true;
+            // Only this open falls back; the next one tries Firefox again.
             firefoxFallbackMessage =
               "Firefox could not open a dedicated preview window. Using the built-in preview. Check Marionette and Firefox system access.";
             await runPromise(Effect.logWarning(firefoxFallbackMessage, { cause }));
@@ -2650,34 +2668,50 @@ const make = Effect.gen(function* () {
         return;
       }
       if (event.type === "opened" && event.snapshot.runtime === "server") {
-        if (forceFirefox || firefoxDockedUsable()) {
+        const builtinKey = tabKey(event.snapshot.threadId, event.snapshot.tabId);
+        const builtinOwned = pendingTabs.has(builtinKey) || tabs.has(builtinKey);
+        const fellBack = !forceFirefox && !builtinOwned && firefoxFallbacks.has(event.threadId);
+        if (fellBack) cancelFirefoxFallback(event.threadId);
+        if (!builtinOwned && !fellBack && (forceFirefox || firefoxDockedUsable())) {
           firefoxKeys.add(tabKey(event.threadId, event.tabId));
-          await firefox.openManaged(event.snapshot).catch(async (cause) => {
-            await runPromise(
-              manager
-                .close({ threadId: ThreadId.make(event.threadId), tabId: event.tabId })
-                .pipe(Effect.ignore),
-            );
-            if (!forceFirefox) {
-              dockedRefused = true;
-              firefoxFallbackMessage =
-                "Firefox could not open a dedicated preview window. Using the built-in preview. Check Marionette and Firefox system access.";
-              await runPromise(Effect.logWarning(firefoxFallbackMessage, { cause }));
+          await firefox.openManaged(event.snapshot).then(
+            () => {
+              firefoxFallbackMessage = undefined;
+            },
+            async (cause) => {
               await runPromise(
-                manager.open({
-                  threadId: ThreadId.make(event.threadId),
-                  runtime: "server",
-                  ...("url" in event.snapshot.navStatus
-                    ? { url: event.snapshot.navStatus.url }
-                    : {}),
-                  ...(event.snapshot.automationOwner === undefined
-                    ? {}
-                    : { automationOwner: event.snapshot.automationOwner }),
-                  reveal: event.snapshot.reveal ?? true,
-                }),
+                manager
+                  .close({ threadId: ThreadId.make(event.threadId), tabId: event.tabId })
+                  .pipe(Effect.ignore),
               );
-            }
-          });
+              if (!forceFirefox) {
+                // Only this tab falls back; the next open tries Firefox again.
+                expectFirefoxFallback(event.threadId);
+                firefoxFallbackMessage =
+                  "Firefox could not open a dedicated preview window. Using the built-in preview. Check Marionette and Firefox system access.";
+                await runPromise(Effect.logWarning(firefoxFallbackMessage, { cause }));
+                await runPromise(
+                  manager
+                    .open({
+                      threadId: ThreadId.make(event.threadId),
+                      runtime: "server",
+                      ...("url" in event.snapshot.navStatus
+                        ? { url: event.snapshot.navStatus.url }
+                        : {}),
+                      ...(event.snapshot.automationOwner === undefined
+                        ? {}
+                        : { automationOwner: event.snapshot.automationOwner }),
+                      reveal: event.snapshot.reveal ?? true,
+                    })
+                    .pipe(
+                      Effect.onError(() =>
+                        Effect.sync(() => cancelFirefoxFallback(event.threadId)),
+                      ),
+                    ),
+                );
+              }
+            },
+          );
           return;
         }
         const key = tabKey(event.snapshot.threadId, event.snapshot.tabId);
@@ -3144,7 +3178,9 @@ const make = Effect.gen(function* () {
         if (firefoxKeys.has(tabKey(change.key.threadId, change.key.tabId))) {
           if (change.type === "closed") await firefox.closeTab(change.key.tabId);
           else {
-            dockedRefused = true;
+            // A missing window may be a one-off, so only permissions and support stay refused.
+            if (change.reason === "no-window") expectFirefoxFallback(change.key.threadId);
+            else dockedRefused = true;
             firefoxFallbackMessage =
               "Firefox's preview window could not be uniquely identified or positioned. Using the built-in preview.";
             const listed = await runPromise(
@@ -3155,16 +3191,23 @@ const make = Effect.gen(function* () {
             await runPromise(Effect.logWarning(firefoxFallbackMessage));
             if (snapshot)
               await runPromise(
-                manager.open({
-                  threadId: ThreadId.make(snapshot.threadId),
-                  runtime: "server",
-                  ...("url" in snapshot.navStatus ? { url: snapshot.navStatus.url } : {}),
-                  ...(snapshot.automationOwner === undefined
-                    ? {}
-                    : { automationOwner: snapshot.automationOwner }),
-                  reveal: true,
-                }),
+                manager
+                  .open({
+                    threadId: ThreadId.make(snapshot.threadId),
+                    runtime: "server",
+                    ...("url" in snapshot.navStatus ? { url: snapshot.navStatus.url } : {}),
+                    ...(snapshot.automationOwner === undefined
+                      ? {}
+                      : { automationOwner: snapshot.automationOwner }),
+                    reveal: true,
+                  })
+                  .pipe(
+                    Effect.onError(() =>
+                      Effect.sync(() => cancelFirefoxFallback(change.key.threadId)),
+                    ),
+                  ),
               );
+            else if (change.reason === "no-window") cancelFirefoxFallback(change.key.threadId);
           }
           return;
         }
