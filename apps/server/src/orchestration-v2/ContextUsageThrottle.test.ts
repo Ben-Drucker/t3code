@@ -1,9 +1,11 @@
 import { assert, it } from "@effect/vitest";
 import {
+  NodeId,
   ProviderDriverKind,
   ProviderInstanceId,
   ProviderSessionId,
   ProviderThreadId,
+  ProviderTurnId,
   ThreadId,
 } from "@t3tools/contracts";
 import type { ProviderAdapterV2Event } from "@t3tools/provider-core/server/ProviderAdapter";
@@ -37,14 +39,45 @@ const usage = (usedTokens: number): ProviderAdapterV2Event => ({
   },
 });
 
-it.effect("flushes the newest usage when the provider stream ends", () =>
-  Effect.gen(function* () {
-    const events = yield* Stream.make(usage(100), usage(200), usage(300)).pipe(
-      throttleContextUsage,
-      Stream.runCollect,
-    );
-    assert.deepEqual(events, [usage(100), usage(300)]);
-  }),
+const turnUsage = (tokens: number): ProviderAdapterV2Event => ({
+  type: "provider_turn.updated",
+  driver: ProviderDriverKind.make("claudeAgent"),
+  providerTurn: {
+    id: ProviderTurnId.make("turn"),
+    providerThreadId: ProviderThreadId.make("p"),
+    nodeId: NodeId.make("node"),
+    runAttemptId: null,
+    nativeTurnRef: null,
+    ordinal: 1,
+    status: "running",
+    startedAt: DateTime.makeUnsafe(0),
+    completedAt: null,
+    tokenUsage: {
+      usedTokens: tokens,
+      maxTokens: 256000,
+      updatedAt: DateTime.formatIso(DateTime.makeUnsafe(tokens)),
+    },
+    turnTokenUsage: {
+      usageScope: "main_agent",
+      usageStatus: "partial",
+      hasSubagents: false,
+      inputTokens: 10,
+      outputTokens: tokens,
+    },
+  },
+});
+
+it.effect.each(["thread", "turn"] as const)(
+  "flushes the newest %s usage when the provider stream ends",
+  (kind) =>
+    Effect.gen(function* () {
+      const sample = kind === "thread" ? usage : turnUsage;
+      const events = yield* Stream.make(sample(100), sample(200), sample(300)).pipe(
+        throttleContextUsage,
+        Stream.runCollect,
+      );
+      assert.deepEqual(events, [sample(100), sample(300)]);
+    }),
 );
 
 it.effect("coalesces to the latest sample and flushes lifecycle boundaries", () =>

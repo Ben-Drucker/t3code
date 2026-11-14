@@ -17,7 +17,7 @@ function snapshot(event: ProviderAdapterV2Event) {
     event.providerTurn.status === "running" &&
     event.providerTurn.tokenUsage
   ) {
-    const { tokenUsage: _usage, ...rest } = event.providerTurn;
+    const { tokenUsage: _usage, turnTokenUsage: _turnUsage, ...rest } = event.providerTurn;
     return {
       key: `turn:${rest.id}`,
       signature: JSON.stringify([rest, _usage.maxTokens, _usage.autoCompactThreshold]),
