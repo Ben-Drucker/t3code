@@ -32,6 +32,10 @@ const fake = vi.hoisted(() => {
     firefoxOpens: [] as string[],
     managedOpens: [] as string[],
     builtinOpens: 0,
+    interleaveOpen: false,
+    concurrentTab: undefined as string | undefined,
+    hostReady: undefined as Promise<void> | undefined,
+    eventsReady: undefined as Promise<void> | undefined,
     dockChanges: undefined as
       | { publish: (change: unknown) => void; ready: Promise<void> }
       | undefined,
@@ -114,8 +118,51 @@ const scope = {
 };
 
 const dependencies = Layer.mergeAll(
-  Broker.layer,
-  Manager.layer,
+  Layer.effect(
+    Broker.PreviewAutomationBroker,
+    Effect.gen(function* () {
+      const broker = yield* Broker.PreviewAutomationBroker;
+      const connected = Promise.withResolvers<void>();
+      fake.hostReady = connected.promise;
+      return Broker.PreviewAutomationBroker.of({
+        ...broker,
+        connect: (host, options) =>
+          broker
+            .connect(host, options)
+            .pipe(Effect.tap(() => Effect.sync(() => connected.resolve()))),
+      });
+    }),
+  ).pipe(Layer.provide(Broker.layer)),
+  Layer.effect(
+    Manager.PreviewManager,
+    Effect.gen(function* () {
+      const manager = yield* Manager.PreviewManager;
+      const subscribed = Promise.withResolvers<void>();
+      fake.eventsReady = subscribed.promise;
+      return Manager.PreviewManager.of({
+        ...manager,
+        events: Stream.unwrap(
+          manager.subscribeEvents.pipe(
+            Effect.tap(() => Effect.sync(() => subscribed.resolve())),
+            Effect.map(Stream.fromSubscription),
+          ),
+        ),
+        open: (input) =>
+          Effect.gen(function* () {
+            if (fake.interleaveOpen && fake.managedOpens.length === 1) {
+              fake.interleaveOpen = false;
+              const concurrent = yield* manager.open({
+                threadId: input.threadId,
+                runtime: "server",
+                reveal: false,
+              });
+              fake.concurrentTab = concurrent.tabId;
+            }
+            return yield* manager.open(input);
+          }),
+      });
+    }),
+  ).pipe(Layer.provide(Manager.layer)),
   Layer.succeed(HostProcess.Platform, "darwin"),
   Layer.succeed(ServerEnvironment.ServerEnvironment, {
     getEnvironmentId: Effect.succeed(scope.environmentId),
@@ -166,7 +213,14 @@ beforeEach(() => {
   fake.firefoxOpens.length = 0;
   fake.managedOpens.length = 0;
   fake.builtinOpens = 0;
+  fake.interleaveOpen = false;
+  fake.concurrentTab = undefined;
 });
+
+const awaitReady = Effect.all([
+  Effect.promise(() => fake.hostReady!),
+  Effect.promise(() => fake.eventsReady!),
+]);
 
 const reportMode = (mode: "builtin" | "firefox-docked") =>
   Effect.gen(function* () {
@@ -192,60 +246,62 @@ const agentOpen = Effect.gen(function* () {
     .pipe(Effect.exit);
 });
 
-it.live("a manual open that fell back to the built-in browser tries Firefox again next time", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      yield* ServerBrowser.ServerBrowser;
-      const report = yield* reportMode("firefox-docked");
-      yield* report();
-      // The server subscribes to preview events in a forked fiber; let it start.
-      yield* Effect.yieldNow;
+it.effect(
+  "a manual open that fell back to the built-in browser tries Firefox again next time",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* ServerBrowser.ServerBrowser;
+        const report = yield* reportMode("firefox-docked");
+        yield* report();
+        yield* awaitReady;
 
-      fake.failOpens = 1;
-      yield* manualOpen;
-      // The failed tab reopens once in the built-in browser and is not offered to Firefox again.
-      yield* Effect.promise(() => fake.until(() => fake.builtinOpens >= 1));
-      expect(fake.managedOpens).toHaveLength(1);
+        fake.failOpens = 1;
+        yield* manualOpen;
+        // The failed tab reopens once in the built-in browser and is not offered to Firefox again.
+        yield* Effect.promise(() => fake.until(() => fake.builtinOpens >= 1));
+        expect(fake.managedOpens).toHaveLength(1);
 
-      // The user closes the fallback tab, so the next open creates a new one.
-      const manager = yield* Manager.PreviewManager;
-      const { sessions } = yield* manager.list({ threadId: thread.threadId });
-      for (const session of sessions) {
-        yield* manager.close({ threadId: thread.threadId, tabId: session.tabId });
-      }
-      yield* manualOpen;
-      yield* Effect.promise(() =>
-        fake.until(() => fake.managedOpens.length >= 2 || fake.builtinOpens >= 2),
-      );
-      expect(fake.managedOpens).toHaveLength(2);
-      expect(fake.builtinOpens).toBe(1);
-    }),
-  ).pipe(Effect.provide(layer)),
+        // The user closes the fallback tab, so the next open creates a new one.
+        const manager = yield* Manager.PreviewManager;
+        const { sessions } = yield* manager.list({ threadId: thread.threadId });
+        for (const session of sessions) {
+          yield* manager.close({ threadId: thread.threadId, tabId: session.tabId });
+        }
+        yield* manualOpen;
+        yield* Effect.promise(() =>
+          fake.until(() => fake.managedOpens.length >= 2 || fake.builtinOpens >= 2),
+        );
+        expect(fake.managedOpens).toHaveLength(2);
+        expect(fake.builtinOpens).toBe(1);
+      }),
+    ).pipe(Effect.provide(layer)),
 );
 
-it.live("an agent open that fell back to the built-in browser tries Firefox again next time", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      yield* ServerBrowser.ServerBrowser;
-      const report = yield* reportMode("firefox-docked");
-      yield* report();
+it.effect(
+  "an agent open that fell back to the built-in browser tries Firefox again next time",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* ServerBrowser.ServerBrowser;
+        const report = yield* reportMode("firefox-docked");
+        yield* report();
 
-      // The server host must be connected to the broker before it can answer an open.
-      yield* Effect.yieldNow;
-      fake.failOpens = 1;
-      yield* agentOpen;
-      expect(fake.firefoxOpens).toHaveLength(1);
-      expect(fake.builtinOpens).toBe(1);
+        yield* awaitReady;
+        fake.failOpens = 1;
+        yield* agentOpen;
+        expect(fake.firefoxOpens).toHaveLength(1);
+        expect(fake.builtinOpens).toBe(1);
 
-      const second = yield* agentOpen;
-      expect(fake.firefoxOpens).toHaveLength(2);
-      expect(fake.builtinOpens).toBe(1);
-      expect(second._tag).toBe("Success");
-    }),
-  ).pipe(Effect.provide(layer)),
+        const second = yield* agentOpen;
+        expect(fake.firefoxOpens).toHaveLength(2);
+        expect(fake.builtinOpens).toBe(1);
+        expect(second._tag).toBe("Success");
+      }),
+    ).pipe(Effect.provide(layer)),
 );
 
-it.live("a Firefox the desktop cannot dock stays off until the mode is reported again", () =>
+it.effect("a Firefox the desktop cannot dock stays off until the mode is reported again", () =>
   Effect.scoped(
     Effect.gen(function* () {
       yield* ServerBrowser.ServerBrowser;
@@ -279,7 +335,7 @@ it.live("a Firefox the desktop cannot dock stays off until the mode is reported 
   ).pipe(Effect.provide(layer)),
 );
 
-it.live("a Firefox window the desktop could not find is retried by the next open", () =>
+it.effect("a Firefox window the desktop could not find is retried by the next open", () =>
   Effect.scoped(
     Effect.gen(function* () {
       yield* ServerBrowser.ServerBrowser;
@@ -301,6 +357,24 @@ it.live("a Firefox window the desktop could not find is retried by the next open
         fake.until(() => fake.managedOpens.length >= 2 || fake.builtinOpens >= 2),
       );
       expect(fake.managedOpens).toHaveLength(2);
+      expect(fake.builtinOpens).toBe(1);
+    }),
+  ).pipe(Effect.provide(layer)),
+);
+
+it.effect("a concurrent open cannot consume another tab's Firefox fallback", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      yield* ServerBrowser.ServerBrowser;
+      const report = yield* reportMode("firefox-docked");
+      yield* report();
+      yield* awaitReady;
+      fake.failOpens = 1;
+      fake.interleaveOpen = true;
+      const opened = yield* manualOpen;
+      yield* Effect.promise(() => fake.until(() => fake.builtinOpens >= 1));
+      yield* Effect.promise(() => fake.until(() => fake.managedOpens.length >= 2));
+      expect(fake.managedOpens).toEqual([opened.tabId, fake.concurrentTab]);
       expect(fake.builtinOpens).toBe(1);
     }),
   ).pipe(Effect.provide(layer)),
