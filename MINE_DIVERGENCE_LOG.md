@@ -2,7 +2,7 @@
 
 ## Comparison and maintenance
 
-Canonical incorporated upstream nightly: `bc647ed53595888efacdd8ca435967d48888a952` (`v0.1.10-nightly.20261112.4564`). Mine comparison: `3aca9540526ee567ddd6b9ab1c42578a30d728fe`.
+Canonical incorporated upstream nightly: `bc647ed53595888efacdd8ca435967d48888a952` (`v0.1.10-nightly.20261112.4564`). Mine comparison: `f92355bc43181616e42ae452d81d27e2554dc39d`.
 
 The nightly is the second parent of merge `1b92f55f099b2ac9d1fc4fde53a62d8567b7bb85`, which is in mine's first-parent history. This inventory compares that nightly's entire tree with mine, including fork work predating that merge; it is not a list of commits made after the merge.
 
@@ -19,7 +19,7 @@ BACKLOG.md holds unfinished items. Once a feature, fix, or change is completed, 
 - **Model reference settings snapshot.** Inserted references capture displayed defaults as well as explicit overrides, including reasoning effort, service tier, context limit, and compaction buffer. Areas: `ChatComposer.tsx`, `composerProviderState.tsx`; history: `edfd1d451d`. Focused provider-state tests pass.
 - **Kimi QQ verification.** The registry ACP forwarding path already wraps `/qq` as user text. The existing native-command table passes all five cases, including `/qq`; the stale backlog report is removed. History: `953c09e94e`.
 
-- **Thread throughput row.** The customizable Thread details list divides measured main-agent output by full-turn duration, including tool time, with a duration-weighted chat average; live counters update the rates during Codex, Claude, and OpenCode turns, and completed rates stay fixed while idle. Local commands and compaction turns are excluded; Antigravity waits for measured output counts because its live context occupancy is a different measurement. Areas: web/mobile thread details, `tokenThroughput.ts`, `ChatView.tsx`, turn-usage contracts, Claude/Codex usage normalizers and adapters, ACP and both OpenCode adapters, `ContextUsageThrottle.ts`; history: `b1520af632`, `4d3b73bc35`, `3aca954052`.
+- **Thread throughput row.** The customizable Thread details list divides measured main-agent output by full-turn duration, including tool time, with a duration-weighted chat average; live counters update the rates during Codex, Claude, OpenCode, and Antigravity turns, and completed rates stay fixed while idle. Local commands and compaction turns are excluded; Antigravity uses its native database's per-step output counts, with repeated samples deduplicated and reasoning counted once. Areas: web/mobile thread details, `tokenThroughput.ts`, `ChatView.tsx`, turn-usage contracts, Claude/Codex usage normalizers and adapters, ACP and both OpenCode adapters, `AntigravityContextBreakdown.ts`, `AntigravityAdapterV2.ts`, `ContextUsageThrottle.ts`; history: `b1520af632`, `4d3b73bc35`, `3aca954052`, `f92355bc43`.
 
 - **Parent-only Stop.** Holding Option shows Parent beside Stop and sends a parent-only interruption, preserving delegated tasks and their completion state. Areas: composer actions, `ChatView.tsx`, client commands, interruption contract and orchestrator; focused ThreadStop regression passes.
 
@@ -115,9 +115,9 @@ These entries extend or replace a capability already present in the canonical ni
 
 ## Coverage and limits
 
-The comparison contains 412 changed files (32,164 inserted and 2,771 deleted lines, plus binary screenshots), and the fork-only range contains 163 non-merge commits. The 73 aspects above group that history by retained behavior and include smaller fixes, tests supporting those behaviors, documentation, generated schema, dependencies, and tooling/configuration; only behavior retained in the comparison tree belongs here.
+The comparison contains 412 changed files (32,649 inserted and 2,782 deleted lines, plus binary screenshots), and the fork-only range contains 165 non-merge commits. The 73 aspects above group that history by retained behavior and include smaller fixes, tests supporting those behaviors, documentation, generated schema, dependencies, and tooling/configuration; only behavior retained in the comparison tree belongs here.
 
-Evidence combines `git diff bc647ed53595888efacdd8ca435967d48888a952 3aca9540526ee567ddd6b9ab1c42578a30d728fe` with the non-merge fork history in that range and source inspection of the listed areas. The latest nightly tag reachable from mine is the selected tag; older merges include the November 6 and November 2 nightlies, so their retained fork additions are included rather than discarded at the latest merge boundary.
+Evidence combines `git diff bc647ed53595888efacdd8ca435967d48888a952 f92355bc43181616e42ae452d81d27e2554dc39d` with the non-merge fork history in that range and source inspection of the listed areas. The latest nightly tag reachable from mine is the selected tag; older merges include the November 6 and November 2 nightlies, so their retained fork additions are included rather than discarded at the latest merge boundary.
 
 Tests beside the changed modules provide additional behavioral specifications, including streaming, Kimi usage/session parsing, context thresholds, sidebar nesting/attention, dock geometry/controller, Firefox integration, Mini QQ lifecycle, rich citations, and composer menus. This research did not run builds, tests, browser sessions, or provider turns; “completed” here means an implemented change retained in the comparison tree, not a fresh runtime certification.
 
