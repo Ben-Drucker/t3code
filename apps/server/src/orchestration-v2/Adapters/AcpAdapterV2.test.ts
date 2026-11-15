@@ -3438,6 +3438,19 @@ describe("AcpAdapterV2", () => {
       type RuntimeService = AcpSessionRuntime.AcpSessionRuntime["Service"];
       let sessionUpdateHandler: Parameters<RuntimeService["handleSessionUpdate"]>[0] | undefined;
       const instanceId = ProviderInstanceId.make("acp-test-v2-fidelity");
+      const imageReads = [
+        "photo.jpeg",
+        "photo.JPG",
+        "photo.jpe",
+        "photo.jfif",
+        "capture.png",
+        "motion.gif",
+        "scan.tif",
+        "scan.TIFF",
+        "photo.png.txt",
+        "bad\npath.png",
+        "bad\0path.png",
+      ];
       const adapter = yield* makeAcpAdapterV2({
         instanceId,
         flavor: {
@@ -3449,6 +3462,23 @@ describe("AcpAdapterV2", () => {
             environment: { T3_ACP_EMIT_V2_FIDELITY: "1" },
             wrapRuntime: (runtime) => ({
               ...runtime,
+              prompt: (payload, options) =>
+                Effect.gen(function* () {
+                  for (const [index, path] of imageReads.entries()) {
+                    yield* sessionUpdateHandler!({
+                      sessionId: "mock-session-1",
+                      update: {
+                        sessionUpdate: "tool_call",
+                        toolCallId: `image-read-${index}`,
+                        kind: "read",
+                        title: "Running read_file",
+                        status: "completed",
+                        rawInput: index === 0 ? { AbsolutePath: path } : { file_path: path },
+                      },
+                    });
+                  }
+                  return yield* runtime.prompt(payload, options);
+                }),
               handleSessionUpdate: (handler) =>
                 Effect.sync(() => {
                   sessionUpdateHandler = handler;
@@ -3553,7 +3583,18 @@ describe("AcpAdapterV2", () => {
             item.changes[0]?.oldPath === "/workspace/old.ts",
         ),
       );
-      const read = items.find((item) => item.type === "dynamic_tool" && item.toolName === "Read");
+      for (const [index, path] of imageReads.entries()) {
+        const item = items.findLast((item) =>
+          item.nativeItemRef?.nativeId?.endsWith(`image-read-${index}`),
+        );
+        assert.equal(
+          item?.type === "dynamic_tool" ? item.viewedImagePath : undefined,
+          index < 8 ? path : undefined,
+        );
+      }
+      const read = items.find(
+        (item) => item.type === "dynamic_tool" && item.title === "Read src/env.ts",
+      );
       assert.deepEqual(
         read?.type === "dynamic_tool" ? { title: read.title, input: read.input } : null,
         { title: "Read src/env.ts", input: { path: "src/env.ts" } },

@@ -120,13 +120,21 @@ describe("workspace file previews", () => {
     expect(isWorkspacePreviewEntryPath(path)).toBe(false);
   });
 
-  it.each(["picture.bmp", "photo.heic", "photo.heif", "scan.tif", "scan.TIFF"])(
-    "recognizes image preview path %s",
-    (path) => {
-      expect(isWorkspaceImagePreviewPath(path)).toBe(true);
-      expect(isWorkspacePreviewEntryPath(path)).toBe(true);
-    },
-  );
+  it.each([
+    "picture.bmp",
+    "photo.heic",
+    "photo.heif",
+    "scan.tif",
+    "scan.TIFF",
+    "photo.JPE",
+    "photo.JFIF",
+    "photo.jif",
+    "photo.jfi",
+  ])("recognizes image preview path %s", (path) => {
+    expect(isWorkspaceImagePreviewPath(path)).toBe(true);
+    expect(isWorkspacePreviewEntryPath(path)).toBe(true);
+    expect(filePreviewKind({ name: path })).toBe("image");
+  });
 
   it("serves audio in place from the host like video and browser documents", () => {
     expect(hostPreviewMimeTypeFromExtension(".m4a")).toBe("audio/mp4");

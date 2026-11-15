@@ -46,6 +46,43 @@ describe("openCodeToolOutput", () => {
 
 describe("openCodeToolTurnItem", () => {
   it.each([
+    ["read", "filePath", "images/photo.JPEG", "images/photo.JPEG"],
+    ["read_file", "file_path", "images/photo.jpg", "images/photo.jpg"],
+    ["Read", "path", "images/photo.jpe", "images/photo.jpe"],
+    ["read", "file", "images/photo.jfif", "images/photo.jfif"],
+    ["read", "filePath", "images/capture.PNG", "images/capture.PNG"],
+    ["read", "filePath", "images/motion.gif", "images/motion.gif"],
+    ["read", "filePath", "images/scan.tif", "images/scan.tif"],
+    ["read", "filePath", "images/scan.TIFF", "images/scan.TIFF"],
+    ["read", "filePath", "images/photo.png.txt", undefined],
+    ["read", "filePath", "images/photo.png\nother.png", undefined],
+    ["read", "filePath", "images/photo\0.png", undefined],
+    ["read", "filePath", `${"a".repeat(4097)}.png`, undefined],
+    ["mcp__other__read_file", "path", "images/photo.png", undefined],
+  ])("marks an image read from %s %s (%#)", (name, key, path, expected) => {
+    const item = openCodeToolTurnItem(
+      {
+        id: TurnItemId.make("image-read"),
+        threadId: ThreadId.make("thread"),
+        runId: null,
+        nodeId: null,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: 0,
+        status: "completed",
+        title: name,
+        startedAt: null,
+        completedAt: null,
+        updatedAt: DateTime.makeUnsafe(0),
+      },
+      { name, input: { [key]: path }, output: "read", completedMetadata: undefined },
+    );
+    expect(item.type === "dynamic_tool" ? item.viewedImagePath : undefined).toBe(expected);
+  });
+
+  it.each([
     {
       name: "deletion",
       toolName: "edit",

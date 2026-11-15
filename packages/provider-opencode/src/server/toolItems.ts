@@ -1,4 +1,5 @@
 import type { OrchestrationV2TurnItem } from "@t3tools/contracts";
+import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import { resolveT3McpToolId } from "@t3tools/shared/t3McpToolPresentation";
 import { formatReadToolLabel, formatSearchToolLabel } from "@t3tools/shared/toolActivity";
 import {
@@ -198,17 +199,26 @@ export function openCodeToolTurnItem(
       };
     }
     case "dynamic_tool": {
-      const readPath = recordString(input, "filePath", "path", "file");
-      const cleanedOutput =
-        tool.name === "read" && output !== undefined ? nativeReadOutput(output) : output;
+      const isRead = ["read", "readfile", "read_file", "read file"].includes(
+        tool.name.toLowerCase(),
+      );
+      const readPath = isRead
+        ? recordString(input, "filePath", "file_path", "path", "file")?.trim()
+        : undefined;
+      const viewedImagePath =
+        readPath &&
+        readPath.length <= 4096 &&
+        !/[\r\n\0]/.test(readPath) &&
+        isWorkspaceImagePreviewPath(readPath)
+          ? readPath
+          : undefined;
+      const cleanedOutput = isRead && output !== undefined ? nativeReadOutput(output) : output;
       return {
         ...base,
-        title:
-          tool.name.toLowerCase() === "read" && readPath !== undefined
-            ? formatReadToolLabel(readPath)
-            : base.title,
+        title: isRead && readPath !== undefined ? formatReadToolLabel(readPath) : base.title,
         type: "dynamic_tool",
         toolName: tool.name,
+        ...(viewedImagePath === undefined ? {} : { viewedImagePath }),
         input,
         ...(cleanedOutput === undefined && !tool.files?.length
           ? {}
