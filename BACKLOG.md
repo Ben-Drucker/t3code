@@ -2,7 +2,7 @@
 
 Keep unfinished items here. Once a feature, fix, or change is completed, move it to MINE_DIVERGENCE_LOG.md and remove its corresponding backlog entry only with evidence of completion.
 
-- Firefox docked still routes preview tools to the integrated browser on Ben's desktop. Firefox's browser-level access now passes after enabling `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1` persistently and restarting Firefox, but the subsequent preview check still reports Electron/Chromium. The running T3 build is `3c1ad6a01b`, before reporting fix `a62ba728ed`; verify routing in a build containing that fix and continue tracing if it persists.
+- Investigate Firefox `preview_wait_for`: a URL wait after clicking a link returned a Marionette JavaScript error on Firefox 159 with BiDi unavailable, while snapshot, typing, clicking, evaluation, and navigation worked.
 - Mini QQ: a global hotkey (opt+opt, plus a reliable chord such as Opt+Space as the fallback) opens a small floating window with an exact copy of the composer, QQ on by default. The answer streams into a stripped-down sheet above it. Esc or the hotkey again dismisses it.
   - Starts in the "No project" option. Each question is a normal saved thread, hidden from the sidebar, with an "Open in T3" action.
   - Reopening within 10 minutes (timer starts at the hotkey press) keeps the previous conversation. After that, or on Cmd+N, it starts a fresh "No project" session.
