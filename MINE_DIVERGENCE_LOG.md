@@ -2,7 +2,7 @@
 
 ## Comparison and maintenance
 
-Canonical incorporated upstream nightly: `bc647ed53595888efacdd8ca435967d48888a952` (`v0.1.10-nightly.20261112.4564`). Mine comparison: `f92355bc43181616e42ae452d81d27e2554dc39d`.
+Canonical incorporated upstream nightly: `bc647ed53595888efacdd8ca435967d48888a952` (`v0.1.10-nightly.20261112.4564`). Mine comparison: `8dfa4b13342aa15431b08b983852f3dbcb7ddec4`.
 
 The nightly is the second parent of merge `1b92f55f099b2ac9d1fc4fde53a62d8567b7bb85`, which is in mine's first-parent history. This inventory compares that nightly's entire tree with mine, including fork work predating that merge; it is not a list of commits made after the merge.
 
@@ -15,6 +15,8 @@ BACKLOG.md holds unfinished items. Once a feature, fix, or change is completed, 
 - **Antigravity empty discovery protection.** Empty ACP session catalogs and model config updates retain the last verified models; partial config updates also preserve them. Empty ready snapshots retain the catalog for the same executable, while sign-out, disable, uninstall, and executable changes still invalidate it. Areas: `AntigravityProvider.ts`, `ProviderRegistry.ts`; regression tests cover empty updates followed by health refresh. The hour-idle trigger still needs real-client verification.
 
 - **Live context usage.** OpenCode publishes the newest request occupancy at each completed model step. A shared 1000 ms usage throttle before normalized ingestion retains the latest snapshot and flushes at lifecycle boundaries; billing totals remain separate. The client selector excludes child provider threads from the parent meter. Claude, Codex, Kimi, and Antigravity retain their existing live sources. Areas: OpenCode v2 adapter, `ContextUsageThrottle.ts`, `ProviderSessionManager.ts`. Real-client verification remains for Ben.
+
+- **Image previews for native file reads.** Antigravity and both OpenCode implementations identify image file reads by path and show them through the existing web, desktop, and mobile timeline previews, including JPEG filename variants, PNG, GIF, and TIFF. Web and desktop reuse the TIFF decoder, and unreadable or corrupt images retain the existing Image unavailable fallback. Areas: shared ACP adapter, OpenCode `toolItems.ts`, shared `mediaPreview.ts`, `ChatMarkdownMedia.tsx`, provider and file-preview regression tests; history: `8dfa4b1334`.
 
 - **Model reference settings snapshot.** Inserted references capture displayed defaults as well as explicit overrides, including reasoning effort, service tier, context limit, and compaction buffer. Areas: `ChatComposer.tsx`, `composerProviderState.tsx`; history: `edfd1d451d`. Focused provider-state tests pass.
 - **Kimi QQ verification.** The registry ACP forwarding path already wraps `/qq` as user text. The existing native-command table passes all five cases, including `/qq`; the stale backlog report is removed. History: `953c09e94e`.
@@ -115,9 +117,9 @@ These entries extend or replace a capability already present in the canonical ni
 
 ## Coverage and limits
 
-The comparison contains 412 changed files (32,649 inserted and 2,782 deleted lines, plus binary screenshots), and the fork-only range contains 165 non-merge commits. The 73 aspects above group that history by retained behavior and include smaller fixes, tests supporting those behaviors, documentation, generated schema, dependencies, and tooling/configuration; only behavior retained in the comparison tree belongs here.
+The comparison contains 417 changed files (32,781 inserted and 2,800 deleted lines, plus binary screenshots), and the fork-only range contains 167 non-merge commits. The 74 aspects above group that history by retained behavior and include smaller fixes, tests supporting those behaviors, documentation, generated schema, dependencies, and tooling/configuration; only behavior retained in the comparison tree belongs here.
 
-Evidence combines `git diff bc647ed53595888efacdd8ca435967d48888a952 f92355bc43181616e42ae452d81d27e2554dc39d` with the non-merge fork history in that range and source inspection of the listed areas. The latest nightly tag reachable from mine is the selected tag; older merges include the November 6 and November 2 nightlies, so their retained fork additions are included rather than discarded at the latest merge boundary.
+Evidence combines `git diff bc647ed53595888efacdd8ca435967d48888a952 8dfa4b13342aa15431b08b983852f3dbcb7ddec4` with the non-merge fork history in that range and source inspection of the listed areas. The latest nightly tag reachable from mine is the selected tag; older merges include the November 6 and November 2 nightlies, so their retained fork additions are included rather than discarded at the latest merge boundary.
 
 Tests beside the changed modules provide additional behavioral specifications, including streaming, Kimi usage/session parsing, context thresholds, sidebar nesting/attention, dock geometry/controller, Firefox integration, Mini QQ lifecycle, rich citations, and composer menus. This research did not run builds, tests, browser sessions, or provider turns; “completed” here means an implemented change retained in the comparison tree, not a fresh runtime certification.
 
