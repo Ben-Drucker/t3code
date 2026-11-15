@@ -33,39 +33,40 @@ export function AttachmentImage({
   const heightCss = typeof heightBound === "number" ? `${heightBound}px` : heightBound;
   const widthBound = props.style?.maxWidth ?? "100%";
   const widthCss = typeof widthBound === "number" ? `${widthBound}px` : widthBound;
-  if (nativeDensity)
-    props = {
-      ...props,
-      onLoad: (event) => {
-        setIntrinsic({
-          src: props.src,
-          width: event.currentTarget.naturalWidth,
-          height: event.currentTarget.naturalHeight,
-        });
-        onLoad?.(event);
-      },
-      style: {
-        ...props.style,
-        ...(measured && measured.width > 0
-          ? {
-              width: measured.width / scale,
-              height: "auto",
-              aspectRatio: `${measured.width}/${measured.height}`,
-              maxWidth: `min(${widthCss}, calc(${heightCss} * ${measured.width / measured.height}))`,
-              maxHeight: heightBound,
-              objectFit: "contain",
-            }
-          : {}),
-      },
-    };
+  const imageProps = nativeDensity
+    ? {
+        ...props,
+        onLoad: (event: SyntheticEvent<HTMLImageElement>) => {
+          setIntrinsic({
+            src: props.src,
+            width: event.currentTarget.naturalWidth,
+            height: event.currentTarget.naturalHeight,
+          });
+          onLoad?.(event);
+        },
+        style: {
+          ...props.style,
+          ...(measured && measured.width > 0 && measured.height > 0
+            ? {
+                width: measured.width / scale,
+                height: "auto",
+                aspectRatio: `${measured.width}/${measured.height}`,
+                maxWidth: `min(${widthCss}, calc(${heightCss} * ${measured.width / measured.height}))`,
+                maxHeight: heightBound,
+                objectFit: "contain" as const,
+              }
+            : {}),
+        },
+      }
+    : props;
   const fallback =
     isHeicImageFile({ name, type: mimeType ?? "" }) ||
     /\.tiff?$/i.test(name) ||
     /^image\/tiff$/i.test(mimeType ?? "");
   return fallback ? (
-    <DecodedImage key={props.src} {...props} name={name} mimeType={mimeType} />
+    <DecodedImage key={props.src} {...imageProps} name={name} mimeType={mimeType} />
   ) : (
-    <img {...props} />
+    <img {...imageProps} />
   );
 }
 

@@ -4,12 +4,19 @@ import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vite-plus/test";
 
 const harness = vi.hoisted(() => ({
+  displayScale: 2,
   failImage: () => {},
   loadImage: (_event: { source: { width: number; height: number } }) => {},
   Passthrough: ({ children }: { children?: unknown }) => children,
 }));
 
 vi.mock("react-native", () => ({
+  useWindowDimensions: () => ({
+    width: 345,
+    height: 800,
+    scale: harness.displayScale,
+    fontScale: 1,
+  }),
   Pressable: harness.Passthrough,
   StyleSheet: { absoluteFill: {} },
   View: ({ children, style }: { children?: ReactNode; style?: unknown }) => (
@@ -81,7 +88,25 @@ it("keeps the frame size when the same image reports a different decoded width",
 
     await act(async () => harness.loadImage({ source: { width: 969, height: 567 } }));
     expect(frameSize()).toEqual(first);
+    const smallImage = () => (
+      <MarkdownImageAvailableWidthContext value={345}>
+        <ThreadMarkdownImageView
+          uri="https://example.test/small.png"
+          sourceKey="workspace:small.png"
+          unavailable={false}
+          alt={null}
+          knownSize={{ width: 256, height: 128 }}
+          onPressPreview={() => {}}
+        />
+      </MarkdownImageAvailableWidthContext>
+    );
+    await act(async () => root.render(smallImage()));
+    expect(frameSize()).toEqual({ width: 128, height: 64 });
+    harness.displayScale = 1;
+    await act(async () => root.render(smallImage()));
+    expect(frameSize()).toEqual({ width: 256, height: 128 });
   } finally {
+    harness.displayScale = 2;
     await act(async () => root.unmount());
   }
 });
