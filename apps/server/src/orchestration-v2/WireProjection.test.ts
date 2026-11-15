@@ -22,6 +22,7 @@ import {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
+import { applyPatch } from "diff";
 import * as Schema from "effect/Schema";
 
 import { coalesceLiveUpdatedEvents } from "./ThreadLiveEventCoalescer.ts";
@@ -301,7 +302,7 @@ describe("orchestration V2 wire projection", () => {
       fileName: "src/main.ts",
       additions: 3,
       deletions: 1,
-      diffStr: "+new code",
+      diffStr: "--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1 +1 @@\n-old code\n+new code\n",
       oldStr: "old code",
       newStr: "new code",
     };
@@ -310,8 +311,7 @@ describe("orchestration V2 wire projection", () => {
     expect(projected).not.toHaveProperty("oldStr");
     expect(projected).not.toHaveProperty("newStr");
     expect(projected).toMatchObject({ fileName: "src/main.ts", additions: 3, deletions: 1 });
-    expect(item.diffStr).toBe("+new code");
-    expect(projectTurnItemForDetail(item)).toMatchObject({ diffStr: "+new code" });
+    expect(projectTurnItemForDetail(item)).toMatchObject({ diffStr: item.diffStr });
     expect(projectTurnItemForDetail(item)).not.toHaveProperty("oldStr");
     expect(projectTurnItemForDetail(item)).not.toHaveProperty("newStr");
     const { diffStr: _diff, ...contentOnly } = item;
@@ -320,6 +320,9 @@ describe("orchestration V2 wire projection", () => {
       expect.stringContaining("recorded replacement"),
     );
     expect(projectTurnItemForWire(contentOnly)).not.toHaveProperty("newStr");
+    expect(
+      projectTurnItemForDetail({ ...contentOnly, diffStr: "File updated successfully" }),
+    ).toHaveProperty("diffStr", expect.stringContaining("recorded replacement"));
     const captured = projectTurnItemForDetail({
       ...contentOnly,
       additions: undefined,
@@ -330,6 +333,19 @@ describe("orchestration V2 wire projection", () => {
     expect(captured).toMatchObject({ additions: 1, deletions: 1 });
     if (captured.type === "file_change") {
       expect(captured.diffStr).toContain("-  a\t\n+b\n\\ No newline at end of file");
+      expect(applyPatch("  a\t\n", captured.diffStr!)).toBe("b");
+    }
+    const large = projectTurnItemForDetail({
+      ...contentOnly,
+      additions: undefined,
+      deletions: undefined,
+      oldStr: "before\n".repeat(1001),
+      newStr: "after\n".repeat(1001),
+    });
+    expect(large).toMatchObject({ additions: 1001, deletions: 1001 });
+    if (large.type === "file_change") {
+      expect(large.diffStr).toContain("recorded replacement");
+      expect(applyPatch("before\n".repeat(1001), large.diffStr!)).toBe("after\n".repeat(1001));
     }
     for (const operation of ["add", "delete"] as const) {
       const contents = "line\n".repeat(1001);
