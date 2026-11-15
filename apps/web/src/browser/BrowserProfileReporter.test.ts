@@ -82,6 +82,19 @@ describe("takeDueProfileReports", () => {
         null,
       ),
     ).toEqual([]);
+
+    const reconnectedDesktop: ReportedProfiles = new Map();
+    const firefox = { ...settings, previewBrowserMode: "firefox-docked" as const };
+    expect(takeDueProfileReports(reconnectedDesktop, targets, firefox, null)).toEqual([
+      first,
+      second,
+    ]);
+    expect(takeDueProfileReports(reconnectedDesktop, targets, firefox, null, first)).toEqual([
+      first,
+    ]);
+    expect(takeDueProfileReports(reconnectedDesktop, targets, firefox, null, first)).toEqual([]);
+    expect(profileReportFor(firefox, first, null, first).previewBrowserMode).toBe("firefox-docked");
+    expect(profileReportFor(firefox, second, null, first)).not.toHaveProperty("previewBrowserMode");
   });
 
   it("reports an environment again once it becomes operable again", () => {

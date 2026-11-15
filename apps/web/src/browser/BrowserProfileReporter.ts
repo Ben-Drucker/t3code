@@ -13,7 +13,7 @@ import {
 import { isElectron } from "~/env";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { environmentPresentations } from "~/state/presentation";
-import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
+import { hostEnvironmentIdAtom, primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
 import { previewEnvironment } from "~/state/preview";
 import { environmentSession, sessionHasScope } from "~/state/session";
 
@@ -55,18 +55,20 @@ export function startBrowserProfileReporting(): () => void {
     const targets = appAtomRegistry.get(reportTargetsAtom);
     // Only the desktop app's own server can be docked by this client's native window.
     const nativeEnvironmentId = isElectron ? appAtomRegistry.get(primaryEnvironmentIdAtom) : null;
+    const hostEnvironmentId = isElectron ? appAtomRegistry.get(hostEnvironmentIdAtom) : null;
     for (const environmentId of takeDueProfileReports(
       reported,
       targets,
       input,
       nativeEnvironmentId,
+      hostEnvironmentId,
     )) {
       void runAtomCommand(
         appAtomRegistry,
         previewEnvironment.reportProfiles,
         {
           environmentId,
-          input: profileReportFor(input, environmentId, nativeEnvironmentId),
+          input: profileReportFor(input, environmentId, nativeEnvironmentId, hostEnvironmentId),
         },
         { reportFailure: false },
       );
@@ -75,6 +77,7 @@ export function startBrowserProfileReporting(): () => void {
   const unsubscribes = [
     appAtomRegistry.subscribe(reportTargetsAtom, report),
     appAtomRegistry.subscribe(primaryEnvironmentIdAtom, report),
+    appAtomRegistry.subscribe(hostEnvironmentIdAtom, report),
     subscribeClientSettings(report),
     subscribeClientSettingsHydration(report),
   ];
@@ -99,6 +102,7 @@ export function takeDueProfileReports(
   targets: ReadonlyMap<EnvironmentId, EnvironmentServerConfig>,
   input: ProfileReport,
   nativeEnvironmentId: EnvironmentId | null = null,
+  hostEnvironmentId: string | null = null,
 ): EnvironmentId[] {
   for (const environmentId of reported.keys()) {
     if (!targets.has(environmentId)) reported.delete(environmentId);
@@ -106,7 +110,12 @@ export function takeDueProfileReports(
   const due: EnvironmentId[] = [];
   for (const [environmentId, config] of targets) {
     const last = reported.get(environmentId);
-    const effective = profileReportFor(input, environmentId, nativeEnvironmentId);
+    const effective = profileReportFor(
+      input,
+      environmentId,
+      nativeEnvironmentId,
+      hostEnvironmentId,
+    );
     if (last && last.config === config && sameReportInput(last.input, effective)) continue;
     reported.set(environmentId, { config, input: effective });
     due.push(environmentId);
@@ -123,8 +132,9 @@ export function profileReportFor(
   input: ProfileReport,
   environmentId: EnvironmentId,
   nativeEnvironmentId: EnvironmentId | null,
+  hostEnvironmentId: string | null = null,
 ): ProfileReport {
-  if (environmentId === nativeEnvironmentId) return input;
+  if (environmentId === (nativeEnvironmentId ?? hostEnvironmentId)) return input;
   const { previewBrowserMode: _omitted, ...rest } = input;
   return rest;
 }
