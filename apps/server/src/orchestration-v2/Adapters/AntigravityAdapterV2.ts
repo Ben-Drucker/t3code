@@ -335,8 +335,19 @@ export function makeAntigravityAcpAdapterFlavor(
       : {
           watchPromptOutcome: (sessionId: string) =>
             watchAntigravityPromptOutcome(profileDirectory, sessionId),
-          pollContextUsage: ({ sessionId }: { readonly sessionId: string }) =>
-            readAntigravityContextUsage(profileDirectory, sessionId),
+          pollContextUsage: ({
+            sessionId,
+            generationCursor,
+          }: {
+            readonly sessionId: string;
+            readonly generationCursor?: number;
+          }) =>
+            readAntigravityContextUsage(
+              profileDirectory,
+              sessionId,
+              "antigravity-acp",
+              generationCursor,
+            ),
         }),
     ...(options.pollContextUsage === undefined
       ? {}

@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off -- node:sqlite reads the native session log.
 import * as NodeSqlite from "node:sqlite";
 import * as NodePath from "node:path";
+import * as NodeFSP from "node:fs/promises";
 
 import type { ThreadContextBreakdown } from "@t3tools/contracts";
 
@@ -85,6 +86,55 @@ class Proto {
       value instanceof Uint8Array ? [new Proto(value)] : [],
     );
   }
+
+  ints(field: number): number[] {
+    return (this.fields.get(field) ?? []).flatMap((value) => {
+      if (typeof value === "number") return [value];
+      const result: number[] = [];
+      let current = 0;
+      let shift = 0;
+      for (const byte of value) {
+        current += (byte & 127) * 2 ** shift;
+        if (byte < 128) {
+          result.push(current);
+          current = shift = 0;
+        } else shift += 7;
+      }
+      return result;
+    });
+  }
+}
+
+export function antigravityUsageFromGeneration(generation: Uint8Array) {
+  const usage = new Proto(generation).message(1)?.message(4);
+  if (usage === undefined) return undefined;
+  // Native ModelUsageStats.output_tokens already includes thinking_output_tokens.
+  const outputTokens = usage.int(3);
+  const cachedInputTokens = usage.int(5);
+  const cacheCreationTokens = usage.int(4);
+  const inputTokens = usage.int(2) + cachedInputTokens;
+  const reasoningTokens = usage.int(9);
+  if (
+    ![
+      usage.int(2),
+      inputTokens,
+      outputTokens,
+      reasoningTokens,
+      cachedInputTokens,
+      cacheCreationTokens,
+    ].every((n) => Number.isSafeInteger(n) && n >= 0)
+  )
+    return undefined;
+  return {
+    usageScope: "main_agent" as const,
+    usageStatus: "partial" as const,
+    hasSubagents: false,
+    inputTokens,
+    outputTokens,
+    cachedInputTokens,
+    cacheCreationTokens: Math.min(cacheCreationTokens, usage.int(2)),
+    reasoningTokens: Math.min(reasoningTokens, outputTokens),
+  };
 }
 
 // Token groups in the call's breakdown (agy 1.4 `cli/model.ContextModel`).
@@ -182,12 +232,15 @@ export function antigravityBreakdownFromGeneration(
 }
 
 const NATIVE_SESSION_ID = /^[\w-]+$/;
+// Native CortexStepType.CORTEX_STEP_TYPE_CHECKPOINT generates a summary, not a reply.
+const CHECKPOINT_STEP_TYPE = 23;
 
-/** The newest breakdown in this session's own database, or undefined. Never fails. */
+/** Reads this session's newest context and generations at or after its turn cursor. Never fails. */
 export const readAntigravityContextUsage = (
   profileDirectory: string,
   sessionId: string,
   appDataDirectory = "antigravity-acp",
+  generationCursor?: number,
 ) =>
   Effect.tryPromise({
     try: async () => {
@@ -207,16 +260,69 @@ export const readAntigravityContextUsage = (
         [...segments, "conversations", `${sessionId}.db`],
         "file",
       );
-      if (database === undefined) return undefined;
+      if (database === undefined) {
+        const directory = await antigravityManagedPath(
+          root,
+          [...segments, "conversations"],
+          "directory",
+        );
+        const absent =
+          directory !== undefined &&
+          (await NodeFSP.lstat(NodePath.join(directory.path, `${sessionId}.db`)).then(
+            () => false,
+            (error: NodeJS.ErrnoException) => error.code === "ENOENT",
+          ));
+        return absent
+          ? { usedTokens: 0, generationUsage: { latestId: -1, generations: [] } }
+          : undefined;
+      }
       const connection = new NodeSqlite.DatabaseSync(database.path, { readOnly: true });
       try {
         connection.exec("PRAGMA busy_timeout = 100");
         const row = connection
-          .prepare("SELECT data FROM gen_metadata ORDER BY idx DESC LIMIT 1")
+          .prepare("SELECT idx, data FROM gen_metadata ORDER BY idx DESC LIMIT 1")
           .get();
-        if (!(row?.data instanceof Uint8Array)) return undefined;
-        const usage = antigravityBreakdownFromGeneration(row.data);
-        return usage === undefined ? undefined : { ...usage, maxTokens: ANTIGRAVITY_CONTEXT_LIMIT };
+        const latestId = typeof row?.idx === "number" ? row.idx : -1;
+        const checkpoints = new Set(
+          generationCursor === undefined
+            ? []
+            : connection
+                .prepare("SELECT idx FROM steps WHERE step_type = ?")
+                .all(CHECKPOINT_STEP_TYPE)
+                .map((s) => s.idx),
+        );
+        const generations =
+          generationCursor === undefined
+            ? []
+            : connection
+                .prepare("SELECT idx, data FROM gen_metadata WHERE idx >= ? ORDER BY idx")
+                .all(generationCursor)
+                .flatMap((entry) => {
+                  if (typeof entry.idx !== "number" || !(entry.data instanceof Uint8Array))
+                    return [];
+                  const metadata = new Proto(entry.data);
+                  if (metadata.ints(2).some((id) => checkpoints.has(id))) return [];
+                  const usage = antigravityUsageFromGeneration(entry.data);
+                  const executionId = metadata.string(4);
+                  return usage === undefined
+                    ? []
+                    : [{ id: entry.idx, usage, ...(executionId ? { executionId } : {}) }];
+                });
+        const usage =
+          row?.data instanceof Uint8Array
+            ? antigravityBreakdownFromGeneration(row.data)
+            : undefined;
+        return {
+          ...(usage ?? { usedTokens: 0 }),
+          maxTokens: ANTIGRAVITY_CONTEXT_LIMIT,
+          generationUsage: {
+            latestId,
+            generations,
+            ...(row?.data instanceof Uint8Array && new Proto(row.data).string(4)
+              ? { latestExecutionId: new Proto(row.data).string(4) }
+              : {}),
+          },
+        };
       } finally {
         connection.close();
       }

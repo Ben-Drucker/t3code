@@ -501,11 +501,12 @@ export const AntigravityDriver: ProviderDriver<
       withProcess: authFlow.withProcess,
       defaultModel,
       profileDirectory,
-      pollContextUsage: ({ sessionId }) =>
+      pollContextUsage: ({ sessionId, generationCursor }) =>
         readAntigravityContextUsage(
           conversationStore.profileDirectory,
           sessionId,
           conversationStore.appDataDirectory,
+          generationCursor,
         ),
       onSessionStarted: provider.onSessionStarted,
       onSessionEvent: (event) => {

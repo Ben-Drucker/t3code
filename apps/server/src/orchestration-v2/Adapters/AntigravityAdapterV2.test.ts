@@ -25,6 +25,9 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 import * as Ref from "effect/Ref";
+import * as Queue from "effect/Queue";
+import * as Option from "effect/Option";
+import * as TestClock from "effect/testing/TestClock";
 import { ChildProcessSpawner } from "effect/process";
 import type * as EffectAcpSchema from "effect-acp/compat";
 import * as EffectAcpErrors from "effect-acp/errors";
@@ -351,6 +354,193 @@ describe("AntigravityAdapterV2 compaction", () => {
         );
       }).pipe(Effect.provide(layerSession), Effect.scoped),
   );
+  it.effect.each(["response", "failure", "compact"] as const)(
+    "publishes measured native generation usage during %s turns",
+    (outcome) =>
+      Effect.gen(function* () {
+        const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const path = yield* Path.Path;
+        const crypto = yield* SecureRandom.SecureRandom;
+        const mockAgentPath = yield* path.fromFileUrl(
+          new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+        );
+        const instanceId = ProviderInstanceId.make("antigravity-live-usage");
+        const threadId = ThreadId.make("antigravity-live-usage");
+        const finish = yield* Deferred.make<void>();
+        const entered = yield* Deferred.make<void>();
+        const polls = yield* Queue.unbounded<number | undefined>();
+        const events = yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2Event>();
+        const usage = (outputTokens: number) => ({
+          usageScope: "main_agent" as const,
+          usageStatus: "partial" as const,
+          inputTokens: 100,
+          outputTokens,
+          reasoningTokens: 10,
+          hasSubagents: false,
+        });
+        const generation = yield* Ref.make({
+          latestId: 10,
+          latestExecutionId: "previous-prompt",
+          generations: [{ id: 10, executionId: "previous-prompt", usage: usage(9000) }],
+        });
+        const adapter = yield* makeAntigravityAdapterV2({
+          instanceId,
+          selfInvocation: yield* resolveSelfInvocation(),
+          makeRuntime: (input) =>
+            makeAntigravityAcpRuntime({
+              ...input,
+              childProcessSpawner,
+              spawn: {
+                command: process.execPath,
+                args: [mockAgentPath],
+                cwd: input.cwd,
+                env: { T3_ACP_ANTIGRAVITY: "1" },
+              },
+            }).pipe(
+              Effect.provideService(SecureRandom.SecureRandom, crypto),
+              Effect.map((runtime) => ({
+                ...runtime,
+                prompt: () =>
+                  Effect.gen(function* () {
+                    yield* Deferred.succeed(entered, undefined);
+                    yield* Deferred.await(finish);
+                    if (outcome === "failure")
+                      return yield* new EffectAcpErrors.AcpTransportError({
+                        detail: "native stream closed",
+                        cause: "fixture",
+                      });
+                    return {
+                      stopReason: "end_turn" as const,
+                      usage: {
+                        inputTokens: 100,
+                        outputTokens: 240,
+                        thoughtTokens: 10,
+                        totalTokens: 350,
+                      },
+                    };
+                  }),
+              })),
+            ),
+          withProcess: (_stop, task) => task,
+          defaultModel: Effect.undefined,
+          pollContextUsage: ({ sessionId, generationCursor }) =>
+            Effect.gen(function* () {
+              assert.equal(sessionId, "mock-session-1");
+              yield* Queue.offer(polls, generationCursor);
+              return {
+                usedTokens: 500,
+                maxTokens: 256_000,
+                generationUsage: yield* Ref.get(generation),
+              };
+            }),
+        });
+        const modelSelection = { instanceId, model: "gemini-test-low" };
+        const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: process.cwd(),
+        });
+        const session = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make("live-usage"),
+          modelSelection,
+          runtimePolicy,
+        });
+        const providerThread = yield* session.ensureThread({
+          threadId,
+          modelSelection,
+          runtimePolicy,
+        });
+        yield* session.events.pipe(
+          throttleContextUsage,
+          Stream.runForEach((event) => Queue.offer(events, event)),
+          Effect.forkScoped,
+        );
+        const turn = makeTurnInput({
+          threadId,
+          providerThread,
+          instanceId,
+          modelSelection,
+          runtimePolicy,
+          now: yield* DateTime.now,
+        });
+        yield* session.startTurn(
+          outcome === "compact"
+            ? { ...turn, message: { ...turn.message, text: "/compact" } }
+            : turn,
+        );
+        yield* Deferred.await(entered);
+        assert.isUndefined(yield* Queue.take(polls));
+        yield* Ref.set(generation, {
+          latestId: 11,
+          latestExecutionId: "current-prompt",
+          generations: [
+            { id: 10, executionId: "previous-prompt", usage: usage(9000) },
+            { id: 11, executionId: "current-prompt", usage: usage(20) },
+          ],
+        });
+        yield* TestClock.adjust("1 second");
+        assert.equal(yield* Queue.take(polls), 10);
+        const measured = () =>
+          Stream.fromQueue(events).pipe(
+            Stream.filter(
+              (event) =>
+                event.type === "provider_turn.updated" &&
+                event.providerTurn.turnTokenUsage?.usageStatus === "partial",
+            ),
+            Stream.runHead,
+          );
+        const first = yield* measured();
+        assert.isTrue(Option.isSome(first));
+        if (Option.isSome(first) && first.value.type === "provider_turn.updated") {
+          assert.containSubset(first.value.providerTurn.turnTokenUsage, {
+            outputTokens: 20,
+            ...(outcome === "compact" ? { localCommand: true } : {}),
+          });
+        }
+        yield* Ref.set(generation, {
+          latestId: 13,
+          latestExecutionId: "current-prompt",
+          generations: [
+            { id: 11, executionId: "current-prompt", usage: usage(20) },
+            { id: 12, executionId: "previous-prompt", usage: usage(9000) },
+            { id: 13, executionId: "current-prompt", usage: usage(30) },
+          ],
+        });
+        yield* TestClock.adjust("1 second");
+        assert.equal(yield* Queue.take(polls), 11);
+        const second = yield* measured();
+        if (Option.isSome(second) && second.value.type === "provider_turn.updated")
+          assert.containSubset(second.value.providerTurn.turnTokenUsage, { outputTokens: 50 });
+        yield* TestClock.adjust("1 second");
+        assert.equal(yield* Queue.take(polls), 13);
+        yield* Ref.set(generation, {
+          latestId: 13,
+          latestExecutionId: "current-prompt",
+          generations: [{ id: 13, executionId: "current-prompt", usage: usage(35) }],
+        });
+        yield* TestClock.adjust("1 second");
+        assert.equal(yield* Queue.take(polls), 13);
+        const revised = yield* measured();
+        if (Option.isSome(revised) && revised.value.type === "provider_turn.updated")
+          assert.containSubset(revised.value.providerTurn.turnTokenUsage, { outputTokens: 55 });
+        yield* Deferred.succeed(finish, undefined);
+        const finalEvents = yield* Stream.fromQueue(events).pipe(
+          Stream.takeUntil((event) => event.type === "turn.terminal"),
+          Stream.runCollect,
+        );
+        const final = finalEvents.filter((event) => event.type === "provider_turn.updated");
+        assert.lengthOf(final, 1, "duplicate generations must not emit extra usage updates");
+        const terminal = final[0];
+        if (terminal?.type === "provider_turn.updated")
+          assert.containSubset(terminal.providerTurn.turnTokenUsage, {
+            usageStatus: outcome === "failure" ? "partial" : "complete",
+            outputTokens: outcome === "failure" ? 55 : 250,
+            ...(outcome === "compact" ? { localCommand: true } : {}),
+          });
+      }).pipe(Effect.provide(layerSession), Effect.scoped),
+  );
+
   it.effect.each(["usage_update", "DB poll", "native plus DB"] as const)(
     "emits one detected native compaction with savings from %s across turn endings",
     (source) =>

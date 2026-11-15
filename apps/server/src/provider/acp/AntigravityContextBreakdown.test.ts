@@ -7,6 +7,7 @@ import * as Path from "effect/Path";
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
 import {
   antigravityBreakdownFromGeneration,
+  antigravityUsageFromGeneration,
   readAntigravityContextUsage,
 } from "./AntigravityContextBreakdown.ts";
 
@@ -55,7 +56,7 @@ describe("antigravityBreakdownFromGeneration", () => {
   });
 
   it.effect(
-    "reads only the newest generation from the selected store and rejects unsafe native paths",
+    "reads newest context and turn generations from the selected store and rejects unsafe paths",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
@@ -67,17 +68,76 @@ describe("antigravityBreakdownFromGeneration", () => {
           const connection = new NodeSqlite.DatabaseSync(path.join(conversations, "session.db"));
           try {
             connection.exec("CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB)");
+            connection.exec("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER)");
+            connection.exec("INSERT INTO steps VALUES (7, 23)");
             const insert = connection.prepare("INSERT INTO gen_metadata VALUES (?, ?)");
-            insert.run(0, Uint8Array.from(bytes(1, bytes(9, bytes(10, bytes(3, group(7, 99)))))));
-            insert.run(1, Uint8Array.from(bytes(1, bytes(9, bytes(10, bytes(3, group(7, 500)))))));
+            const generation = (output: number, input: number, context: number) =>
+              Uint8Array.from([
+                ...text(4, "native-execution"),
+                ...bytes(1, [
+                  ...bytes(4, [...int(2, input), ...int(3, output), ...int(5, 100), ...int(9, 10)]),
+                  ...bytes(9, bytes(10, bytes(3, group(7, context)))),
+                ]),
+              ]);
+            insert.run(0, generation(900, 800, 99));
+            insert.run(1, generation(20, 30, 500));
+            insert.run(2, Uint8Array.from([...bytes(2, [7]), ...generation(1000, 2000, 500)]));
+            insert.run(3, Uint8Array.from(bytes(7, [])));
+            insert.run(4, generation(30, 40, 500));
           } finally {
             connection.close();
           }
           const read = (id: string, app = appDataDirectory) =>
             readAntigravityContextUsage(root, id, app);
           expect(yield* read("session")).toMatchObject({ usedTokens: 500, maxTokens: 256_000 });
+          // A turn starts after generation 0; checkpoint and injected generations are not replies.
+          const current = yield* readAntigravityContextUsage(root, "session", appDataDirectory, 0);
+          expect(current?.generationUsage).toMatchObject({
+            latestId: 4,
+            latestExecutionId: "native-execution",
+            generations: [
+              { id: 0, usage: { outputTokens: 900 } },
+              {
+                id: 1,
+                executionId: "native-execution",
+                usage: { outputTokens: 20, inputTokens: 130, reasoningTokens: 10 },
+              },
+              { id: 4, usage: { outputTokens: 30 } },
+            ],
+          });
+          expect(yield* readAntigravityContextUsage(root, "session", appDataDirectory, 0)).toEqual(
+            current,
+          );
+          const update = new NodeSqlite.DatabaseSync(path.join(conversations, "session.db"));
+          try {
+            update
+              .prepare("UPDATE gen_metadata SET data = ? WHERE idx = 4")
+              .run(Uint8Array.from(bytes(1, bytes(4, int(3, 35)))));
+          } finally {
+            update.close();
+          }
+          const revised = yield* readAntigravityContextUsage(root, "session", appDataDirectory, 4);
+          expect(revised?.generationUsage.generations).toMatchObject([
+            { id: 4, usage: { outputTokens: 35 } },
+          ]);
+          const child = new NodeSqlite.DatabaseSync(path.join(conversations, "child.db"));
+          try {
+            child.exec("CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB)");
+            child.exec("CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER)");
+            child
+              .prepare("INSERT INTO gen_metadata VALUES (0, ?)")
+              .run(Uint8Array.from(bytes(1, bytes(4, int(3, 99999)))));
+          } finally {
+            child.close();
+          }
+          expect(yield* readAntigravityContextUsage(root, "session", appDataDirectory, 4)).toEqual(
+            revised,
+          );
           expect(yield* read("../session")).toBeUndefined();
-          expect(yield* read("missing")).toBeUndefined();
+          expect(yield* read("missing")).toMatchObject({
+            usedTokens: 0,
+            generationUsage: { latestId: -1 },
+          });
           expect(yield* read("session", "../antigravity-cli")).toBeUndefined();
           if (symlinksSupported) {
             yield* fs.symlink(
@@ -114,5 +174,12 @@ describe("antigravityBreakdownFromGeneration", () => {
         { category: "system", tokens: 12_733 },
       ],
     });
+    expect(antigravityUsageFromGeneration(Uint8Array.from(generation))).toMatchObject({
+      inputTokens: 9_032,
+      outputTokens: 690,
+      reasoningTokens: 544,
+      usageStatus: "partial",
+    });
+    expect(antigravityUsageFromGeneration(Uint8Array.from(bytes(1, bytes(9, []))))).toBeUndefined();
   });
 });

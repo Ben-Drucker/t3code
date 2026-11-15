@@ -528,11 +528,21 @@ export interface AcpAdapterV2Flavor {
     readonly sessionId: string;
     readonly cwd: string;
     readonly modelSelection: ModelSelection;
+    readonly generationCursor?: number;
   }) => Effect.Effect<
     | {
         readonly usedTokens: number;
         readonly maxTokens?: number;
         readonly breakdown?: ThreadTokenUsageSnapshot["breakdown"];
+        readonly generationUsage?: {
+          readonly latestId: number;
+          readonly latestExecutionId?: string;
+          readonly generations: ReadonlyArray<{
+            readonly id: number;
+            readonly executionId?: string;
+            readonly usage: TurnTokenUsage;
+          }>;
+        };
       }
     | undefined
   >;
@@ -1468,6 +1478,11 @@ interface ActiveAcpTurn {
   /** Completed when an update after dispatch matches `cancelAfterPromptStarts.isStart`. */
   readonly promptStarted: Deferred.Deferred<void, never>;
   promptUsage: EffectAcpSchema.Usage | undefined;
+  generationBaseline: number | undefined;
+  generationBaselineExecutionId: string | undefined;
+  generationCursor: number | undefined;
+  readonly generationUsage: Map<number, TurnTokenUsage>;
+  measuredTurnUsage: TurnTokenUsage | undefined;
   backgroundFinalizeGeneration: number;
   /** The agent's own id for this turn's prompt, from `forkFromTurn.nativeTurnId`. */
   nativePromptId: string | undefined;
@@ -7698,18 +7713,22 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           startedAt: context.startedAt,
           completedAt,
           ...(status === "running" || status === "pending"
-            ? {}
-            : {
-                // The prompt tap only captures usage for flavors that declared
-                // per-turn counters, so undeclared agents stay unavailable here.
-                turnTokenUsage: acpPerTurnPromptUsage(
-                  context.promptUsage,
-                  context.subagents.size > 0,
-                  status,
-                  flavor.geminiPromptUsage,
-                  isCompactionMessage(context.input.message),
-                ),
-              }),
+            ? context.measuredTurnUsage === undefined
+              ? {}
+              : { turnTokenUsage: context.measuredTurnUsage }
+            : context.promptUsage === undefined && context.measuredTurnUsage !== undefined
+              ? { turnTokenUsage: context.measuredTurnUsage }
+              : {
+                  // The prompt tap only captures usage for flavors that declared
+                  // per-turn counters, so undeclared agents stay unavailable here.
+                  turnTokenUsage: acpPerTurnPromptUsage(
+                    context.promptUsage,
+                    context.subagents.size > 0,
+                    status,
+                    flavor.geminiPromptUsage,
+                    isCompactionMessage(context.input.message),
+                  ),
+                }),
         });
 
         const terminalizeOpenRunOwnedItems = Effect.fnUntraced(function* (
@@ -7792,7 +7811,10 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           );
         });
 
-        const pollTurnContextUsage = Effect.fnUntraced(function* (context: ActiveAcpTurn) {
+        const pollTurnContextUsage = Effect.fnUntraced(function* (
+          context: ActiveAcpTurn,
+          baseline = false,
+        ) {
           const poll = flavor.pollContextUsage;
           if (poll === undefined) return;
           yield* contextUsagePollPermit.withPermit(
@@ -7801,12 +7823,82 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                 sessionId: context.nativeThreadId,
                 cwd: context.input.runtimePolicy.cwd ?? process.cwd(),
                 modelSelection: context.input.modelSelection,
+                ...(baseline || context.generationCursor === undefined
+                  ? {}
+                  : { generationCursor: context.generationCursor }),
               });
-              if (
-                (yield* Ref.get(activeTurn)) !== context ||
-                usage === undefined ||
-                lastPolledContextUsage.get(context) === usage.usedTokens
-              )
+              if ((yield* Ref.get(activeTurn)) !== context || usage === undefined) return;
+              const generations = usage.generationUsage;
+              if (generations !== undefined) {
+                if (context.generationBaseline === undefined) {
+                  context.generationBaseline = generations.latestId;
+                  context.generationBaselineExecutionId = generations.latestExecutionId;
+                }
+                context.generationCursor = generations.latestId;
+                let changed = false;
+                for (const generation of generations.generations) {
+                  if (
+                    generation.id <= context.generationBaseline ||
+                    (context.generationBaselineExecutionId !== undefined &&
+                      generation.executionId === context.generationBaselineExecutionId) ||
+                    generation.usage.usageStatus === "unavailable"
+                  )
+                    continue;
+                  const previous = context.generationUsage.get(generation.id);
+                  const sample = generation.usage;
+                  if (
+                    previous !== undefined &&
+                    previous.usageStatus !== "unavailable" &&
+                    (
+                      [
+                        "inputTokens",
+                        "outputTokens",
+                        "cachedInputTokens",
+                        "cacheCreationTokens",
+                        "reasoningTokens",
+                      ] as const
+                    ).every((key) => previous[key] === sample[key])
+                  )
+                    continue;
+                  context.generationUsage.set(generation.id, generation.usage);
+                  changed = true;
+                }
+                if (changed) {
+                  const total = {
+                    inputTokens: 0,
+                    outputTokens: 0,
+                    cachedInputTokens: 0,
+                    cacheCreationTokens: 0,
+                    reasoningTokens: 0,
+                  };
+                  for (const sample of context.generationUsage.values()) {
+                    if (sample.usageStatus === "unavailable") continue;
+                    for (const key of Object.keys(total) as Array<keyof typeof total>)
+                      total[key] += sample[key] ?? 0;
+                  }
+                  context.measuredTurnUsage = {
+                    ...total,
+                    usageScope: "main_agent",
+                    usageStatus: "partial",
+                    hasSubagents: context.subagents.size > 0,
+                    updatedAt: DateTime.formatIso(yield* DateTime.now),
+                    ...(isCompactionMessage(context.input.message) ? { localCommand: true } : {}),
+                  };
+                  if (!context.finalized) {
+                    const providerTurn = providerTurnPayload(context, "running", null);
+                    yield* Ref.update(providerTurns, (current) =>
+                      new Map(current).set(String(providerTurn.id), providerTurn),
+                    );
+                    yield* emitProviderEvent({
+                      type: "provider_turn.updated",
+                      driver,
+                      threadId: context.input.threadId,
+                      providerTurn,
+                    });
+                  }
+                }
+              }
+              if (usage.usedTokens <= 0 || lastPolledContextUsage.get(context) === usage.usedTokens)
                 return;
               lastPolledContextUsage.set(context, usage.usedTokens);
               yield* Ref.update(polledBreakdownBySessionId, (current) =>
@@ -7837,7 +7929,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           const settledStatus = context.interrupted ? "interrupted" : status;
           context.finalizedStatus = settledStatus;
           context.finalized = true;
-          if (contextCompactionObserver !== undefined && settledStatus === "completed") {
+          if (contextCompactionObserver !== undefined || flavor.pollContextUsage !== undefined) {
             yield* pollTurnContextUsage(context).pipe(Effect.ignore);
           }
           const watchdog = context.inactivityWatchdog;
@@ -8443,6 +8535,11 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               promptSentAt: null,
               promptStarted,
               promptUsage: undefined,
+              generationBaseline: undefined,
+              generationBaselineExecutionId: undefined,
+              generationCursor: undefined,
+              generationUsage: new Map(),
+              measuredTurnUsage: undefined,
               backgroundFinalizeGeneration: 0,
               nativePromptId: undefined,
               lastProgressAt: 0,
@@ -8466,6 +8563,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             yield* Ref.set(stoppedRunQuarantine, false);
             const pollContextUsage = flavor.pollContextUsage;
             if (pollContextUsage !== undefined) {
+              yield* pollTurnContextUsage(context, true);
               yield* Effect.gen(function* () {
                 while (true) {
                   yield* Effect.sleep(CONTEXT_USAGE_POLL_INTERVAL);
