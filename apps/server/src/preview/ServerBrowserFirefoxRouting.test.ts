@@ -227,7 +227,10 @@ const reportMode = (mode: "builtin" | "firefox-docked") =>
     const browser = yield* ServerBrowser.ServerBrowser;
     const report = yield* browser.profileReporter;
     return (previewBrowserMode: typeof mode = mode) =>
-      report({ profiles: [], defaultProfileId: "default", previewBrowserMode });
+      report(
+        { profiles: [], defaultProfileId: "default", previewBrowserMode },
+        "desktop-bootstrap",
+      );
   });
 
 const manualOpen = Effect.gen(function* () {
@@ -245,6 +248,30 @@ const agentOpen = Effect.gen(function* () {
     })
     .pipe(Effect.exit);
 });
+
+it.effect("a paired desktop cannot replace the host desktop's Firefox mode", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const browser = yield* ServerBrowser.ServerBrowser;
+      const local = yield* browser.profileReporter;
+      const paired = yield* browser.profileReporter;
+      yield* local(
+        { profiles: [], defaultProfileId: "default", previewBrowserMode: "firefox-docked" },
+        "desktop-bootstrap",
+      );
+      yield* paired(
+        { profiles: [], defaultProfileId: "default", previewBrowserMode: "builtin" },
+        "one-time-token",
+      );
+      yield* awaitReady;
+
+      const opened = yield* agentOpen;
+      expect(opened._tag).toBe("Success");
+      expect(fake.firefoxOpens).toHaveLength(1);
+      expect(fake.builtinOpens).toBe(0);
+    }),
+  ).pipe(Effect.provide(layer)),
+);
 
 it.effect(
   "a manual open that fell back to the built-in browser tries Firefox again next time",

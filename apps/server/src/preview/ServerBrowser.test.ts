@@ -896,11 +896,14 @@ it.live.each([
         const { browser, broker, tabId } = yield* ready;
         const reportProfiles = yield* browser.profileReporter;
         for (const recordingFrameRate of reports) {
-          yield* reportProfiles({
-            profiles: [],
-            defaultProfileId: "default",
-            ...(recordingFrameRate === undefined ? {} : { recordingFrameRate }),
-          });
+          yield* reportProfiles(
+            {
+              profiles: [],
+              defaultProfileId: "default",
+              ...(recordingFrameRate === undefined ? {} : { recordingFrameRate }),
+            },
+            "one-time-token",
+          );
         }
         yield* broker.invoke({ scope, tabId, operation: "recordingStart", input: {} });
         expect(encoderStreams).toEqual([{ frameRate, bitsPerSecond }]);
@@ -1316,10 +1319,13 @@ it.live("closing a tab with an unsaved-changes guard still closes it", () =>
       yield* Effect.yieldNow;
       // A profile context is shared, so closing the tab cannot fall back to closing its context.
       const reportProfiles = yield* browser.profileReporter;
-      yield* reportProfiles({
-        profiles: [{ id: "profile-work", name: "Work", kind: "persistent" }],
-        defaultProfileId: "profile-work",
-      });
+      yield* reportProfiles(
+        {
+          profiles: [{ id: "profile-work", name: "Work", kind: "persistent" }],
+          defaultProfileId: "profile-work",
+        },
+        "one-time-token",
+      );
       const opened = yield* broker.invoke<PreviewAutomationStatus>({
         scope,
         operation: "open",
@@ -2541,10 +2547,13 @@ it.live(
         const manager = yield* Manager.PreviewManager;
         yield* Effect.yieldNow;
         const reportProfiles = yield* browser.profileReporter;
-        yield* reportProfiles({
-          profiles: [{ id: "profile-work", name: "Work", kind: "persistent" }],
-          defaultProfileId: "profile-work",
-        });
+        yield* reportProfiles(
+          {
+            profiles: [{ id: "profile-work", name: "Work", kind: "persistent" }],
+            defaultProfileId: "profile-work",
+          },
+          "one-time-token",
+        );
         const openWith = (profileId?: string) =>
           broker.invoke<PreviewAutomationStatus>({
             scope,
@@ -2605,8 +2614,8 @@ it.live("profiles reported by one client survive another client's report", () =>
       const reportFromB = yield* browser.profileReporter.pipe(
         Effect.provideService(Scope.Scope, clientB),
       );
-      yield* reportFromA({ profiles: [work, shared], defaultProfileId: work.id });
-      yield* reportFromB({ profiles: [shared], defaultProfileId: shared.id });
+      yield* reportFromA({ profiles: [work, shared], defaultProfileId: work.id }, "one-time-token");
+      yield* reportFromB({ profiles: [shared], defaultProfileId: shared.id }, "one-time-token");
       expect(yield* openWork()).toMatchObject({
         defaultProfileId: shared.id,
         profiles: [
@@ -2619,7 +2628,7 @@ it.live("profiles reported by one client survive another client's report", () =>
       expect(contextRequests).toEqual([{ profileId: work.id, isolated: false }]);
       yield* Scope.close(clientB, Exit.void);
       expect(yield* openWork()).toMatchObject({ defaultProfileId: work.id });
-      yield* reportFromA({ profiles: [shared], defaultProfileId: shared.id });
+      yield* reportFromA({ profiles: [shared], defaultProfileId: shared.id }, "one-time-token");
       const removed = yield* openWork().pipe(Effect.flip);
       expect(removed).toMatchObject({
         _tag: "PreviewAutomationExecutionError",

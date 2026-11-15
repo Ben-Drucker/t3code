@@ -350,11 +350,14 @@ firefoxTest(
         const manager = yield* Manager.PreviewManager;
         yield* Deferred.await(connected);
         const report = yield* server.profileReporter;
-        yield* report({
-          profiles: [{ id: "firefox", name: "Firefox", kind: "persistent" }],
-          defaultProfileId: "firefox",
-          previewBrowserMode: "firefox-docked",
-        });
+        yield* report(
+          {
+            profiles: [{ id: "firefox", name: "Firefox", kind: "persistent" }],
+            defaultProfileId: "firefox",
+            previewBrowserMode: "firefox-docked",
+          },
+          "desktop-bootstrap",
+        );
         const scope = {
           environmentId: EnvironmentId.make("firefox-dock"),
           thread: {

@@ -243,7 +243,10 @@ export interface ServerBrowserViewer {
   readonly input: (message: unknown) => Effect.Effect<void>;
 }
 
-export type ProfileReporter = (input: PreviewReportProfilesInput) => Effect.Effect<void>;
+export type ProfileReporter = (
+  input: PreviewReportProfilesInput,
+  subject: string,
+) => Effect.Effect<void>;
 
 export class ServerBrowser extends Context.Service<
   ServerBrowser,
@@ -1766,13 +1769,13 @@ const make = Effect.gen(function* () {
   ).pipe(
     Effect.map(
       (client): ProfileReporter =>
-        (input) =>
+        (input, subject) =>
           Effect.sync(() => {
             if (input.recordingFrameRate !== undefined)
               recordingFrameRate = input.recordingFrameRate;
-            if (input.previewBrowserMode !== undefined) {
-              // Any report of the mode, including the same one after a reconnect or a fixed
-              // permission, lets Firefox be tried again.
+            if (subject === "desktop-bootstrap" && input.previewBrowserMode !== undefined) {
+              // Paired desktops control their own windows, not this host's native browser.
+              // The host can re-report its mode after a reconnect or a permission change.
               dockedRefused = false;
               firefoxFallbackMessage = undefined;
               previewBrowserMode = input.previewBrowserMode;
