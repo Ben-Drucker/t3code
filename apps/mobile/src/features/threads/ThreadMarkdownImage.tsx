@@ -8,7 +8,7 @@ import { Image } from "expo-image";
 import { createContext, useContext, useId, useState } from "react";
 import { fetch } from "expo/fetch";
 import { parse, SvgAst, type JsxAST } from "react-native-svg";
-import { Pressable, StyleSheet, View, type ViewStyle } from "react-native";
+import { Pressable, StyleSheet, View, useWindowDimensions, type ViewStyle } from "react-native";
 
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { useFilePreviewGallery } from "../../components/ui/FilePreviewGallery";
@@ -103,6 +103,7 @@ export function ThreadMarkdownImageView(props: {
   const sourceIdentifier = useId();
   const mediaActions = useMediaActions(props.actionsSource);
   const contextWidth = useContext(MarkdownImageAvailableWidthContext);
+  const { scale } = useWindowDimensions();
   const [measuredWidth, setMeasuredWidth] = useState(0);
   const availableWidth =
     measuredWidth > 0 && contextWidth > 0
@@ -126,6 +127,7 @@ export function ThreadMarkdownImageView(props: {
       ? null
       : resolveMarkdownImageDisplaySize({
           sourceWidth: sourceSize.width,
+          displayScale: props.format === "svg" ? 1 : scale,
           sourceHeight: sourceSize.height,
           availableWidth,
         });

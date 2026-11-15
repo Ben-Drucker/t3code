@@ -1783,7 +1783,8 @@ layer("ProviderEventIngestorV2", (it) => {
       assert.equal(projectedLarge.fileName, "src/generated.ts");
       assert.isBelow(projectedLarge.diffStr?.length ?? 0, 40_000);
       assert.isTrue(largeDiff.startsWith(projectedLarge.diffStr?.split("\n…")[0] ?? "-"));
-      assert.deepEqual(projectedSmall, small);
+      const expectedSmall = { ...small, additions: 1, deletions: 1 };
+      assert.deepEqual(projectedSmall, expectedSmall);
     }),
   );
 

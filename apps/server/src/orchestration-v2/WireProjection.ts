@@ -11,6 +11,7 @@ import type {
   OrchestrationV2ThreadStreamItem,
   OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
+import { recordedEditDiff } from "./RecordedEditDiff.ts";
 import {
   dedupeSubagentBodies,
   dedupeTurnItemBodies,
@@ -52,6 +53,7 @@ function truncateDetail(
 
 /** Bound stored diffs to the client wire limit to avoid retaining invisible data in SQLite and heap. */
 export function boundFileChangeForStorage(item: OrchestrationV2TurnItem): OrchestrationV2TurnItem {
+  item = recordedEditDiff(item);
   if (item.type !== "file_change") return item;
   const { diffStr, oldStr, newStr } = item;
   const bounded = {
@@ -179,6 +181,7 @@ export function projectTurnItemForWire(item: OrchestrationV2TurnItem): Orchestra
       };
     }
     case "file_change": {
+      item = recordedEditDiff(item) as Extract<OrchestrationV2TurnItem, { type: "file_change" }>;
       const { diffStr, oldStr, newStr, ...projected } = item;
       const changeChars = diffStr?.length ?? (newStr?.length ?? 0) + (oldStr?.length ?? 0);
       const sized = changeChars > 0 ? { ...projected, changeChars } : projected;
@@ -277,6 +280,7 @@ export function projectTurnItemForDetail(item: OrchestrationV2TurnItem): Orchest
           item.result === null ? null : (truncateDetail(item.result, MAX_ON_DEMAND_BYTES) ?? null),
       };
     case "file_change":
+      item = recordedEditDiff(item) as Extract<OrchestrationV2TurnItem, { type: "file_change" }>;
       return {
         ...projectTurnItemForWire(item),
         ...(item.diffStr === undefined

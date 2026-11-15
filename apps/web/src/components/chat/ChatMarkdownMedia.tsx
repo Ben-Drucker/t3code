@@ -202,6 +202,7 @@ export function ChatMarkdownImage(props: {
     return (
       <MediaActions source={props.actionsSource}>
         <AttachmentImage
+          nativeDensity
           name={props.alt}
           {...props.imageProps}
           ref={markLoadedIfComplete}
@@ -262,6 +263,7 @@ export function ChatMarkdownImage(props: {
           </span>
         ) : src !== null ? (
           <AttachmentImage
+            nativeDensity
             name={props.alt}
             ref={markLoadedIfComplete}
             src={src}

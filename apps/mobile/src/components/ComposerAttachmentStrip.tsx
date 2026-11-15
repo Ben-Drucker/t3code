@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { inlineImageSize } from "@t3tools/client-runtime/image-attachment-size";
 import { FilePreviewGallery, useFilePreviewGallery } from "./ui/FilePreviewGallery";
 import { composerImageGallery } from "../lib/composerImageGallery";
 import { SymbolView } from "./ui/AppSymbol";
@@ -6,7 +8,7 @@ import { videoMimeType } from "@t3tools/shared/video";
 import { useAtomValue } from "@effect/atom-react";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { Paths } from "expo-file-system";
-import { Image, Pressable, ScrollView, View } from "react-native";
+import { Image, Pressable, ScrollView, View, useWindowDimensions } from "react-native";
 
 import { AppText as Text } from "./ui/AppText";
 import { MaterializedPreviewKey, materializedPreviewAtom } from "../lib/composerImagePreview";
@@ -132,7 +134,14 @@ function ComposerImageAttachment(
 ) {
   const { attachment } = props;
   const withGallery = useFilePreviewGallery();
-  const style = { width: props.size, height: props.size, borderRadius: props.borderRadius };
+  const { scale } = useWindowDimensions();
+  const [intrinsic, setIntrinsic] = useState<{ width: number; height: number } | null>(null);
+  const fitted =
+    intrinsic && inlineImageSize(intrinsic.width, intrinsic.height, scale, props.size, props.size);
+  const style = {
+    ...(fitted ?? { width: props.size, height: props.size }),
+    borderRadius: props.borderRadius,
+  };
   const previewUri = useComposerImagePreviewUri(attachment);
   const sourceIdentifier = `draft-image:${attachment.id}`;
   return (
@@ -160,7 +169,8 @@ function ComposerImageAttachment(
           source={previewUri === null ? undefined : { uri: previewUri }}
           style={style}
           className="bg-subtle"
-          resizeMode="cover"
+          resizeMode="contain"
+          onLoad={(event) => setIntrinsic(event.nativeEvent.source)}
         />
       </Pressable>
     </PresentationSource>

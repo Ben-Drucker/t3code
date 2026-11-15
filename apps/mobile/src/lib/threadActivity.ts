@@ -209,6 +209,12 @@ type ThreadFeedEntryContent =
     }
   | {
       readonly type: "work-toggle";
+      readonly editedFiles?: readonly {
+        id?: string | undefined;
+        fileName: string;
+        additions?: number | undefined;
+        deletions?: number | undefined;
+      }[];
       readonly id: string;
       readonly createdAt: string;
       readonly runId: RunId | null;
@@ -2068,6 +2074,26 @@ function appendToolGroupRows(
     runId: sourceGroup.runId,
     groupId,
     hiddenCount: activities.length,
+    editedFiles: activities.flatMap((entry) => {
+      const item = entry.projectedItem.item;
+      return item.type === "file_change"
+        ? item.changes && item.changes.length > 1
+          ? item.changes.map((file) => ({
+              id: `${entry.id}:${file.path}`,
+              fileName: file.path,
+              additions: file.additions,
+              deletions: file.deletions,
+            }))
+          : [
+              {
+                id: entry.id,
+                fileName: item.fileName,
+                additions: item.additions,
+                deletions: item.deletions,
+              },
+            ]
+        : [];
+    }),
     expanded,
     summary,
     summaryKind: toolGroupSummaryKind(

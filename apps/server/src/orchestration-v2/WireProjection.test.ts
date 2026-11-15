@@ -315,11 +315,43 @@ describe("orchestration V2 wire projection", () => {
     expect(projectTurnItemForDetail(item)).not.toHaveProperty("oldStr");
     expect(projectTurnItemForDetail(item)).not.toHaveProperty("newStr");
     const { diffStr: _diff, ...contentOnly } = item;
-    expect(projectTurnItemForDetail(contentOnly)).toMatchObject({
-      oldStr: "old code",
-      newStr: "new code",
-    });
+    expect(projectTurnItemForDetail(contentOnly)).toHaveProperty(
+      "diffStr",
+      expect.stringContaining("recorded replacement"),
+    );
     expect(projectTurnItemForWire(contentOnly)).not.toHaveProperty("newStr");
+    const captured = projectTurnItemForDetail({
+      ...contentOnly,
+      additions: undefined,
+      deletions: undefined,
+      oldStr: "  a\t\n",
+      newStr: "b",
+    });
+    expect(captured).toMatchObject({ additions: 1, deletions: 1 });
+    if (captured.type === "file_change") {
+      expect(captured.diffStr).toContain("-  a\t\n+b\n\\ No newline at end of file");
+    }
+    for (const operation of ["add", "delete"] as const) {
+      const contents = "line\n".repeat(1001);
+      const captured = projectTurnItemForDetail({
+        ...contentOnly,
+        additions: undefined,
+        deletions: undefined,
+        oldStr: operation === "add" ? undefined : contents,
+        newStr: operation === "delete" ? undefined : contents,
+        changes: [{ path: "test.ts", operation }],
+      });
+      expect(captured).toMatchObject({
+        additions: operation === "add" ? 1001 : 0,
+        deletions: operation === "delete" ? 1001 : 0,
+      });
+      if (captured.type === "file_change") expect(captured.diffStr).toContain("/dev/null");
+    }
+    expect(projectTurnItemForDetail(contentOnly)).toMatchObject({ additions: 3, deletions: 1 });
+    expect(
+      projectTurnItemForDetail(contentOnly).type === "file_change" &&
+        projectTurnItemForDetail(contentOnly),
+    ).toHaveProperty("diffStr", expect.stringContaining("recorded replacement"));
     const failed = projectTurnItemForWire({
       ...item,
       status: "failed",

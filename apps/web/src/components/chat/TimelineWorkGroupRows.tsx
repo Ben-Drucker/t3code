@@ -45,6 +45,7 @@ import {
   threadReadLabel,
   ThreadReadLabel,
   SimpleWorkEntryRow,
+  EditedFileLabel,
 } from "./TimelineWorkEntryRow";
 import {
   THINKING_PREVIEW_PLUGINS,
@@ -461,6 +462,7 @@ function LiveActivityContent({
           <span
             className={cn(
               "flex size-4 items-center justify-center",
+              failed && "[&_svg]:text-tool-error-icon [&_path]:stroke-current",
               failed
                 ? failedToolIconClassName
                 : highlighted
@@ -604,16 +606,25 @@ export function WorkGroupToggleTimelineRow({
 }) {
   const ctx = use(TimelineRowCtx);
   return (
-    <WorkGroupHeader
-      label={row.summary}
-      iconName={row.toolSurface ?? toolGroupSummaryIconName(row.summaryKind)}
-      toolIcon={row.toolIcon}
-      failed={row.hasFailure}
-      expanded={row.expanded}
-      createdAt={row.createdAt}
-      timestampFormat={ctx.timestampFormat}
-      onToggle={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
-    />
+    <>
+      {" "}
+      <WorkGroupHeader
+        label={row.summary}
+        iconName={row.toolSurface ?? toolGroupSummaryIconName(row.summaryKind)}
+        toolIcon={row.toolIcon}
+        failed={row.hasFailure}
+        expanded={row.expanded}
+        createdAt={row.createdAt}
+        timestampFormat={ctx.timestampFormat}
+        onToggle={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
+      />
+      {!row.expanded &&
+        row.editedFiles?.map((file) => (
+          <div key={file.id ?? file.fileName} className="ms-7">
+            <EditedFileLabel item={file} />
+          </div>
+        ))}
+    </>
   );
 }
 
@@ -633,12 +644,18 @@ function WorkGroupHeader(props: {
       aria-expanded={props.expanded}
       onClick={props.onToggle}
       icon={
-        <ToolActivityIconView
-          icon={props.toolIcon}
-          fallbackName={props.iconName}
-          className="size-4 shrink-0 stroke-2 text-icon-muted"
-          muted
-        />
+        <span
+          className={
+            props.failed ? "[&_svg]:text-tool-error-icon [&_path]:stroke-current" : undefined
+          }
+        >
+          <ToolActivityIconView
+            icon={props.toolIcon}
+            fallbackName={props.iconName}
+            className="size-4 shrink-0 stroke-2 text-icon-muted"
+            muted
+          />
+        </span>
       }
       label={<span className="block truncate">{props.label}</span>}
       trailing={

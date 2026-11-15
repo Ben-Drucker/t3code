@@ -213,7 +213,7 @@ export function ComposerAttachmentMediaRow({
                 "group/attachment shrink-0 snap-start bg-background",
                 source?.kind === "snap-shot"
                   ? SNAP_SHOT_ATTACHMENT_FRAME_CLASS
-                  : "relative h-16 w-16 overflow-hidden rounded-lg border border-border/80",
+                  : "relative h-auto w-fit max-w-40 overflow-hidden rounded-lg border border-border/80",
                 snapShotAnimationPending && "invisible",
               )}
             >
@@ -232,15 +232,17 @@ export function ComposerAttachmentMediaRow({
                   <ComposerImageThumbnail
                     file={image.file}
                     alt={image.name}
-                    className="h-full w-full object-cover"
+                    className="h-auto max-h-16 max-w-full object-contain"
                     fallback={
                       ready && isHeicImageFile({ name: ready.name, type: ready.mimeType }) ? (
                         <AttachmentImage
+                          nativeDensity
+                          inlineMaxHeight="4rem"
                           name={ready.name}
                           mimeType={ready.mimeType}
                           src={ready.previewUrl}
                           alt=""
-                          className="h-full w-full object-cover"
+                          className="h-auto max-h-16 max-w-full object-contain"
                         />
                       ) : (
                         <ComposerImageFallback />
@@ -602,7 +604,7 @@ export function ComposerRestingImagePreviews({
         <button
           key={image.id}
           type="button"
-          className="relative size-7 shrink-0 cursor-zoom-in overflow-hidden rounded-md border border-border/70 bg-muted/60"
+          className="relative h-auto w-fit max-w-7 shrink-0 cursor-zoom-in overflow-hidden rounded-md border border-border/70 bg-muted/60"
           aria-label={`Preview ${image.name}`}
           onPointerDown={(event) => event.preventDefault()}
           onClick={() => {
@@ -612,17 +614,20 @@ export function ComposerRestingImagePreviews({
         >
           {image.previewUrl ? (
             <ComposerImageThumbnail
+              inlineMaxHeight="1.75rem"
               file={image.file}
               alt=""
-              className="size-full object-cover"
+              className="h-auto max-h-7 max-w-7 object-contain"
               fallback={
                 isHeicImageFile({ name: image.name, type: image.mimeType }) ? (
                   <AttachmentImage
+                    nativeDensity
+                    inlineMaxHeight="1.75rem"
                     name={image.name}
                     mimeType={image.mimeType}
                     src={image.previewUrl}
                     alt=""
-                    className="size-full object-cover"
+                    className="h-auto max-h-7 max-w-7 object-contain"
                   />
                 ) : (
                   <PierreEntryIcon
@@ -675,10 +680,17 @@ export function ComposerQueuedAttachmentRow({
       {attachments.map(({ attachment, url }) => (
         <div
           key={attachment.id}
-          className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/80 bg-background"
+          className="relative h-auto w-fit max-w-40 overflow-hidden rounded-lg border border-border/80 bg-background"
         >
           {attachment.type === "image" && url ? (
-            <img src={url} alt={attachment.name} className="h-full w-full object-cover" />
+            <AttachmentImage
+              nativeDensity
+              inlineMaxHeight="4rem"
+              name={attachment.name}
+              src={url}
+              alt={attachment.name}
+              className="h-auto max-h-16 max-w-full object-contain"
+            />
           ) : (
             <div className="flex h-full w-full items-center justify-center px-1 text-center text-3xs text-secondary-label">
               {attachment.name}

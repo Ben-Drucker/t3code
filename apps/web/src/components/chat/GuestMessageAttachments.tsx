@@ -7,8 +7,7 @@ import { type ChatFileAttachment, isFileAttachment, isImageAttachment } from "..
 import { AttachmentImage } from "../media/AttachmentImage";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 
-const IMAGE_FRAME =
-  "aspect-[4/3] overflow-hidden rounded-lg border border-border/80 bg-background/70";
+const IMAGE_FRAME = "w-fit overflow-hidden rounded-lg border border-border/80 bg-background/70";
 const FILE_ROW = "flex min-w-0 items-center gap-2 py-1 text-sm";
 
 /**
@@ -31,7 +30,7 @@ export function GuestMessageAttachments(props: {
   return (
     <div className="flex flex-col items-end gap-2">
       {images.length > 0 ? (
-        <div className="grid w-[210px] grid-cols-2 gap-2">
+        <div className="flex max-w-full flex-wrap justify-end gap-2">
           {images.map((image) => {
             const src = props.imageUrl(image);
             return (
@@ -45,12 +44,14 @@ export function GuestMessageAttachments(props: {
                   >
                     {/* Isolate the thumbnail raster from nearby activity repaints in Chromium. */}
                     <AttachmentImage
+                      nativeDensity
+                      inlineMaxHeight="12rem"
                       name={image.name}
                       mimeType={image.mimeType}
                       src={src}
                       alt={image.name}
                       decoding="async"
-                      className="block size-full transform-gpu object-cover"
+                      className="block h-auto max-h-48 w-auto max-w-full transform-gpu object-contain"
                     />
                   </button>
                 ) : (

@@ -251,11 +251,12 @@ describe("compressImageForStash", () => {
 
 describe("composer image thumbnails", () => {
   it("gives the compressed file its source's thumbnail without decoding it again", async () => {
-    stubCanvasPipeline(() => 3);
+    const { canvasSizes } = stubCanvasPipeline(() => 3);
     const source = makeFile(3);
     const compressed = makeFile(2, "image/webp");
     const sourceThumbnail = await createComposerImageThumbnail(source);
     expect(sourceThumbnail).toMatch(/^data:image\/png;base64,/);
+    expect(canvasSizes[0]).toEqual({ width: 256, height: 192 });
 
     inheritComposerImageThumbnail(source, compressed);
 
@@ -343,7 +344,7 @@ describe("HEIC attachment preparation", () => {
     expect(createImageBitmap).toHaveBeenCalledTimes(1);
     expect(canvasSizes).toEqual([
       { width: 2000, height: 1500 },
-      { width: 256, height: 256 },
+      { width: 256, height: 192 },
     ]);
   });
 

@@ -57,8 +57,11 @@ function recordedText(value: string | undefined) {
 }
 
 export function toolCallDiff(
-  item: Pick<FileChange, "diffStr" | "fileName" | "changes" | "oldStr" | "newStr">,
+  item: Pick<FileChange, "diffStr" | "fileName" | "changes" | "oldStr" | "newStr"> & {
+    status?: FileChange["status"];
+  },
 ) {
+  if (item.status === "failed") return { patch: undefined, content: [], truncated: false };
   const diff = recordedText(item.diffStr);
   const operation = item.changes?.[0]?.operation;
   const emptyContent = diff.text === "" ? "" : undefined;

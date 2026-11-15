@@ -472,13 +472,16 @@ function MessageImage(props: {
   readonly onError?: () => void;
 }) {
   const imageStyle = useResolveClassNames(props.className);
+  const { scale } = useWindowDimensions();
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const displaySize =
-    props.maxWidth !== undefined && size !== null
+    size !== null
       ? resolveMarkdownImageDisplaySize({
           sourceWidth: size.width,
           sourceHeight: size.height,
-          availableWidth: props.maxWidth,
+          availableWidth: props.maxWidth ?? MARKDOWN_IMAGE_MAX_WIDTH,
+          availableHeight: props.height,
+          displayScale: scale,
         })
       : null;
   return (
@@ -487,18 +490,18 @@ function MessageImage(props: {
       cachePolicy="memory-disk"
       style={[
         imageStyle,
-        props.maxWidth !== undefined
+        size !== null || props.maxWidth !== undefined
           ? (displaySize ?? {
-              width: Math.min(props.maxWidth, MARKDOWN_IMAGE_MAX_WIDTH),
+              width: Math.min(props.maxWidth ?? MARKDOWN_IMAGE_MAX_WIDTH, MARKDOWN_IMAGE_MAX_WIDTH),
               aspectRatio: 1.3,
             })
           : props.height !== undefined
             ? { height: props.height }
             : undefined,
       ]}
-      contentFit={props.maxWidth === undefined ? "cover" : "contain"}
+      contentFit="contain"
       onLoad={(event) => {
-        if (props.maxWidth !== undefined) setSize(event.source);
+        setSize(event.source);
         props.onLoad?.();
       }}
       onError={props.onError}
@@ -534,7 +537,13 @@ function MessageAttachmentImage(props: {
         className={`${props.className} items-center justify-center`}
         style={
           props.maxWidth !== undefined
-            ? { width: Math.min(props.maxWidth, MARKDOWN_IMAGE_MAX_WIDTH), aspectRatio: 1.3 }
+            ? {
+                width: Math.min(
+                  props.maxWidth ?? MARKDOWN_IMAGE_MAX_WIDTH,
+                  MARKDOWN_IMAGE_MAX_WIDTH,
+                ),
+                aspectRatio: 1.3,
+              }
             : props.height !== undefined
               ? { height: props.height }
               : undefined
@@ -826,7 +835,7 @@ function UserMessageMedia(props: {
   const collage = attachments.length > 1 && attachments.every(isImageAttachment);
   const imageProps = (index: number) => ({
     className: "w-full bg-user-bubble-foreground/15",
-    maxWidth: collage ? undefined : props.maxWidth,
+    maxWidth: collage ? Math.min(props.maxWidth, 320) / 2 : props.maxWidth,
     height: !collage
       ? undefined
       : attachments.length === 2 || (attachments.length === 3 && index === 0)
@@ -897,30 +906,13 @@ function UserMessageMedia(props: {
   return collage ? (
     <View
       className="overflow-hidden rounded-[20px] bg-border"
-      style={{ width: 320, maxWidth: "100%", alignSelf: "flex-end", gap: StyleSheet.hairlineWidth }}
+      style={{ maxWidth: "100%", alignSelf: "flex-end", gap: StyleSheet.hairlineWidth }}
     >
-      {media.length === 3 ? (
-        <View className="flex-row" style={{ gap: StyleSheet.hairlineWidth }}>
-          <View className="min-w-0" style={{ flex: 3 }}>
-            {media[0]!.content}
-          </View>
-          <View className="min-w-0" style={{ flex: 2, gap: StyleSheet.hairlineWidth }}>
-            {media[1]!.content}
-            {media[2]!.content}
-          </View>
-        </View>
-      ) : (
-        media
-          .filter((_, index) => index % 2 === 0)
-          .map((item, index) => (
-            <View key={item.id} className="flex-row" style={{ gap: StyleSheet.hairlineWidth }}>
-              <View className="min-w-0 flex-1">{item.content}</View>
-              {media[index * 2 + 1] ? (
-                <View className="min-w-0 flex-1">{media[index * 2 + 1]!.content}</View>
-              ) : null}
-            </View>
-          ))
-      )}
+      <View className="flex-row flex-wrap items-start" style={{ gap: StyleSheet.hairlineWidth }}>
+        {media.map((item) => (
+          <View key={item.id}>{item.content}</View>
+        ))}
+      </View>
       <View pointerEvents="none" className="absolute inset-0 rounded-[20px] border border-border" />
     </View>
   ) : (
@@ -1758,6 +1750,8 @@ function renderFeedEntry(
         rowSizing={props.workRowSizing}
         expanded={entry.expanded}
         hiddenCount={entry.hiddenCount}
+        editedFiles={entry.editedFiles}
+        renderFileLabel={props.renderReasoning}
         iconSubtleColor={iconSubtleColor}
         summary={entry.summary}
         summaryKind={entry.summaryKind}
@@ -3518,7 +3512,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       case "run-fold":
         return resolveThreadFeedFixedItemSize(entry.type);
       case "work-toggle":
-        return entry.thought ? undefined : WORK_GROUP_TOGGLE_HEIGHT;
+        return entry.thought || (!entry.expanded && (entry.editedFiles?.length ?? 0) > 0)
+          ? undefined
+          : WORK_GROUP_TOGGLE_HEIGHT;
       case "thinking":
         return WORK_GROUP_TOGGLE_HEIGHT;
       case "activity-group":

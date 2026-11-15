@@ -408,6 +408,8 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
   const expandedCommand = expanded && workEntry.projectedItem?.item.type === "command_execution";
   const iconWrapperClass = cn(
     "flex size-4 items-center justify-center",
+    (showWarningIndicator || showDestructiveRowStyle || showFailedIndicator) &&
+      "[&_svg]:text-inherit [&_path]:stroke-current",
     expandedCommand && "rotate-90",
     showWarningIndicator
       ? "text-warning"
@@ -536,6 +538,8 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
                   environmentId={ctx.activeThreadEnvironmentId}
                   linked
                 />
+              ) : workEntry.projectedItem?.item.type === "file_change" ? (
+                <EditedFileLabel item={workEntry.projectedItem.item} />
               ) : (
                 previewText
               )}
@@ -725,5 +729,44 @@ function QuestionAnswerHistory({
         </div>
       ))}
     </div>
+  );
+}
+
+export function EditedFileLabel({
+  item,
+}: {
+  item: {
+    fileName: string;
+    additions?: number | undefined;
+    deletions?: number | undefined;
+    changes?:
+      | readonly { path: string; additions?: number | undefined; deletions?: number | undefined }[]
+      | undefined;
+  };
+}) {
+  const ctx = use(TimelineRowCtx);
+  const files =
+    item.changes && item.changes.length > 1
+      ? item.changes.map((file) => ({ ...file, fileName: file.path }))
+      : [item];
+  return (
+    <span className="inline-flex flex-wrap items-baseline gap-1.5" onClick={stopRowToggle}>
+      {files.map((file) => (
+        <span key={file.fileName} className="inline-flex items-baseline gap-1.5">
+          <ChatMarkdown
+            inline
+            text={`[${file.fileName.replaceAll("[", "\\[").replaceAll("]", "\\]")}](${encodeURI(file.fileName).replaceAll("(", "%28").replaceAll(")", "%29").replaceAll("#", "%23").replaceAll("?", "%3F")})`}
+            cwd={ctx.markdownCwd}
+            threadRef={ctx.threadRef ?? undefined}
+          />
+          {file.additions !== undefined && (
+            <span className="text-xs text-diff-addition">+{file.additions}</span>
+          )}
+          {file.deletions !== undefined && (
+            <span className="text-xs text-diff-deletion">−{file.deletions}</span>
+          )}
+        </span>
+      ))}
+    </span>
   );
 }

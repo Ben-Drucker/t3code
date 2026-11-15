@@ -202,6 +202,10 @@ async function encodeCanvas(
 
 const composerThumbnails = new WeakMap<File, Promise<string | null>>();
 const settledComposerThumbnails = new WeakMap<File, string | null>();
+const composerImageSizes = new WeakMap<File, ImageSize>();
+export function readComposerImageSize(file: File) {
+  return composerImageSizes.get(file);
+}
 
 function cacheComposerImageThumbnail(
   file: File,
@@ -229,6 +233,8 @@ export function createComposerImageThumbnail(file: File): Promise<string | null>
  * Reusing it keeps the tile from flashing back to its fallback while the new file is decoded.
  */
 export function inheritComposerImageThumbnail(source: File, target: File): void {
+  const dimensions = composerImageSizes.get(source);
+  if (dimensions) composerImageSizes.set(target, dimensions);
   const sourceThumbnail = composerThumbnails.get(source);
   if (source === target || !sourceThumbnail || composerThumbnails.has(target)) return;
   const settled = settledComposerThumbnails.get(source);
@@ -246,6 +252,7 @@ async function renderComposerImageThumbnail(file: File): Promise<string | null> 
   let bitmap: ImageBitmap | undefined;
   try {
     bitmap = await createImageBitmap(file);
+    composerImageSizes.set(file, { width: bitmap.width, height: bitmap.height });
     return await renderComposerImageThumbnailFromBitmap(bitmap);
   } catch {
     return null;
@@ -256,22 +263,13 @@ async function renderComposerImageThumbnail(file: File): Promise<string | null> 
 
 async function renderComposerImageThumbnailFromBitmap(bitmap: ImageBitmap): Promise<string | null> {
   try {
-    const side = Math.min(bitmap.width, bitmap.height);
-    if (side <= 0) return null;
-    const dimension = Math.min(256, side);
-    const surface = createCanvas(dimension, dimension);
+    if (bitmap.width <= 0 || bitmap.height <= 0) return null;
+    const scale = Math.min(1, 256 / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const surface = createCanvas(width, height);
     if (!surface) return null;
-    surface.context.drawImage(
-      bitmap,
-      (bitmap.width - side) / 2,
-      (bitmap.height - side) / 2,
-      side,
-      side,
-      0,
-      0,
-      dimension,
-      dimension,
-    );
+    surface.context.drawImage(bitmap, 0, 0, bitmap.width, bitmap.height, 0, 0, width, height);
     const blob = await encodeCanvas(surface.canvas, 1, "image/png");
     return blob ? await readFileAsDataUrl(blob) : null;
   } catch {

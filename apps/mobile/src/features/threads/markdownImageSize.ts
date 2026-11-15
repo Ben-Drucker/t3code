@@ -1,3 +1,4 @@
+import { inlineImageSize } from "@t3tools/client-runtime/image-attachment-size";
 export const MARKDOWN_IMAGE_MAX_WIDTH = 480;
 const MARKDOWN_IMAGE_MAX_HEIGHT = 480;
 
@@ -38,6 +39,8 @@ export function resolveMarkdownImageDisplaySize(input: {
   readonly sourceWidth: number;
   readonly sourceHeight: number;
   readonly availableWidth: number;
+  readonly availableHeight?: number | undefined;
+  readonly displayScale?: number;
 }): MarkdownImageDisplaySize | null {
   if (
     !Number.isFinite(input.sourceWidth) ||
@@ -50,15 +53,11 @@ export function resolveMarkdownImageDisplaySize(input: {
     return null;
   }
 
-  const scale = Math.min(
-    1,
-    input.availableWidth / input.sourceWidth,
-    MARKDOWN_IMAGE_MAX_WIDTH / input.sourceWidth,
-    MARKDOWN_IMAGE_MAX_HEIGHT / input.sourceHeight,
+  return inlineImageSize(
+    input.sourceWidth,
+    input.sourceHeight,
+    input.displayScale ?? 1,
+    Math.min(input.availableWidth, MARKDOWN_IMAGE_MAX_WIDTH),
+    Math.min(input.availableHeight ?? MARKDOWN_IMAGE_MAX_HEIGHT, MARKDOWN_IMAGE_MAX_HEIGHT),
   );
-
-  return {
-    width: input.sourceWidth * scale,
-    height: input.sourceHeight * scale,
-  };
 }

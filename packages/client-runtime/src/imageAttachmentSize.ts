@@ -5,6 +5,19 @@
  */
 export const IMAGE_ATTACHMENT_MAX_EDGE = 2000;
 
+export function inlineImageSize(
+  width: number,
+  height: number,
+  displayScale: number,
+  maxWidth: number,
+  maxHeight: number,
+) {
+  if (![width, height, displayScale, maxWidth, maxHeight].every((n) => Number.isFinite(n) && n > 0))
+    return null;
+  const factor = Math.min(1 / displayScale, maxWidth / width, maxHeight / height);
+  return { width: width * factor, height: height * factor };
+}
+
 export type DownscalableImageMimeType = "image/png" | "image/jpeg";
 
 export function downscalableImageMimeType(mimeType: string): DownscalableImageMimeType | null {

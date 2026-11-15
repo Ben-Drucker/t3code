@@ -1466,6 +1466,8 @@ export const OrchestrationV2TurnItemStatus = Schema.Literals([
 export type OrchestrationV2TurnItemStatus = typeof OrchestrationV2TurnItemStatus.Type;
 
 export const OrchestrationV2FileChangeDetail = Schema.Struct({
+  additions: Schema.optional(NonNegativeInt),
+  deletions: Schema.optional(NonNegativeInt),
   operation: TrimmedNonEmptyString,
   path: TrimmedNonEmptyString,
   oldPath: Schema.optional(TrimmedNonEmptyString),

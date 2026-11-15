@@ -1,3 +1,4 @@
+import { AttachmentImage } from "../media/AttachmentImage";
 import { memo, useLayoutEffect, useState, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
@@ -7,6 +8,7 @@ import {
   isHeicImageFile,
   MAX_COMPRESSIBLE_SOURCE_BYTES,
   readComposerImageThumbnail,
+  readComposerImageSize,
 } from "../../lib/imageCompression";
 
 export const ComposerImageThumbnail = memo(function ComposerImageThumbnail({
@@ -14,11 +16,13 @@ export const ComposerImageThumbnail = memo(function ComposerImageThumbnail({
   alt,
   className,
   fallback,
+  inlineMaxHeight = "4rem",
 }: {
   file: File;
   alt: string;
   className: string;
   fallback: ReactNode;
+  inlineMaxHeight?: string;
 }) {
   const [preview, setPreview] = useState(() => ({
     file,
@@ -62,9 +66,13 @@ export const ComposerImageThumbnail = memo(function ComposerImageThumbnail({
   }, [file]);
 
   return src && failedSrc !== src ? (
-    <span className="relative block size-full">
+    <span className="relative block max-w-full">
       {loadedSrc !== src && fallback}
-      <img
+      <AttachmentImage
+        nativeDensity
+        inlineMaxHeight={inlineMaxHeight}
+        name={alt}
+        intrinsicSize={readComposerImageSize(file)}
         ref={(image) => {
           if (image?.complete && image.naturalWidth > 0) setLoadedSrc(src);
         }}

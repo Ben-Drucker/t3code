@@ -3,6 +3,17 @@ import { getRenderablePatch, resolveFileDiffPath } from "./diffRendering";
 import { toolCallDiff } from "./toolCallDiff";
 
 describe("toolCallDiff", () => {
+  it("does not interpret a failed edit error as a patch", () => {
+    expect(
+      toolCallDiff({
+        fileName: "a.ts",
+        status: "failed",
+        diffStr: "String to replace not found",
+        oldStr: "old",
+        newStr: "new",
+      }),
+    ).toEqual({ patch: undefined, content: [], truncated: false });
+  });
   it("renders recorded hunks without reading a repository, including renamed paths", () => {
     for (const changes of [
       undefined,

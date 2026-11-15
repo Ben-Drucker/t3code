@@ -625,6 +625,12 @@ type MessagesTimelineRowContent =
     }
   | {
       kind: "work-toggle";
+      editedFiles?: readonly {
+        id?: string | undefined;
+        fileName: string;
+        additions?: number | undefined;
+        deletions?: number | undefined;
+      }[];
       id: string;
       createdAt: string;
       runId?: RunId | null;
@@ -2166,6 +2172,26 @@ export function deriveMessagesTimelineRows(input: {
             runId: timelineEntry.entry.runId ?? null,
             groupId,
             hiddenCount: visibleGroupedEntries.length,
+            editedFiles: visibleGroupedEntries.flatMap((entry) => {
+              const item = entry.projectedItem?.item;
+              return item?.type === "file_change"
+                ? item.changes && item.changes.length > 1
+                  ? item.changes.map((file) => ({
+                      id: `${entry.id}:${file.path}`,
+                      fileName: file.path,
+                      additions: file.additions,
+                      deletions: file.deletions,
+                    }))
+                  : [
+                      {
+                        id: entry.id,
+                        fileName: item.fileName,
+                        additions: item.additions,
+                        deletions: item.deletions,
+                      },
+                    ]
+                : [];
+            }),
             expanded,
             summary:
               singleEntry !== null && !workLogEntryIsToolLike(singleEntry)

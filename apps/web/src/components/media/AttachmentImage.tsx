@@ -1,12 +1,63 @@
 import { useEffect, useRef, useState, type ComponentProps, type SyntheticEvent } from "react";
 import { isHeicImageFile } from "../../lib/imageCompression";
+import { useDisplayScale } from "../../hooks/useDisplayScale";
 
-type AttachmentImageProps = ComponentProps<"img"> & { name: string; mimeType?: string | undefined };
+type AttachmentImageProps = ComponentProps<"img"> & {
+  name: string;
+  mimeType?: string | undefined;
+  nativeDensity?: boolean;
+  inlineMaxHeight?: string;
+  intrinsicSize?: { width: number; height: number } | undefined;
+};
 
 // Keep import expressions outside hooks until React Compiler supports them.
 const loadImageDecoder = () => import("../files/decodeImagePreview");
 
-export function AttachmentImage({ name, mimeType, ...props }: AttachmentImageProps) {
+export function AttachmentImage({
+  name,
+  mimeType,
+  nativeDensity = false,
+  inlineMaxHeight = "30rem",
+  intrinsicSize,
+  ...props
+}: AttachmentImageProps) {
+  const scale = useDisplayScale();
+  const [intrinsic, setIntrinsic] = useState<{
+    src: string | undefined;
+    width: number;
+    height: number;
+  }>();
+  const onLoad = props.onLoad;
+  const measured = intrinsicSize ?? (intrinsic?.src === props.src ? intrinsic : undefined);
+  const heightBound = props.style?.maxHeight ?? inlineMaxHeight;
+  const heightCss = typeof heightBound === "number" ? `${heightBound}px` : heightBound;
+  const widthBound = props.style?.maxWidth ?? "100%";
+  const widthCss = typeof widthBound === "number" ? `${widthBound}px` : widthBound;
+  if (nativeDensity)
+    props = {
+      ...props,
+      onLoad: (event) => {
+        setIntrinsic({
+          src: props.src,
+          width: event.currentTarget.naturalWidth,
+          height: event.currentTarget.naturalHeight,
+        });
+        onLoad?.(event);
+      },
+      style: {
+        ...props.style,
+        ...(measured && measured.width > 0
+          ? {
+              width: measured.width / scale,
+              height: "auto",
+              aspectRatio: `${measured.width}/${measured.height}`,
+              maxWidth: `min(${widthCss}, calc(${heightCss} * ${measured.width / measured.height}))`,
+              maxHeight: heightBound,
+              objectFit: "contain",
+            }
+          : {}),
+      },
+    };
   const fallback =
     isHeicImageFile({ name, type: mimeType ?? "" }) ||
     /\.tiff?$/i.test(name) ||

@@ -11,7 +11,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { HighlightedTokens } from "./HighlightedTokens";
 
 export const SNAP_SHOT_ATTACHMENT_FRAME_CLASS =
-  "relative h-28 w-52 max-w-full overflow-hidden rounded-lg border border-border/80";
+  "relative h-auto w-fit max-w-52 overflow-hidden rounded-lg border border-border/80";
 
 interface SnapShotAccessibilityDetails {
   content: string;

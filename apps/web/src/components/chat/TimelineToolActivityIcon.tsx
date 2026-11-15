@@ -15,7 +15,6 @@ import {
   MessageCircleIcon,
   SearchIcon,
   SmartphoneIcon,
-  SquarePenIcon,
   TerminalIcon,
   HammerIcon,
   WrenchIcon,
@@ -83,7 +82,7 @@ export function ToolActivityIconView(props: {
   muted: boolean;
 }) {
   const { resolvedTheme } = use(TimelineRowCtx);
-  const fallbackClassName = cn(props.className, props.muted && "opacity-70 light:brightness-60");
+  const fallbackClassName = props.className;
   if (!props.icon) {
     return <WorkEntryIcon name={props.fallbackName} className={fallbackClassName} />;
   }
@@ -230,6 +229,19 @@ function ToolActivityImageIcon(props: {
 }
 
 function WorkEntryIcon({ name, className }: { name: WorkEntryIconName; className: string }) {
+  const tint =
+    name === "brain"
+      ? "text-tool-think"
+      : name === "eye"
+        ? "text-tool-read"
+        : name === "search" || name === "globe" || name === "browser" || name === "computer"
+          ? "text-tool-search"
+          : name === "wrench" || name === "hammer"
+            ? "text-tool-generic"
+            : name === "terminal"
+              ? "text-tool-terminal dark:bg-tool-terminal-surface rounded-sm"
+              : undefined;
+  className = cn(className, tint);
   switch (name) {
     case "pull-request":
       return <PullRequestGlyph.pullRequest className={className} aria-hidden />;
@@ -263,7 +275,20 @@ function WorkEntryIcon({ name, className }: { name: WorkEntryIconName; className
     case "message-circle":
       return <MessageCircleIcon className={className} aria-hidden />;
     case "square-pen":
-      return <SquarePenIcon className={className} aria-hidden />;
+      return (
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={className}
+          aria-hidden
+        >
+          <path className="stroke-tool-read" d="M12 3H4v18h16v-9M4 7h5M4 11h4" />
+          <path className="stroke-tool-edit" d="m10 14 1-4L19 2l3 3-8 8-4 1Zm7-10 3 3" />
+        </svg>
+      );
     case "terminal":
       return <TerminalIcon className={className} aria-hidden />;
     case "wrench":

@@ -173,6 +173,13 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
    the variables and Settings -> Appearance can override them at runtime. The
    default stacks are mirrored in `appearanceFonts.ts`. */
 @theme {
+  --color-tool-think: #ec4899;
+  --color-tool-read: #ef4444;
+  --color-tool-search: #0ea5e9;
+  --color-tool-generic: #4682b4;
+  --color-tool-edit: #84cc16;
+  --color-tool-terminal: #000000;
+  --color-tool-terminal-surface: #cbd5e1;
   --font-sans:
     -apple-system, BlinkMacSystemFont, "Inter Variable", "Segoe UI", system-ui, sans-serif;
   --font-mono:

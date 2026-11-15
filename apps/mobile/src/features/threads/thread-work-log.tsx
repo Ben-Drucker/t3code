@@ -1,4 +1,5 @@
 import { Button } from "../../components/ui/Button";
+import { RecordedToolDiff } from "./RecordedToolDiff";
 import { ThreadSubagentGroup } from "./thread-subagent-group";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import {
@@ -41,7 +42,7 @@ import {
   useAnimatedValue,
   View,
 } from "react-native";
-import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
+import Svg, { Defs, LinearGradient, Rect, Stop, Path } from "react-native-svg";
 import {
   ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE,
   type EnvironmentId,
@@ -131,6 +132,30 @@ function WorkLogIcon(props: {
   readonly highlighted?: boolean;
 }) {
   const colorClassName = props.highlighted ? "accent-foreground" : props.colorClassName;
+  const symbol = typeof props.icon === "string" ? props.icon : props.icon.ios;
+  const color = colorClassName
+    ? props.color
+    : symbol === "brain"
+      ? "#ec4899"
+      : symbol === "eye"
+        ? "#ef4444"
+        : symbol === "globe" || symbol === "magnifyingglass" || symbol === "browser"
+          ? "#0ea5e9"
+          : symbol === "terminal"
+            ? "#000000"
+            : symbol === "wrench" || symbol === "hammer"
+              ? "#4682b4"
+              : props.color;
+  if (symbol === "square.and.pencil")
+    return (
+      <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" strokeWidth={2}>
+        <Path stroke="#ef4444" d="M12 3H4v18h16v-9M4 7h5M4 11h4" />
+        <Path
+          stroke={colorClassName ? "#ef4444" : "#84cc16"}
+          d="m10 14 1-4L19 2l3 3-8 8-4 1Zm7-10 3 3"
+        />
+      </Svg>
+    );
   if (props.icon === "t3-code") {
     return (
       <T3Wordmark height={10} {...(colorClassName ? { colorClassName } : { color: props.color })} />
@@ -157,7 +182,8 @@ function WorkLogIcon(props: {
       }
       size={14}
       weight="medium"
-      {...(colorClassName ? { tintColorClassName: colorClassName } : { tintColor: props.color })}
+      {...(colorClassName ? { tintColorClassName: colorClassName } : { tintColor: color })}
+      style={color === "#000000" ? { backgroundColor: "#cbd5e1", borderRadius: 2 } : undefined}
       type="monochrome"
     />
   );
@@ -1033,6 +1059,17 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
     !isSystemNotice && !isUsageLimit && (row.icon === "alert" || row.icon === "warning");
   const failed = row.status === "failure";
   const toolIcon = row.workEntry.toolIcon ?? row.workEntry.toolSource?.icon;
+  const editItem = row.projectedItem.item.type === "file_change" ? row.projectedItem.item : null;
+  const category = toolGroupAction(row.workEntry);
+  const categoryColor = reasoning
+    ? "#ec4899"
+    : category === "read"
+      ? "#ef4444"
+      : category === "search" || category === "code-search"
+        ? "#0ea5e9"
+        : category === "command"
+          ? "#000000"
+          : "#4682b4";
   const icon = reasoning ? "brain" : (toolPresentation?.icon ?? workRowSymbolName(row.icon));
 
   return (
@@ -1082,7 +1119,15 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
         ) : (
           <>
             <WorkLogIconSlot>
-              {toolIcon ? (
+              {category === "edit" ? (
+                <Svg width={14} height={14} viewBox="0 0 24 24" fill="none" strokeWidth={2}>
+                  <Path stroke="#ef4444" d="M12 3H4v18h16v-9M4 7h5M4 11h4" />
+                  <Path
+                    stroke={failed ? "#ef4444" : "#84cc16"}
+                    d="m10 14 1-4L19 2l3 3-8 8-4 1Zm7-10 3 3"
+                  />
+                </Svg>
+              ) : toolIcon ? (
                 <ToolActivityIconView
                   environmentId={props.environmentId}
                   icon={toolIcon}
@@ -1093,7 +1138,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
               ) : (
                 <WorkLogIcon
                   icon={icon}
-                  color={props.iconSubtleColor}
+                  color={categoryColor}
                   colorClassName={
                     isUsageLimit
                       ? "accent-warning-foreground"
@@ -1106,22 +1151,43 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
                 />
               )}
             </WorkLogIconSlot>
-            <WorkLogLabel
-              tone={isUsageLimit ? "warning" : iconIsDestructive ? "danger" : "default"}
-            >
-              {displayText}
-              {answerPreview ? (
-                <Text
-                  className={
-                    !expanded &&
-                    row.workEntry.questionAnswer &&
-                    hasQuestionAnswer(row.workEntry.questionAnswer)
-                      ? "text-foreground"
-                      : "text-foreground-subtle"
-                  }
-                >{`  ${answerPreview}`}</Text>
-              ) : null}
-            </WorkLogLabel>
+            {editItem ? (
+              <View className="min-w-0 flex-1 gap-1">
+                {(editItem.changes && editItem.changes.length > 1
+                  ? editItem.changes.map((file) => ({ ...file, fileName: file.path }))
+                  : [editItem]
+                ).map((file) => (
+                  <View key={file.fileName} className="flex-row items-center gap-1">
+                    {props.renderReasoning(
+                      `[${file.fileName.replaceAll("[", "\\[").replaceAll("]", "\\]")}](${encodeURI(file.fileName).replaceAll("(", "%28").replaceAll(")", "%29").replaceAll("#", "%23").replaceAll("?", "%3F")})`,
+                    )}
+                    {file.additions !== undefined && (
+                      <Text style={{ color: "#16a34a" }}>+{file.additions}</Text>
+                    )}
+                    {file.deletions !== undefined && (
+                      <Text style={{ color: "#dc2626" }}>−{file.deletions}</Text>
+                    )}
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <WorkLogLabel
+                tone={isUsageLimit ? "warning" : iconIsDestructive ? "danger" : "default"}
+              >
+                {displayText}
+                {answerPreview ? (
+                  <Text
+                    className={
+                      !expanded &&
+                      row.workEntry.questionAnswer &&
+                      hasQuestionAnswer(row.workEntry.questionAnswer)
+                        ? "text-foreground"
+                        : "text-foreground-subtle"
+                    }
+                  >{`  ${answerPreview}`}</Text>
+                ) : null}
+              </WorkLogLabel>
+            )}
           </>
         )}
 
@@ -1208,7 +1274,11 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
             className="max-h-60"
             contentContainerStyle={{ paddingRight: 8 }}
           >
-            {reasoning ? (
+            {shownItem.type === "file_change" &&
+            shownItem.status === "completed" &&
+            shownItem.diffStr ? (
+              <RecordedToolDiff patch={shownItem.diffStr} />
+            ) : reasoning ? (
               props.renderReasoning(reasoning.text)
             ) : call ? (
               [
@@ -1319,6 +1389,15 @@ export function ThreadWorkGroupToggle(props: {
   readonly rowSizing: ReturnType<typeof deriveThreadWorkLogSizing>;
   readonly expanded: boolean;
   readonly hiddenCount: number;
+  readonly editedFiles?:
+    | readonly {
+        id?: string | undefined;
+        fileName: string;
+        additions?: number | undefined;
+        deletions?: number | undefined;
+      }[]
+    | undefined;
+  readonly renderFileLabel?: ((text: string) => ReactNode) | undefined;
   readonly iconSubtleColor: import("react-native").ColorValue;
   readonly summary: string;
   readonly summaryKind: ToolGroupSummaryKind;
@@ -1407,7 +1486,28 @@ export function ThreadWorkGroupToggle(props: {
           </WorkLogPressable>
         </View>
         {props.trailing}
+        {props.hasFailure && (
+          <SymbolView
+            name="exclamationmark.circle"
+            size={14}
+            tintColorClassName="accent-danger-foreground"
+          />
+        )}
       </View>
+      {!props.expanded &&
+        props.editedFiles?.map((file) => (
+          <View key={file.id ?? file.fileName} className="ml-7 flex-row items-center gap-1">
+            {props.renderFileLabel?.(
+              `[${file.fileName}](${encodeURI(file.fileName).replaceAll("(", "%28").replaceAll(")", "%29").replaceAll("#", "%23").replaceAll("?", "%3F")})`,
+            )}
+            {file.additions !== undefined && (
+              <Text style={{ color: "#16a34a" }}>+{file.additions}</Text>
+            )}
+            {file.deletions !== undefined && (
+              <Text style={{ color: "#dc2626" }}>−{file.deletions}</Text>
+            )}
+          </View>
+        ))}
     </WorkLogBlock>
   );
 }

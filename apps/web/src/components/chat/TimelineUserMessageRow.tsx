@@ -666,7 +666,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
     regularImages.length > 0 || userVideos.length > 0 ? (
       <div
         className={cn(
-          "grid",
+          collage ? "flex flex-wrap items-start" : "grid",
           !standaloneMedia
             ? "mb-2 max-w-[210px] grid-cols-2 gap-2"
             : loneImage
@@ -674,13 +674,8 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
               : collage
                 ? cn(
                     MEDIA_EDGE_CLASS_NAME,
-                    "w-80 max-w-full gap-px overflow-hidden rounded-2xl bg-black/9 dark:bg-white/12",
+                    "max-w-full gap-1 overflow-hidden rounded-2xl",
                     mediaCornerClassName,
-                    regularImages.length === 2
-                      ? "auto-rows-[12rem] grid-cols-2"
-                      : regularImages.length === 3
-                        ? "auto-rows-[calc(6rem-0.5px)] grid-cols-[3fr_2fr]"
-                        : "auto-rows-[6rem] grid-cols-2",
                   )
                 : regularImages.length + userVideos.length === 1
                   ? "w-80 max-w-full"
@@ -698,7 +693,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
                     standaloneMedia
                       ? cn(
                           MEDIA_EDGE_CLASS_NAME,
-                          "min-h-16 justify-self-end overflow-hidden rounded-2xl",
+                          "justify-self-end overflow-hidden rounded-2xl",
                           loneImage && mediaCornerClassName,
                         )
                       : SNAP_SHOT_ATTACHMENT_FRAME_CLASS,
@@ -715,8 +710,8 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
                           "col-span-2",
                       )
                     : standaloneMedia
-                      ? cn(MEDIA_EDGE_CLASS_NAME, "aspect-[4/3] overflow-hidden rounded-2xl")
-                      : "aspect-[4/3] overflow-hidden rounded-lg border border-border/80",
+                      ? cn(MEDIA_EDGE_CLASS_NAME, "overflow-hidden rounded-2xl")
+                      : "overflow-hidden rounded-lg border border-border/80",
             )}
           >
             {image.previewUrl ? (
@@ -732,6 +727,8 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
               >
                 {/* Isolate the thumbnail raster from nearby activity repaints in Chromium. */}
                 <AttachmentImage
+                  nativeDensity
+                  inlineMaxHeight="12rem"
                   name={image.name}
                   mimeType={image.mimeType}
                   src={image.previewUrl}
@@ -741,10 +738,10 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
                   className={cn(
                     "block transform-gpu",
                     standaloneMedia && image.source?.kind === "snap-shot"
-                      ? "h-auto max-h-48 w-auto min-w-24 max-w-full object-contain"
+                      ? "h-auto max-h-48 w-auto max-w-full object-contain"
                       : loneImage
-                        ? "h-48 w-auto min-w-24 max-w-full object-cover"
-                        : "size-full object-cover",
+                        ? "h-auto max-h-48 w-auto max-w-full object-contain"
+                        : "h-auto max-h-48 w-auto max-w-full object-contain",
                   )}
                 />
               </button>
