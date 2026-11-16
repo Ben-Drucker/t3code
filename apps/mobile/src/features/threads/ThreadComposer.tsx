@@ -48,7 +48,9 @@ import Animated, {
   ReduceMotion,
   useAnimatedStyle,
   useDerivedValue,
+  useReducedMotion,
   useSharedValue,
+  withRepeat,
   withTiming,
 } from "react-native-reanimated";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
@@ -390,8 +392,29 @@ function ComposerSurface(props: {
   readonly children: ReactNode;
   readonly style: ViewStyle;
   readonly animateLayout?: boolean;
+  readonly running?: boolean;
 }) {
   const colors = useUniwindTheme();
+  const reducedMotion = useReducedMotion();
+  const rimOpacity = useSharedValue(props.running ? (reducedMotion ? 0.65 : 0.32) : 0);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- drives the composer rim's Reanimated SharedValue pulse while running
+  useEffect(() => {
+    if (!props.running) {
+      rimOpacity.set(0);
+      return;
+    }
+    if (reducedMotion) {
+      rimOpacity.set(0.65);
+      return;
+    }
+    rimOpacity.set(0.32);
+    rimOpacity.set(
+      withRepeat(withTiming(0.85, { duration: 1100, reduceMotion: ReduceMotion.System }), -1, true),
+    );
+  }, [props.running, reducedMotion, rimOpacity]);
+  const rimAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: rimOpacity.value,
+  }));
   const targetBorderRadius =
     typeof props.style.borderRadius === "number" ? props.style.borderRadius : 0;
   const shouldAnimate = props.animateLayout !== false && Platform.OS !== "android";
@@ -443,6 +466,22 @@ function ComposerSurface(props: {
       >
         {props.children}
       </Animated.View>
+      {props.running ? (
+        <Animated.View
+          pointerEvents="none"
+          testID="composer-working-rim"
+          style={[
+            {
+              position: "absolute",
+              inset: 0,
+              borderWidth: 1.5,
+              borderColor: colors["--color-primary"],
+            },
+            animatedShapeStyle,
+            rimAnimatedStyle,
+          ]}
+        />
+      ) : null}
     </Animated.View>
   );
 }
@@ -934,6 +973,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
 
         <ComposerSurface
           animateLayout={false}
+          running={props.activeThreadBusy}
           style={{
             borderRadius: usesLargeControls ? 31 : 27,
             borderCurve: "circular",

@@ -2088,8 +2088,8 @@ function appendToolGroupRows(
               {
                 id: entry.id,
                 fileName: item.fileName,
-                additions: item.additions,
-                deletions: item.deletions,
+                additions: item.additions ?? item.changes?.[0]?.additions,
+                deletions: item.deletions ?? item.changes?.[0]?.deletions,
               },
             ]
         : [];

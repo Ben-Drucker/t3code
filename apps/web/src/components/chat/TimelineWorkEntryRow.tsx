@@ -748,7 +748,13 @@ export function EditedFileLabel({
   const files =
     item.changes && item.changes.length > 1
       ? item.changes.map((file) => ({ ...file, fileName: file.path }))
-      : [item];
+      : [
+          {
+            fileName: item.fileName,
+            additions: item.additions ?? item.changes?.[0]?.additions,
+            deletions: item.deletions ?? item.changes?.[0]?.deletions,
+          },
+        ];
   return (
     <span className="inline-flex flex-wrap items-baseline gap-1.5" onClick={stopRowToggle}>
       {files.map((file) => (

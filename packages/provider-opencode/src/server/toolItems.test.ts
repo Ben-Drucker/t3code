@@ -128,4 +128,51 @@ describe("openCodeToolTurnItem", () => {
     );
     expect(item).toMatchObject({ type: "file_change", fileName: "src/index.ts", ...expected });
   });
+
+  it("extracts patchText and filediff stats for apply_patch and write tools", () => {
+    const base = {
+      id: TurnItemId.make("tool-item"),
+      threadId: ThreadId.make("thread"),
+      runId: null,
+      nodeId: null,
+      providerThreadId: null,
+      providerTurnId: null,
+      nativeItemRef: null,
+      parentItemId: null,
+      ordinal: 0,
+      status: "completed" as const,
+      title: "apply_patch",
+      startedAt: null,
+      completedAt: null,
+      updatedAt: DateTime.makeUnsafe("2026-11-04T00:00:00Z"),
+    };
+    const patched = openCodeToolTurnItem(base, {
+      name: "apply_patch",
+      input: {
+        filePath: "src/index.ts",
+        patchText: "--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1 +1 @@\n-old\n+new\n",
+      },
+      output: "Patched",
+      completedMetadata: undefined,
+    });
+    expect(patched).toMatchObject({
+      type: "file_change",
+      diffStr: "--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1 +1 @@\n-old\n+new\n",
+    });
+
+    const withFileDiff = openCodeToolTurnItem(
+      { ...base, title: "edit" },
+      {
+        name: "edit",
+        input: { filePath: "src/other.ts" },
+        output: "Edited",
+        completedMetadata: { filediff: { additions: 3, deletions: 1 } },
+      },
+    );
+    expect(withFileDiff).toMatchObject({
+      type: "file_change",
+      additions: 3,
+      deletions: 1,
+    });
+  });
 });

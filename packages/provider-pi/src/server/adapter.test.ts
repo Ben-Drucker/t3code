@@ -3270,6 +3270,33 @@ describe("PiAdapterV2", () => {
           failedEdit.turnItem.type === "file_change" &&
           failedEdit.turnItem.diffStr === "Could not find the text in c.ts.",
       );
+
+      yield* fake.emit({
+        type: "tool_execution_start",
+        toolCallId: "call_edit_no_patch",
+        toolName: "edit",
+        args: { path: "d.ts", edits: [{ oldText: "a\nb\n", newText: "a\nc\nd\n" }] },
+      });
+      yield* fake.emit({
+        type: "tool_execution_end",
+        toolCallId: "call_edit_no_patch",
+        toolName: "edit",
+        isError: false,
+        result: { content: [{ type: "text", text: "Updated d.ts." }] },
+      });
+      const editNoPatch = yield* takeEvent(
+        (event) =>
+          event.type === "turn_item.updated" &&
+          event.turnItem.type === "file_change" &&
+          event.turnItem.fileName === "d.ts" &&
+          event.turnItem.status === "completed",
+      );
+      assert.isTrue(
+        editNoPatch.type === "turn_item.updated" &&
+          editNoPatch.turnItem.type === "file_change" &&
+          editNoPatch.turnItem.oldStr === "a\nb\n" &&
+          editNoPatch.turnItem.newStr === "a\nc\nd\n",
+      );
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 

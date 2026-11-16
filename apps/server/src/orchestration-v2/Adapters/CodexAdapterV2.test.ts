@@ -10372,6 +10372,9 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           { operation: "delete", path: "/w/e.ts" },
           { operation: "add", path: "/w/a.ts" },
         ]);
+        assert.include(fileChanges[0]?.diffStr ?? "", "/w/d.ts");
+        assert.include(fileChanges[0]?.diffStr ?? "", "/w/e.ts");
+        assert.include(fileChanges[0]?.diffStr ?? "", "/w/a.ts");
       }).pipe(
         Effect.scoped,
         Effect.provide(
