@@ -973,14 +973,6 @@ it.layer(
             capabilities: {
               optionDescriptors: [
                 {
-                  id: "contextLimit",
-                  label: "Context limit",
-                  type: "select",
-                  currentValue: "256000",
-                  options: [{ id: "256000", label: "256K" }],
-                  disabledReason: "Fixed by Antigravity",
-                },
-                {
                   id: "compactBuffer",
                   label: "Compaction",
                   type: "select",

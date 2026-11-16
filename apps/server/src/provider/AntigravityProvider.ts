@@ -128,13 +128,15 @@ function nativeCommands(
 ): ReadonlyArray<ServerProviderSlashCommand> {
   const seen = new Set<string>();
   return commands.flatMap((command): ServerProviderSlashCommand[] => {
-    if (!command.name.trim() || seen.has(command.name)) return [];
-    seen.add(command.name);
+    const name = command.name.trim();
+    // Antigravity ACP advertises /compact from its CLI builtins, but treats /compact as an ordinary prompt.
+    if (!name || name === "compact" || seen.has(name)) return [];
+    seen.add(name);
     const description = command.description.trim();
     const hint = command.input?.hint.trim();
     return [
       {
-        name: command.name,
+        name,
         ...(description ? { description } : {}),
         ...(hint ? { input: { hint } } : {}),
       },

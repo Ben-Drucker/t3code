@@ -60,6 +60,12 @@ import {
 
 const ANTIGRAVITY_PROVIDER = ProviderDriverKind.make("antigravity");
 
+const ANTIGRAVITY_ACP_SESSION_INSTRUCTIONS = `${PULL_REQUEST_LINKING_INSTRUCTIONS}
+
+Background command behavior in ACP:
+- Backgrounded \`run_command\` tasks do NOT deliver reactive wakeups after you end a turn in ACP.
+- Prefer \`WaitMsBeforeAsync: 10000\` for \`run_command\` calls whose output you need, and if a command backgrounds while you still need its result, check/wait on it with \`manage_task\` (\`status\`) before ending your turn instead of ending your turn to wait for a notification.`;
+
 const AntigravityProviderCapabilitiesV2 = {
   ...AcpProviderCapabilitiesV2,
   sessions: {
@@ -153,7 +159,7 @@ export function makeAntigravityAcpAdapterFlavor(
           options.makeRuntime({
             ...input,
             clientFileReads: true,
-            sessionSystemPromptAppend: PULL_REQUEST_LINKING_INSTRUCTIONS,
+            sessionSystemPromptAppend: ANTIGRAVITY_ACP_SESSION_INSTRUCTIONS,
             additionalDirectories: [options.host.paths.attachmentsDir],
           }),
         )
@@ -241,8 +247,8 @@ export function makeAntigravityAcpAdapterFlavor(
       ),
     // Loading history replays tool calls; resume avoids replay.
     subagentsIdleOnTurnCompletion: true,
-    // Native background output can arrive after session/prompt has returned.
-    enablePostSettleContinuation: true,
+    // `agy acp` does not send post-settle wakeups for backgrounded `run_command` tasks,
+    // so foreground tools must terminalize on turn completion instead of pinning runs in waiting.
     ...(options.onSessionEvent === undefined ? {} : { onSessionEvent: options.onSessionEvent }),
     applyModelSelection: Effect.fn("AntigravityAdapterV2.applyModelSelection")(function* ({
       runtime,

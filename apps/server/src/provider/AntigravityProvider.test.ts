@@ -301,12 +301,6 @@ describe("Antigravity model catalog", () => {
         model.capabilities?.optionDescriptors?.filter((option) => option.disabledReason),
       ).toMatchObject([
         {
-          id: "contextLimit",
-          currentValue: "256000",
-          disabledReason: "Fixed by Antigravity",
-          options: [{ id: "256000", label: "256K" }],
-        },
-        {
           id: "compactBuffer",
           currentValue: "auto",
           disabledReason: "Fixed by Antigravity",
@@ -472,7 +466,17 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
           ),
         );
         yield* harness.provider.onSessionStarted(started, "/workspace");
-        yield* harness.provider.onAvailableCommands(commands, "/workspace");
+        yield* harness.provider.onAvailableCommands(
+          [
+            ...commands,
+            {
+              name: "compact",
+              description:
+                "Compact the conversation now (summarize history to free up the context window).",
+            },
+          ],
+          "/workspace",
+        );
         const [snapshot] = yield* nextReady;
         expect(snapshot).toMatchObject({
           status: "ready",
@@ -535,7 +539,17 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
         const harness = yield* makeHarness();
         yield* harness.initialize;
         yield* harness.provider.onSessionStarted(started, "/workspace");
-        yield* harness.provider.onAvailableCommands(commands, "/workspace");
+        yield* harness.provider.onAvailableCommands(
+          [
+            ...commands,
+            {
+              name: "compact",
+              description:
+                "Compact the conversation now (summarize history to free up the context window).",
+            },
+          ],
+          "/workspace",
+        );
         const before = yield* harness.provider.snapshot.getSnapshot;
         const configOptions = [
           {
@@ -807,7 +821,17 @@ it.layer(layerTest)("Antigravity provider snapshots", (it) => {
         const discovered = yield* harness.provider.snapshotForCwd("/workspace", skills);
         expect(discovered.skills).toEqual(skills);
         yield* harness.provider.onSessionStarted(started, "/workspace");
-        yield* harness.provider.onAvailableCommands(commands, "/workspace");
+        yield* harness.provider.onAvailableCommands(
+          [
+            ...commands,
+            {
+              name: "compact",
+              description:
+                "Compact the conversation now (summarize history to free up the context window).",
+            },
+          ],
+          "/workspace",
+        );
         const after = yield* harness.provider.snapshot.getSnapshot;
         expect(
           after.workspaceSnapshots?.find((entry) => entry.cwd === "/workspace")?.skills,

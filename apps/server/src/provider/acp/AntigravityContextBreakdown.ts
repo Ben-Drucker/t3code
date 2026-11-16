@@ -9,7 +9,6 @@ type Breakdown = typeof ThreadContextBreakdown.Type;
 import * as Effect from "effect/Effect";
 
 import { antigravityManagedPath, antigravityProfileRoot } from "./AntigravityProfilePaths.ts";
-import { ANTIGRAVITY_CONTEXT_LIMIT } from "../antigravityCompaction.ts";
 
 /**
  * Fork: Antigravity records a token breakdown with every model call in the `gen_metadata` table of
@@ -153,9 +152,12 @@ const GROUP = {
 
 export function antigravityBreakdownFromGeneration(
   generation: Uint8Array,
-): { readonly usedTokens: number; readonly breakdown: Breakdown } | undefined {
+):
+  | { readonly usedTokens: number; readonly maxTokens?: number; readonly breakdown: Breakdown }
+  | undefined {
   const chat = new Proto(generation).message(1);
-  const groups = chat?.message(9)?.message(10)?.message(3)?.messages(1);
+  const context = chat?.message(9)?.message(10);
+  const groups = context?.message(3)?.messages(1);
   if (groups === undefined) return undefined;
   let messages = 0;
   let skills = 0;
@@ -221,8 +223,10 @@ export function antigravityBreakdownFromGeneration(
   messages = Math.max(0, messages);
   const usedTokens = messages + skills + system;
   if (usedTokens <= 0) return undefined;
+  const maxTokens = context?.int(4);
   return {
     usedTokens,
+    ...(maxTokens !== undefined && maxTokens > 0 ? { maxTokens } : {}),
     breakdown: [
       { category: "messages", tokens: messages },
       { category: "skills", tokens: skills },
@@ -314,7 +318,6 @@ export const readAntigravityContextUsage = (
             : undefined;
         return {
           ...(usage ?? { usedTokens: 0 }),
-          maxTokens: ANTIGRAVITY_CONTEXT_LIMIT,
           generationUsage: {
             latestId,
             generations,

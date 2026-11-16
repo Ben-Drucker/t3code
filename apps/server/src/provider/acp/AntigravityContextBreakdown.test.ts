@@ -89,7 +89,9 @@ describe("antigravityBreakdownFromGeneration", () => {
           }
           const read = (id: string, app = appDataDirectory) =>
             readAntigravityContextUsage(root, id, app);
-          expect(yield* read("session")).toMatchObject({ usedTokens: 500, maxTokens: 256_000 });
+          const sessionUsage = yield* read("session");
+          expect(sessionUsage).toMatchObject({ usedTokens: 500 });
+          expect(sessionUsage).not.toHaveProperty("maxTokens");
           // A turn starts after generation 0; checkpoint and injected generations are not replies.
           const current = yield* readAntigravityContextUsage(root, "session", appDataDirectory, 0);
           expect(current?.generationUsage).toMatchObject({
@@ -168,6 +170,7 @@ describe("antigravityBreakdownFromGeneration", () => {
     ]);
     expect(antigravityBreakdownFromGeneration(Uint8Array.from(generation))).toEqual({
       usedTokens: 12_977,
+      maxTokens: 256_000,
       breakdown: [
         { category: "messages", tokens: 244 },
         { category: "skills", tokens: 0 },

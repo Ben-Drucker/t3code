@@ -170,8 +170,8 @@ const layerSession = Layer.mergeAll(
 );
 
 describe("AntigravityAdapterV2 compaction", () => {
-  it.effect.each(["before settlement", "after settlement"] as const)(
-    "projects native background completion %s without another prompt",
+  it.effect.each(["before settlement", "terminalizes open on end_turn"] as const)(
+    "handles native command completion (%s)",
     (ordering) =>
       Effect.gen(function* () {
         const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -284,12 +284,6 @@ describe("AntigravityAdapterV2 compaction", () => {
             runtimePolicy,
             now: DateTime.makeUnsafe(0),
             ordinal,
-            ...(ordinal === 1
-              ? {}
-              : {
-                  messageCreatedBy: "agent" as const,
-                  messageCreationSource: "provider" as const,
-                }),
           });
         const collect = session.events.pipe(
           Stream.takeUntil((event) => event.type === "turn.terminal"),
@@ -298,48 +292,23 @@ describe("AntigravityAdapterV2 compaction", () => {
         yield* session.startTurn(turn(1));
         const initial = yield* collect;
         assert.lengthOf(requests, 0);
-        if (ordering === "after settlement") {
-          yield* complete;
-          assert.lengthOf(requests, 1, "late native output must offer an automatic continuation");
-          yield* sessionUpdate!({
-            sessionId: "mock-session-1",
-            update: {
-              sessionUpdate: "tool_call_update",
-              toolCallId: "background-bash",
-              status: "completed",
-            },
-          });
-          assert.lengthOf(
-            requests,
-            1,
-            "repeated completion while queued must not offer another run",
-          );
-          yield* session.startTurn(turn(2));
-          const continued = yield* collect;
-          const replies = continued.filter(
-            (event) =>
-              event.type === "message.updated" &&
-              event.message.role === "assistant" &&
-              event.message.text === "The tests passed.",
-          );
-          assert.isNotEmpty(replies);
-          const commands = continued.filter(
-            (event) =>
-              event.type === "turn_item.updated" &&
-              event.turnItem.type === "command_execution" &&
-              event.turnItem.status === "completed",
-          );
-          assert.equal(
-            new Set(
-              commands.map((event) =>
-                event.type === "turn_item.updated" ? event.turnItem.id : null,
-              ),
-            ).size,
-            1,
-            "replayed completion must update the same item",
-          );
-          assert.lengthOf(requests, 1, "draining must not offer duplicate continuations");
-        } else {
+        const terminalCommands = initial.filter(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.type === "command_execution" &&
+            event.turnItem.status === "completed",
+        );
+        assert.isNotEmpty(
+          terminalCommands,
+          "foreground command must terminalize when end_turn settles",
+        );
+        assert.isFalse(
+          session.hasPendingBackgroundWork === undefined
+            ? false
+            : yield* session.hasPendingBackgroundWork,
+          "settled Antigravity turn must not pin pending background work",
+        );
+        if (ordering === "before settlement") {
           assert.isTrue(
             initial.some(
               (event) =>
@@ -347,11 +316,7 @@ describe("AntigravityAdapterV2 compaction", () => {
             ),
           );
         }
-        assert.equal(
-          prompts,
-          1,
-          "continuation must ingest native output, not ask the model to continue",
-        );
+        assert.equal(prompts, 1);
       }).pipe(Effect.provide(layerSession), Effect.scoped),
   );
   it.effect.each(["response", "failure", "compact"] as const)(
@@ -1765,6 +1730,7 @@ describe("AntigravityAdapterV2 session system prompt", () => {
         assert.include(sent, "through the Antigravity harness, as gemini-test-low");
         if (agentVersion === "1.4.5") {
           assert.include(append, "pull_request_linking");
+          assert.include(append, "Background command behavior in ACP");
           assert.notInclude(sent, "<pull_request_linking>");
         } else {
           assert.notInclude(append, "systemPrompt");
