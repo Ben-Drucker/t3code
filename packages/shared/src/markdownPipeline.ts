@@ -10,6 +10,7 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { remarkGithubAlerts } from "./markdownGithubAlerts.ts";
+import { remarkAutoLinkUrls } from "./markdownAutolinkUrls.ts";
 import { remarkNormalizeListItemIndentation } from "./markdownListIndentation.ts";
 import { remarkKeepOrderedListNumbers } from "./markdownOrderedListNumbers.ts";
 import {
@@ -237,6 +238,7 @@ const CHAT_MARKDOWN_SANITIZE_SCHEMA = {
 export const CHAT_MARKDOWN_REMARK_PLUGINS: PluggableList = [
   remarkGfm,
   remarkKeepAutolinkSuffixes,
+  remarkAutoLinkUrls,
   remarkLinkAbsoluteFilePaths,
   remarkKeepWindowsPaths,
   remarkGithubAlerts,
@@ -251,6 +253,7 @@ export const CHAT_MARKDOWN_REMARK_PLUGINS: PluggableList = [
 export const CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS: PluggableList = [
   remarkGfm,
   remarkKeepAutolinkSuffixes,
+  remarkAutoLinkUrls,
   remarkLinkAbsoluteFilePaths,
   remarkKeepWindowsPaths,
   remarkGithubAlerts,

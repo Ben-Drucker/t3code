@@ -179,8 +179,13 @@ function codeBlockElement(
   markdownStyle: MarkdownStyle,
   mathRenderingEnabled: boolean,
   scheme: HighlightScheme,
+  onRunShellCommand?: (command: string) => void,
 ): ReactElement | undefined {
-  const renderer = codeFenceRenderer(block.language, mathRenderingEnabled);
+  const renderer = codeFenceRenderer(
+    block.language,
+    mathRenderingEnabled,
+    onRunShellCommand !== undefined,
+  );
   if (renderer.kind === "mermaid") {
     return block.isComplete ? (
       <MermaidCodeBlock code={block.code} textStyle={textStyle} />
@@ -211,6 +216,7 @@ function codeBlockElement(
         scheme={scheme}
         textStyle={textStyle}
         codeStyle={markdownStyle.codeBlock}
+        onRunShellCommand={onRunShellCommand}
       />
     );
   }
@@ -375,6 +381,7 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
         baseMarkdownStyle,
         mathRenderingEnabled,
         themeAppearance,
+        props.onRunShellCommand,
       ),
   };
   const resolveNativeImageSource = useRetryingImageSource(resolveImageSource);

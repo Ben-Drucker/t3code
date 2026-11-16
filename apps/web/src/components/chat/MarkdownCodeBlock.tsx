@@ -168,13 +168,12 @@ export function MarkdownCodeBlock({
   const canRun =
     onRunShellCommand !== undefined &&
     !isStreaming &&
-    /^(?:sh|bash|zsh|fish|shell|powershell|pwsh)$/.test(language) &&
-    code.endsWith("\n") &&
+    /^(?:sh|bash|zsh|fish|shell|powershell|pwsh|console|shellsession|cmd|bat)$/.test(language) &&
     command.length > 0 &&
     !command.endsWith("\\") &&
     // Control and invisible format characters (bidi overrides, zero-width) can
     // make the rendered command differ from what the terminal would receive.
-    !/[\p{Cc}\p{Cf}]/u.test(code.slice(0, -1));
+    !/[\p{Cc}\p{Cf}]/u.test(code.replace(/[\r\n\t]/g, ""));
 
   const handleCopy = () => copyToClipboard(code);
 

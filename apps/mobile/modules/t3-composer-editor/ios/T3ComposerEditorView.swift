@@ -8,6 +8,7 @@ private struct ComposerTokenPayload: Decodable {
   let iconUri: String?
   let accent: String?
   let tintsIcon: Bool?
+  let monospaced: Bool?
   let detail: String?
   let start: Int
   let end: Int
@@ -1014,8 +1015,11 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
   private func makeAttachmentString(_ token: ComposerTokenPayload) -> NSAttributedString {
     let color = token.accent.flatMap { UIColor(composerHex: $0) }
       ?? UIColor(composerHex: theme.text) ?? .label
-    let chipFont = UIFont(name: "DMSans-Medium", size: fontSize)
-      ?? UIFont.systemFont(ofSize: fontSize, weight: .medium)
+    let chipFont = token.monospaced == true
+      ? (UIFont(name: "Menlo", size: fontSize)
+        ?? UIFont.monospacedSystemFont(ofSize: fontSize, weight: .medium))
+      : (UIFont(name: "DMSans-Medium", size: fontSize)
+        ?? UIFont.systemFont(ofSize: fontSize, weight: .medium))
     let icon = token.iconUri.flatMap(iconImage(for:)).map {
       token.tintsIcon == true ? Self.tinted($0, color: color) : $0
     }

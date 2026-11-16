@@ -286,7 +286,14 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               ) : null}
 
               {visible.context && props.usage.contextWindow ? (
-                <ThreadDetailsContext usage={props.usage.contextWindow} />
+                <ThreadDetailsContext
+                  usage={props.usage.contextWindow}
+                  breakdown={props.usage.contextBreakdown}
+                  modelDisplayName={props.usage.modelDisplayName}
+                  onCompact={props.usage.onCompactContext}
+                  compactDisabled={props.usage.compactDisabled}
+                  compactDisabledReason={props.usage.compactDisabledReason}
+                />
               ) : null}
 
               {/* Shown only when no section above has content, so an emptied card can be refilled. */}

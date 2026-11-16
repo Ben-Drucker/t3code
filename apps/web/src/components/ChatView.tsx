@@ -332,6 +332,7 @@ import { modelFallbackBannerItem } from "./chat/ComposerUsageLimits";
 import { ComposerSurface } from "./chat/ComposerSurface";
 import { resolveThreadSyncPhase } from "../threadSync";
 import { hasAvailableCompactionProvider } from "./chat/compaction.logic";
+import { resolveContextBreakdown } from "@t3tools/client-runtime/context-breakdown";
 import {
   deriveLatestContextWindowSnapshot,
   hasDismissedResumeCompaction,
@@ -1501,6 +1502,18 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadLiveTokenUsage,
     activeProviderThread,
   );
+  const activeContextBreakdown = activeContextWindow
+    ? resolveContextBreakdown({
+        reported: activeContextWindow.breakdown,
+        entries: serverVisibleTurnItems ?? [],
+        messageChars: (serverProjection?.messages ?? []).reduce(
+          (sum, message) => sum + message.text.length,
+          0,
+        ),
+        usedTokens: activeContextWindow.usedTokens,
+        reportedReasoningTokens: activeContextWindow.reasoningOutputTokens,
+      })
+    : null;
   const pendingBackgroundTasks = deriveThreadPendingBackgroundTasks(serverProjection);
   const activeWorkStartedAt =
     deriveActiveWorkStartedAt(activeActivityRun, activeRuntime, localDispatchStartedAt) ??
@@ -3970,6 +3983,9 @@ export default function ChatView(props: ChatViewProps) {
                     providers: providerStatuses,
                     sources: serverConfig?.usageLimitSources ?? EMPTY_USAGE_LIMIT_SOURCES,
                     contextWindow: activeContextWindow,
+                    contextBreakdown: activeContextBreakdown,
+                    onCompactContext: isServerThread ? onComposerCompactContextStable : undefined,
+                    compactDisabled: isWorking || activeEnvironmentUnavailable,
                   }}
                   throughput={tokenThroughput(serverProjection?.providerTurns ?? [])}
                 />

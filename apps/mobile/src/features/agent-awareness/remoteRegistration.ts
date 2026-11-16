@@ -94,7 +94,7 @@ const registeredActivityPushTokens = new Map<string, number>();
 // Refreshes can overlap (sign-in, foreground, retry); only the newest read may
 // repaint, so a slow older response never overwrites newer rows.
 let widgetSnapshotReads = 0;
-let androidDeviceReplayedAt: number | null = null;
+let lastDeviceRegisteredAt: number | null = null;
 let pushTokenSubscription: { remove: () => void } | null = null;
 let appStateSubscription: { remove: () => void } | null = null;
 
@@ -189,7 +189,7 @@ export function setAgentAwarenessRelayTokenProvider(
     if (provider) {
       publishWidget({ kind: "loading" });
     }
-    androidDeviceReplayedAt = null;
+    lastDeviceRegisteredAt = null;
     deviceRegistrationGeneration++;
     activeDeviceRegistration = null;
     pendingDeviceRegistration = null;
@@ -238,7 +238,7 @@ export function releaseAgentAwarenessRelayTokenProvider(): void {
   deviceRegistrationGeneration++;
   activeDeviceRegistration = null;
   pendingDeviceRegistration = null;
-  androidDeviceReplayedAt = null;
+  lastDeviceRegisteredAt = null;
   pushTokenSubscription?.remove();
   pushTokenSubscription = null;
   appStateSubscription?.remove();
@@ -391,19 +391,17 @@ const registerDeviceWithRelay = Effect.fn("remoteRegistration.registerDeviceWith
   }
   const payload = body;
   const signature = `${relayConfig.url}|${registrationSignature(payload)}`;
-  // Android registration also silently replays the current card. Collapse
-  // foreground bursts, but repair missed pushes on cold start or a return
-  // after time away, just like re-registering an iOS activity token.
+  // Collapse foreground bursts, but re-register on cold start or return after time
+  // away so both iOS APNs and Android FCM repair dropped relay registrations.
   const now = yield* Clock.currentTimeMillis;
-  const needsAndroidReplay =
-    body.platform === "android" &&
-    (androidDeviceReplayedAt === null ||
-      now - androidDeviceReplayedAt >= ACTIVITY_TOKEN_REREGISTER_INTERVAL_MS);
+  const needsRefresh =
+    lastDeviceRegisteredAt === null ||
+    now - lastDeviceRegisteredAt >= ACTIVITY_TOKEN_REREGISTER_INTERVAL_MS;
   if (
     persisted &&
     persisted.identity === identity &&
     persisted.signature === signature &&
-    !needsAndroidReplay
+    !needsRefresh
   ) {
     setRegistrationStatus("registered");
     return;
@@ -420,7 +418,7 @@ const registerDeviceWithRelay = Effect.fn("remoteRegistration.registerDeviceWith
     // stale success must not overwrite either.
     return;
   }
-  if (body.platform === "android") androidDeviceReplayedAt = yield* Clock.currentTimeMillis;
+  lastDeviceRegisteredAt = yield* Clock.currentTimeMillis;
   setRegistrationStatus("registered");
   yield* Effect.promise(() =>
     saveAgentAwarenessRegistrationRecord({
@@ -855,7 +853,7 @@ export function __resetAgentAwarenessRemoteRegistrationForTest(): void {
   activeDeviceRegistration = null;
   pendingDeviceRegistration = null;
   registrationStatus = "unknown";
-  androidDeviceReplayedAt = null;
+  lastDeviceRegisteredAt = null;
   registrationStatusListeners.clear();
   registeredActivityPushTokens.clear();
   activityPushTokenLocks.clear();

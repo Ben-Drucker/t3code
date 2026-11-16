@@ -67,7 +67,11 @@ export interface MarkdownLinkCustomization {
   readonly color?: string;
   readonly label?: string;
   readonly icon?: import("react-native").ImageSourcePropType;
-  readonly chip?: { readonly accent?: string; readonly tintsIcon: boolean };
+  readonly chip?: {
+    readonly accent?: string;
+    readonly tintsIcon: boolean;
+    readonly monospaced?: boolean;
+  };
 }
 
 export interface SelectableMarkdownTextProps {
@@ -98,4 +102,5 @@ export interface SelectableMarkdownTextProps {
   readonly marginBottom?: number;
   readonly writingDirection?: "ltr" | "rtl";
   readonly textAlign?: "left" | "right";
+  readonly onRunShellCommand?: ((command: string) => void) | undefined;
 }

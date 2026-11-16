@@ -3,6 +3,7 @@ import { unified, type Processor } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import { remarkKeepWindowsProsePaths } from "@t3tools/shared/markdownWindowsPaths";
+import { findAutoLinkUrls } from "@t3tools/shared/markdownAutolinkUrls";
 import { absoluteFilePathMatches, parseMarkdownFileLink } from "@t3tools/shared/markdownLinks";
 import { isWindowsAbsolutePath } from "@t3tools/shared/path";
 
@@ -338,17 +339,42 @@ function transformNativeMarkdown(
     ) {
       const start = node.position.start.offset;
       const raw = markdown.slice(start, node.position.end.offset);
+      const textEdits: Array<{ edit: MarkdownEdit; isFile: boolean }> = [];
+      const fileRanges: Array<{ start: number; end: number }> = [];
       for (const { index, path } of absoluteFilePathMatches(raw)) {
         // Source offsets stay valid for paths whose own text needs no Markdown decoding.
         if (raw !== node.value && /[\\&]/.test(path)) continue;
+        fileRanges.push({ start: index, end: index + path.length });
         const escaped = path.replace(/[\\[\]&]/g, "\\$&");
-        const edit = {
-          start: start + index,
-          end: start + index + path.length,
-          content: `[${escaped}](<${escaped}>)`,
-        };
-        edits.push(edit);
-        fileEdits.push(edit);
+        textEdits.push({
+          isFile: true,
+          edit: {
+            start: start + index,
+            end: start + index + path.length,
+            content: `[${escaped}](<${escaped}>)`,
+          },
+        });
+      }
+      for (const urlMatch of findAutoLinkUrls(raw)) {
+        if (raw !== node.value && /[\\&]/.test(urlMatch.text)) continue;
+        const overlapsFile = fileRanges.some(
+          (range) => urlMatch.start < range.end && urlMatch.end > range.start,
+        );
+        if (overlapsFile) continue;
+        const escaped = urlMatch.text.replace(/[\\[\]&*_~`|<>]/g, "\\$&");
+        textEdits.push({
+          isFile: false,
+          edit: {
+            start: start + urlMatch.start,
+            end: start + urlMatch.end,
+            content: `[${escaped}](${markdownDestination(urlMatch.href)})`,
+          },
+        });
+      }
+      textEdits.sort((a, b) => a.edit.start - b.edit.start);
+      for (const entry of textEdits) {
+        edits.push(entry.edit);
+        if (entry.isFile) fileEdits.push(entry.edit);
       }
     } else if (node.type !== "link" && node.type !== "linkReference" && "children" in node)
       node.children.forEach((child, index) => {

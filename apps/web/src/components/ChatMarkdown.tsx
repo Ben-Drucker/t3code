@@ -1315,18 +1315,16 @@ const CHAT_MARKDOWN_COMPONENTS = {
                 canOpenInApp: canOpenInPreview,
               }) !== "app"
             ) {
-              // Open desktop Alt-clicks before Chromium downloads them so link routers can read the held key.
-              if (isElectron && event.altKey) {
+              const shellOpenExternal = isElectron ? readLocalApi()?.shell.openExternal : undefined;
+              if (shellOpenExternal && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
                 event.preventDefault();
                 event.stopPropagation();
-                void readLocalApi()
-                  ?.shell.openExternal(href)
-                  .catch((cause) =>
-                    reportMarkdownActionFailure(
-                      { operation: "open-link-external", target: href },
-                      cause,
-                    ),
-                  );
+                void shellOpenExternal(href).catch((cause) =>
+                  reportMarkdownActionFailure(
+                    { operation: "open-link-external", target: href },
+                    cause,
+                  ),
+                );
               }
               return;
             }

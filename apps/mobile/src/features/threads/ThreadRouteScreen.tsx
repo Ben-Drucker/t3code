@@ -742,7 +742,10 @@ function ThreadRouteContent(
     });
   };
 
-  const handleRunProjectScript = async (script: ProjectScript) => {
+  const handleRunProjectScript = async (
+    script: ProjectScript,
+    options?: { readonly preserveHistory?: boolean },
+  ) => {
     if (
       !selectedThread ||
       !selectedThreadProject?.workspaceRoot ||
@@ -783,7 +786,9 @@ function ThreadRouteContent(
         cwd,
         worktreePath: preferredWorktreePath,
         env,
-        initialInput: projectScriptTerminalInput(script.command),
+        initialInput: options?.preserveHistory
+          ? `${script.command.replace(/\r\n/g, "\n")}\r`
+          : projectScriptTerminalInput(script.command),
         stopOnSettle: script.stopOnSettle ?? false,
       },
     });
@@ -999,6 +1004,22 @@ function ThreadRouteContent(
           contentPresentation={contentPresentation}
           screenTone={connectionTone(routeConnectionState)}
           connectionError={routeConnectionError}
+          onRunShellCommand={
+            selectedThreadProject?.workspaceRoot &&
+            readEnvironmentScope(selectedThread.environmentId, AuthTerminalOperateScope)
+              ? (command) =>
+                  void handleRunProjectScript(
+                    {
+                      id: "chat-code-block",
+                      name: "Chat code block",
+                      command,
+                      icon: "play",
+                      runOnWorktreeCreate: false,
+                    },
+                    { preserveHistory: true },
+                  )
+              : undefined
+          }
           environmentLabel={selectedEnvironmentConnection?.environmentLabel ?? null}
           feedbackSubmissions={composer.feedbackSubmissions}
           onDismissFeedback={composer.dismissFeedback}

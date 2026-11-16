@@ -1955,7 +1955,18 @@ function appendActivityGroupRows(
       isWorking,
       activeTail && isTrailingRun,
     );
-    const paths = workEntriesViewedImagePaths(groupableRun.map((activity) => activity.workEntry));
+    const groupExpanded = expandedWorkGroupIds.has(groupId);
+    const workEntries = groupableRun.map((activity) => activity.workEntry);
+    const lastImageIndex = workEntries.findLastIndex(
+      (workEntry) => workEntriesViewedImagePaths([workEntry]).length > 0,
+    );
+    const hasThinkingAfterImageRead =
+      activeTail &&
+      isTrailingRun &&
+      lastImageIndex !== -1 &&
+      workEntries.slice(lastImageIndex + 1).some((workEntry) => workEntry.tone === "thinking");
+    const paths =
+      groupExpanded || hasThinkingAfterImageRead ? [] : workEntriesViewedImagePaths(workEntries);
     if (paths.length > 0) {
       result.push({
         type: "viewed-images",

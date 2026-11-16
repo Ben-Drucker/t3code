@@ -12,16 +12,18 @@ import {
   paceOf,
   remainingPercent,
 } from "@t3tools/shared/usageLimits";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { usePrimarySettings } from "../../hooks/useSettings";
 import { useNowMinute } from "../../hooks/useNowMinute";
+import type { ContextBreakdown } from "@t3tools/client-runtime/context-breakdown";
 import type { ContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
 import { formatContextWindowTokens } from "@t3tools/shared/contextWindow";
 import { cn } from "../../lib/utils";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { formatContextWindowCompactionMessage } from "./compaction.logic";
+import { ContextWindowDetailsBody } from "./ContextWindowMeter";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 
 const PACE_LABEL: Record<LimitPace, string> = {
@@ -35,6 +37,11 @@ export interface ThreadDetailsUsageInput {
   readonly providers: readonly ServerProvider[];
   readonly sources: UsageLimitSourceSnapshots;
   readonly contextWindow: ContextWindowSnapshot | null;
+  readonly contextBreakdown?: ContextBreakdown | null | undefined;
+  readonly modelDisplayName?: string | null | undefined;
+  readonly onCompactContext?: (() => void) | undefined;
+  readonly compactDisabled?: boolean | undefined;
+  readonly compactDisabledReason?: string | null | undefined;
 }
 
 type UsageTone = "error" | "warning" | null;
@@ -83,7 +90,22 @@ export function ThreadDetailsUsage({
 }
 
 /** The thread's context window. The bar fills as context is used; the tick marks auto-compaction. */
-export function ThreadDetailsContext({ usage }: { readonly usage: ContextWindowSnapshot }) {
+export function ThreadDetailsContext({
+  usage,
+  breakdown = null,
+  modelDisplayName = null,
+  onCompact,
+  compactDisabled = false,
+  compactDisabledReason = null,
+}: {
+  readonly usage: ContextWindowSnapshot;
+  readonly breakdown?: ContextBreakdown | null | undefined;
+  readonly modelDisplayName?: string | null | undefined;
+  readonly onCompact?: (() => void) | undefined;
+  readonly compactDisabled?: boolean | undefined;
+  readonly compactDisabledReason?: string | null | undefined;
+}) {
+  const [expanded, setExpanded] = useState(false);
   const maxTokens = usage.maxTokens != null && usage.maxTokens > 0 ? usage.maxTokens : null;
   const used =
     maxTokens !== null && usage.usedPercentage !== null
@@ -105,9 +127,11 @@ export function ThreadDetailsContext({ usage }: { readonly usage: ContextWindowS
         <UsageRow
           label="Context"
           fill={used}
-          tone={used === null ? null : used >= 90 ? "error" : used >= 80 ? "warning" : null}
+          tone={used !== null && used > 90 ? "error" : null}
           tick={tick}
           muted
+          onClick={() => setExpanded((prev) => !prev)}
+          expanded={expanded}
           value={
             maxTokens !== null
               ? `${usedTokens} / ${formatContextWindowTokens(maxTokens)}`
@@ -134,6 +158,18 @@ export function ThreadDetailsContext({ usage }: { readonly usage: ContextWindowS
           }
         />
       </div>
+      {expanded ? (
+        <div data-testid="thread-details-context-breakdown" className="px-2.5 pt-2 pb-1">
+          <ContextWindowDetailsBody
+            usage={usage}
+            breakdown={breakdown}
+            modelDisplayName={modelDisplayName}
+            onCompact={onCompact}
+            compactDisabled={compactDisabled}
+            compactDisabledReason={compactDisabledReason}
+          />
+        </div>
+      ) : null}
     </ThreadDetailsSection>
   );
 }
@@ -184,6 +220,8 @@ function UsageRow({
   ariaValue = value,
   tooltip,
   muted = false,
+  onClick,
+  expanded,
 }: {
   readonly label: string;
   /** Bar fill from 0 to 100. Null hides the bar. */
@@ -195,16 +233,28 @@ function UsageRow({
   readonly ariaValue?: string;
   readonly tooltip: ReactNode;
   readonly muted?: boolean;
+  readonly onClick?: (() => void) | undefined;
+  readonly expanded?: boolean | undefined;
 }) {
+  const rowClassName = cn(
+    "col-span-3 grid h-6 grid-cols-subgrid items-center rounded-lg px-2.5 text-left outline-none hover:bg-black/[0.035] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-popup-open:bg-black/[0.035] dark:hover:bg-white/[0.08] dark:data-popup-open:bg-white/[0.08]",
+    onClick ? "cursor-pointer" : "cursor-default",
+  );
   return (
     <Tooltip>
       <TooltipTrigger
         render={
-          <div
-            tabIndex={0}
-            aria-label={`${label}: ${ariaValue}`}
-            className="col-span-3 grid h-6 cursor-default grid-cols-subgrid items-center rounded-lg px-2.5 outline-none hover:bg-black/[0.035] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-popup-open:bg-black/[0.035] dark:hover:bg-white/[0.08] dark:data-popup-open:bg-white/[0.08]"
-          />
+          onClick ? (
+            <button
+              type="button"
+              onClick={onClick}
+              aria-expanded={expanded}
+              aria-label={`${label}: ${ariaValue}`}
+              className={rowClassName}
+            />
+          ) : (
+            <div tabIndex={0} aria-label={`${label}: ${ariaValue}`} className={rowClassName} />
+          )
         }
       >
         <span className="max-w-28 truncate text-muted-foreground">{label}</span>
@@ -219,7 +269,7 @@ function UsageRow({
                     : tone === "warning"
                       ? "bg-warning"
                       : muted
-                        ? "bg-muted-foreground"
+                        ? "bg-muted-foreground/72"
                         : "bg-foreground/80",
                 )}
                 style={{ width: `max(${fill}%, 6px)` }}

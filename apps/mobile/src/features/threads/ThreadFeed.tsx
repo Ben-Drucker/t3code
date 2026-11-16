@@ -344,6 +344,7 @@ export interface ThreadFeedProps {
   readonly onIsAtEndChange?: (isAtEnd: boolean) => void;
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill>;
   readonly onUseArtifactTemplate?: (template: CodexArtifactTemplate) => void;
+  readonly onRunShellCommand?: ((command: string) => void) | undefined;
 }
 
 const USER_MESSAGE_COPY_MENU_ACTIONS = [
@@ -1063,6 +1064,7 @@ interface MarkdownLinkHandlers {
   readonly resolveImageSource?: MarkdownImageSourceResolver;
   readonly fileEmbedLabel?: (href: string, standalone: boolean) => string | null;
   readonly linkCustomization?: (href: string) => MarkdownLinkCustomization | undefined;
+  readonly onRunShellCommand?: ((command: string) => void) | undefined;
 }
 
 interface MarkdownStyleSets {
@@ -2979,6 +2981,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         standalone,
       ),
     onLinkPress: onMarkdownLinkPress,
+    onRunShellCommand: props.onRunShellCommand,
     linkCustomization: enrichedThreadLinkCustomization,
     onImagePress: (href) => onMarkdownLinkPress(href, true),
     resolveImageSource,

@@ -220,6 +220,7 @@ export function ComposerEditor({
           detail: token.type === "context" ? composerChipSizeSuffix(record) : "",
           iconUri: model ? modelChipIconUri(model) : contextChipIconUri(icon),
           tintsIcon: model ? modelChipIcon(model).tintsIcon : icon.kind === "chip",
+          monospaced: token.type === "skill",
         };
       }),
     );
