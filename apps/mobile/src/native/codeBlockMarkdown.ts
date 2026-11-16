@@ -66,8 +66,11 @@ export function codeFenceRenderer(
   if (fence === "mermaid") return { kind: "mermaid" };
   if (fence === "math" && mathRenderingEnabled) return { kind: "math" };
   const name = fence.toLowerCase();
-  if (hasShellRunner && RUNNABLE_SHELL_FENCES.has(name)) {
-    return { kind: "highlight", language: resolveHighlightLanguage({ language: name }) };
+  if (hasShellRunner && (name === "" || RUNNABLE_SHELL_FENCES.has(name))) {
+    return {
+      kind: "highlight",
+      language: resolveHighlightLanguage({ language: name === "" ? "bash" : name }),
+    };
   }
   if (NATIVE_HIGHLIGHT_FENCES.has(name)) return { kind: "native" };
   const language = resolveHighlightLanguage({ language: name });

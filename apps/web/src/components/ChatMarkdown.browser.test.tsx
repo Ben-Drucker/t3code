@@ -357,6 +357,7 @@ describe("ChatMarkdown streaming", () => {
       "- Command\n\n  ```bash\n  echo list\n  ```",
       "```bash\r\necho crlf\r\n```\r",
       "```bash\necho one\necho two\n```",
+      "```\necho untagged\n```",
     ]) {
       await rerender(message(text));
       expect(runButtons()).toHaveLength(1);
@@ -364,6 +365,7 @@ describe("ChatMarkdown streaming", () => {
 
     for (const text of [
       "```typescript\necho hello\n```",
+      "```text\necho plain\n```",
       "```bash\n\n```",
       "```bash\necho hello\\\n```",
       "```bash\necho safe \u202e#\n```",

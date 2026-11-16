@@ -27,4 +27,9 @@ describe("codeFenceRenderer", () => {
   ])("draws %j with math rendering %s as %j", (fence, mathRenderingEnabled, expected) => {
     expect(codeFenceRenderer(fence, mathRenderingEnabled)).toEqual(expected);
   });
+
+  it("defaults untagged fences to bash when a shell runner is available", () => {
+    expect(codeFenceRenderer("", true, true)).toEqual({ kind: "highlight", language: "bash" });
+    expect(codeFenceRenderer("text", true, true)).toEqual({ kind: "native" });
+  });
 });

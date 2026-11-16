@@ -54,7 +54,9 @@ export function HighlightedCodeBlock(props: {
     theme: props.scheme,
     enabled: props.complete,
   });
-  const fence = props.fence.toLowerCase();
+  const fence = (
+    props.fence || (props.onRunShellCommand !== undefined ? "bash" : "")
+  ).toLowerCase();
   const command = code.trim();
   const canRun =
     props.onRunShellCommand !== undefined &&
