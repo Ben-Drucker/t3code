@@ -1222,6 +1222,24 @@ export function deriveEffectiveComposerModelState(input: {
 }
 
 /**
+ * Restores remembered per-model options (such as contextLimit or effort) onto a model selection
+ * that carries no explicit options, so new-thread and project-default overrides preserve them.
+ */
+export function withStickyModelOptions(
+  selection: ModelSelection,
+  stickyOptionsByModelByProvider = useComposerDraftStore.getState().stickyOptionsByModelByProvider,
+): ModelSelection {
+  if (selection.options !== undefined && selection.options.length > 0) {
+    return selection;
+  }
+  const rememberedOptions =
+    stickyOptionsByModelByProvider?.[selection.instanceId]?.[selection.model];
+  return rememberedOptions !== undefined && rememberedOptions.length > 0
+    ? { ...selection, options: [...rememberedOptions] }
+    : selection;
+}
+
+/**
  * When the requested instance is disabled or unavailable, the composer shows another instance of
  * the same driver. When that instance has no options of its own and shows the model the requested
  * instance's options were picked with, it takes those options instead of the model's defaults.

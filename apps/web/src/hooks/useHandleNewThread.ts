@@ -13,6 +13,7 @@ import {
   type DraftThreadEnvMode,
   type DraftThreadState,
   useComposerDraftStore,
+  withStickyModelOptions,
 } from "../composerDraftStore";
 import { newDraftId, newThreadId } from "../lib/utils";
 import { orderItemsByPreferredIds } from "../components/Sidebar.logic";
@@ -320,9 +321,13 @@ export function createNewThreadHandler(router: AnyRouter) {
             emptyStoredDraftThread.draftId,
           );
           if (modelSelectionOverride) {
-            setModelSelection(emptyStoredDraftThread.draftId, modelSelectionOverride, {
-              replaceOptions: true,
-            });
+            setModelSelection(
+              emptyStoredDraftThread.draftId,
+              withStickyModelOptions(modelSelectionOverride),
+              {
+                replaceOptions: true,
+              },
+            );
           }
         }
         // Remapping physical projects clears workspace context; preserve the branch and worktree.
@@ -435,7 +440,9 @@ export function createNewThreadHandler(router: AnyRouter) {
       applyStickyState(draftId);
       const modelSelectionOverride = resolveModelSelectionOverride(draftId);
       if (modelSelectionOverride) {
-        setModelSelection(draftId, modelSelectionOverride, { replaceOptions: true });
+        setModelSelection(draftId, withStickyModelOptions(modelSelectionOverride), {
+          replaceOptions: true,
+        });
       }
       seedPrompt(draftId);
       await router.navigate({
