@@ -49,10 +49,16 @@ function Host({ className, ...props }: ComponentProps<"div">) {
   );
 }
 
-function Main({ className, ...props }: ComponentProps<"div">) {
+function Main({
+  className,
+  working = false,
+  children,
+  ...props
+}: ComponentProps<"div"> & { working?: boolean }) {
   return (
     <div
       data-chat-composer-main-surface="true"
+      data-working={working ? "true" : undefined}
       className={cn(
         "group relative z-10 rounded-2xl p-px",
         outlineClasses,
@@ -64,7 +70,16 @@ function Main({ className, ...props }: ComponentProps<"div">) {
         className,
       )}
       {...props}
-    />
+    >
+      {working ? (
+        <span
+          aria-hidden="true"
+          data-slot="composer-working-rim"
+          className="composer-working-rim"
+        />
+      ) : null}
+      {children}
+    </div>
   );
 }
 

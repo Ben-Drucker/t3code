@@ -3856,6 +3856,24 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               startedAt,
               completedAt,
             };
+            const combinedDiffStr = item.changes
+              .flatMap((change) => {
+                if (change.diff.trim().length === 0) return [];
+                if (
+                  /^(?:diff --git |--- )/m.test(change.diff) ||
+                  (item.changes.length === 1 && !change.diff.trimStart().startsWith("@@ "))
+                ) {
+                  return [change.diff];
+                }
+                const targetPath =
+                  change.kind.type === "update" && change.kind.move_path
+                    ? change.kind.move_path
+                    : change.path;
+                const oldHeader = change.kind.type === "add" ? "/dev/null" : `a/${change.path}`;
+                const newHeader = change.kind.type === "delete" ? "/dev/null" : `b/${targetPath}`;
+                return [`--- ${oldHeader}\n+++ ${newHeader}\n${change.diff.trimStart()}`];
+              })
+              .join("\n");
             const turnItem: OrchestrationV2TurnItem = {
               id: turnItemId,
               threadId: context.projectionThreadId,
@@ -3873,7 +3891,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               updatedAt,
               type: "file_change",
               fileName: firstChange.path,
-              diffStr: firstChange.diff,
+              diffStr: combinedDiffStr || firstChange.diff,
               changes: item.changes.map((change) => {
                 const movePath = change.kind.type === "update" ? change.kind.move_path : undefined;
                 return movePath

@@ -3585,6 +3585,7 @@ const decodeClaudeFileEditResult = Schema.decodeUnknownOption(
     type: Schema.optional(Schema.String),
     filePath: Schema.String,
     content: Schema.optional(Schema.String),
+    originalFile: Schema.optional(Schema.NullOr(Schema.String)),
     structuredPatch: Schema.mutable(
       Schema.Array(
         Schema.Struct({
@@ -3606,8 +3607,18 @@ function claudeFileChangeText(output: ClaudeNativeToolOutput): string {
       : undefined;
   if (result === undefined) return claudeNativeToolOutputText(output);
   const patch =
-    result.structuredPatch.length === 0 && result.type === "create" && result.content !== undefined
-      ? structuredPatch("/dev/null", result.filePath, "", result.content)
+    result.structuredPatch.length === 0 && result.content !== undefined
+      ? result.type === "create"
+        ? structuredPatch("/dev/null", result.filePath, "", result.content)
+        : result.originalFile != null
+          ? structuredPatch(result.filePath, result.filePath, result.originalFile, result.content)
+          : {
+              oldFileName: result.filePath,
+              newFileName: result.filePath,
+              oldHeader: undefined,
+              newHeader: undefined,
+              hunks: result.structuredPatch,
+            }
       : {
           oldFileName: result.filePath,
           newFileName: result.filePath,
@@ -3616,6 +3627,46 @@ function claudeFileChangeText(output: ClaudeNativeToolOutput): string {
           hunks: result.structuredPatch,
         };
   return patch.hunks.length === 0 ? "" : formatPatch(patch, FILE_HEADERS_ONLY);
+}
+
+function claudeFileChangeFallbackFields(
+  toolName: string,
+  fileName: string,
+  toolInput: ClaudeNativeToolInput,
+): {
+  readonly oldStr?: string;
+  readonly newStr?: string;
+  readonly diffStr?: string;
+} {
+  const record = toolInput.type === "record" ? toolInput.value : undefined;
+  if (!record) return {};
+  const normalized = toolName.trim().toLowerCase();
+  if (normalized === "write") {
+    return typeof record.content === "string" ? { newStr: record.content } : {};
+  }
+  if (normalized === "edit") {
+    return {
+      ...(typeof record.old_string === "string" ? { oldStr: record.old_string } : {}),
+      ...(typeof record.new_string === "string" ? { newStr: record.new_string } : {}),
+    };
+  }
+  if (normalized === "notebookedit") {
+    return {
+      ...(typeof record.old_source === "string" ? { oldStr: record.old_source } : {}),
+      ...(typeof record.new_source === "string" ? { newStr: record.new_source } : {}),
+    };
+  }
+  if (normalized === "multiedit" && Array.isArray(record.edits)) {
+    const patches = record.edits.flatMap((entry) => {
+      if (typeof entry !== "object" || entry === null) return [];
+      const edit = entry as Record<string, unknown>;
+      if (typeof edit.old_string !== "string" || typeof edit.new_string !== "string") return [];
+      const patch = structuredPatch(fileName, fileName, edit.old_string, edit.new_string);
+      return patch.hunks.length === 0 ? [] : [formatPatch(patch, FILE_HEADERS_ONLY)];
+    });
+    return patches.length > 0 ? { diffStr: patches.join("\n") } : {};
+  }
+  return {};
 }
 
 function claudeCommandOutputText(output: ClaudeNativeToolOutput): string {
@@ -6748,12 +6799,25 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   ...(outputText.length === 0 ? {} : { output: outputText }),
                 }
               : itemType === "file_change"
-                ? {
-                    ...itemBase,
-                    type: "file_change",
-                    fileName: fileNameFromClaudeTool(input.toolName, input.toolInput),
-                    ...(outputText.length === 0 ? {} : { diffStr: outputText }),
-                  }
+                ? (() => {
+                    const fileName = fileNameFromClaudeTool(input.toolName, input.toolInput);
+                    const fallback =
+                      input.status === "completed"
+                        ? claudeFileChangeFallbackFields(input.toolName, fileName, input.toolInput)
+                        : {};
+                    const resolvedDiffStr =
+                      outputText.length > 0 && /^(?:--- |@@ )/m.test(outputText)
+                        ? outputText
+                        : (fallback.diffStr ?? (outputText.length === 0 ? undefined : outputText));
+                    return {
+                      ...itemBase,
+                      type: "file_change" as const,
+                      fileName,
+                      ...(fallback.oldStr === undefined ? {} : { oldStr: fallback.oldStr }),
+                      ...(fallback.newStr === undefined ? {} : { newStr: fallback.newStr }),
+                      ...(resolvedDiffStr === undefined ? {} : { diffStr: resolvedDiffStr }),
+                    };
+                  })()
                 : itemType === "web_search"
                   ? {
                       ...itemBase,

@@ -146,11 +146,28 @@ export function openCodeToolTurnItem(
       };
     }
     case "file_change": {
-      const oldStr = recordText(input, "oldString", "oldText");
-      const newStr = recordText(input, "newString", "content", "newText");
+      const fileDiff =
+        typeof tool.completedMetadata === "object" && tool.completedMetadata !== null
+          ? (tool.completedMetadata as Record<string, unknown>).filediff
+          : undefined;
+      const oldStr =
+        recordText(input, "oldString", "oldText") ??
+        (typeof fileDiff === "object" && fileDiff !== null
+          ? recordText(fileDiff as Record<string, unknown>, "before")
+          : undefined);
+      const newStr =
+        recordText(input, "newString", "content", "newText") ??
+        (typeof fileDiff === "object" && fileDiff !== null
+          ? recordText(fileDiff as Record<string, unknown>, "after")
+          : undefined);
       const diffStr =
         recordString(tool.completedMetadata, "diff", "patch") ??
+        recordString(input, "patchText", "patch", "diff") ??
         (base.status === "failed" && output?.trim() ? output : undefined);
+      const additions =
+        recordNumber(fileDiff, "additions") ?? recordNumber(tool.completedMetadata, "additions");
+      const deletions =
+        recordNumber(fileDiff, "deletions") ?? recordNumber(tool.completedMetadata, "deletions");
       return {
         ...base,
         type: "file_change",
@@ -158,6 +175,8 @@ export function openCodeToolTurnItem(
         ...(oldStr === undefined ? {} : { oldStr }),
         ...(newStr === undefined ? {} : { newStr }),
         ...(diffStr === undefined ? {} : { diffStr }),
+        ...(additions === undefined ? {} : { additions }),
+        ...(deletions === undefined ? {} : { deletions }),
       };
     }
     case "file_search": {

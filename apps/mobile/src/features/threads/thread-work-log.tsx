@@ -1155,7 +1155,13 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
               <View className="min-w-0 flex-1 gap-1">
                 {(editItem.changes && editItem.changes.length > 1
                   ? editItem.changes.map((file) => ({ ...file, fileName: file.path }))
-                  : [editItem]
+                  : [
+                      {
+                        fileName: editItem.fileName,
+                        additions: editItem.additions ?? editItem.changes?.[0]?.additions,
+                        deletions: editItem.deletions ?? editItem.changes?.[0]?.deletions,
+                      },
+                    ]
                 ).map((file) => (
                   <View key={file.fileName} className="flex-row items-center gap-1">
                     {props.renderReasoning(

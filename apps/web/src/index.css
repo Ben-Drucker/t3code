@@ -2354,30 +2354,33 @@ code {
   color: var(--code-foreground) !important;
 }
 
-.composer-working-frame {
-  position: relative;
-}
-
-.composer-working-frame::after {
-  content: "";
+.composer-working-rim {
   position: absolute;
   inset: 0;
-  border: 1px solid var(--primary);
+  z-index: 25;
   border-radius: inherit;
+  border: 1.5px solid color-mix(in srgb, var(--primary) 72%, transparent);
   pointer-events: none;
-  opacity: 0.45;
-  animation: composer-working-arrival 1.2s ease-out 2;
+  opacity: 0.4;
+  will-change: opacity;
+  animation: composer-working-rim-pulse 2.2s ease-in-out infinite;
 }
 
-@keyframes composer-working-arrival {
+@keyframes composer-working-rim-pulse {
+  0%,
+  100% {
+    opacity: 0.32;
+  }
   50% {
-    opacity: 0.9;
+    opacity: 0.85;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .composer-working-frame::after {
+  .composer-working-rim {
     animation: none;
+    opacity: 0.65;
+    will-change: auto;
   }
 }
 
@@ -2416,7 +2419,7 @@ code {
   mask-composite: exclude;
 }
 
-.ultrathink-frame > * {
+.ultrathink-frame > :not([data-slot="composer-working-rim"]) {
   position: relative;
 }
 

@@ -9789,7 +9789,10 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         )
         .at(-1);
       assert.equal(item?.type, "file_change");
-      if (item?.type === "file_change") assert.equal(item.fileName, "/workspace/analysis.ipynb");
+      if (item?.type === "file_change") {
+        assert.equal(item.fileName, "/workspace/analysis.ipynb");
+        assert.equal(item.newStr, "print(1)");
+      }
     }).pipe(
       Effect.scoped,
       Effect.provide(
@@ -13222,6 +13225,124 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             NodeServices.layer,
             NodeCrypto.layer,
           ),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("preserves Write/Edit/MultiEdit diff inputs when tool_use_result is absent", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeWakeHarness;
+      yield* harness.runtime.startTurn(
+        makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId: RunAttemptId.make("attempt-claude-no-structured-result"),
+          text: "Update files",
+          attachments: [],
+        }),
+      );
+      yield* Queue.offer(
+        harness.sdkMessages,
+        claudeSdkFrame({
+          type: "assistant",
+          uuid: "00000000-0000-4000-8000-000000000796",
+          session_id: WAKE_NATIVE_SESSION,
+          parent_tool_use_id: null,
+          message: {
+            model: "claude-sonnet-4-6",
+            id: "msg_no_structured",
+            type: "message",
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "write-no-result",
+                name: "Write",
+                input: { file_path: "/workspace/new.ts", content: "a\nb\n" },
+              },
+              {
+                type: "tool_use",
+                id: "edit-no-result",
+                name: "Edit",
+                input: {
+                  file_path: "/workspace/edit.ts",
+                  old_string: "old\n",
+                  new_string: "new\n",
+                },
+              },
+              {
+                type: "tool_use",
+                id: "multiedit-no-result",
+                name: "MultiEdit",
+                input: {
+                  file_path: "/workspace/multi.ts",
+                  edits: [{ old_string: "one\n", new_string: "two\nthree\n" }],
+                },
+              },
+            ],
+          },
+        }),
+      );
+      yield* Queue.offer(
+        harness.sdkMessages,
+        claudeSdkFrame({
+          type: "user",
+          uuid: "00000000-0000-4000-8000-000000000797",
+          session_id: WAKE_NATIVE_SESSION,
+          parent_tool_use_id: null,
+          message: {
+            role: "user",
+            content: [
+              { type: "tool_result", tool_use_id: "write-no-result", content: "File created" },
+              { type: "tool_result", tool_use_id: "edit-no-result", content: "File updated" },
+              { type: "tool_result", tool_use_id: "multiedit-no-result", content: "File updated" },
+            ],
+          },
+        }),
+      );
+      yield* Queue.offer(
+        harness.sdkMessages,
+        makeResultFrame({ uuid: "00000000-0000-4000-8000-000000000798", result: "Done." }),
+      );
+      yield* harness.awaitTerminal(1);
+
+      const findFileChange = (nativeId: string) =>
+        harness.events.findLast(
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.type === "file_change" &&
+            event.turnItem.nativeItemRef?.nativeId === nativeId,
+        );
+      const writeItem = findFileChange("write-no-result");
+      const editItem = findFileChange("edit-no-result");
+      const multiItem = findFileChange("multiedit-no-result");
+      assert.equal(
+        writeItem?.type === "turn_item.updated" && writeItem.turnItem.type === "file_change"
+          ? writeItem.turnItem.newStr
+          : undefined,
+        "a\nb\n",
+      );
+      assert.deepEqual(
+        editItem?.type === "turn_item.updated" && editItem.turnItem.type === "file_change"
+          ? { oldStr: editItem.turnItem.oldStr, newStr: editItem.turnItem.newStr }
+          : undefined,
+        { oldStr: "old\n", newStr: "new\n" },
+      );
+      assert.include(
+        multiItem?.type === "turn_item.updated" && multiItem.turnItem.type === "file_change"
+          ? (multiItem.turnItem.diffStr ?? "")
+          : "",
+        "+three",
+      );
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
         ),
       ),
     ),

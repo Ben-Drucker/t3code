@@ -1246,7 +1246,37 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             const diffStr =
               recordString(recordField(resultRecord, "details"), "patch") ??
               (isError && outputText.trim().length > 0 ? outputText : undefined);
-            const newStr = toolName === "write" ? recordString(args, "content") : undefined;
+            const rawEdits = recordField(args, "edits");
+            const editEntries = Array.isArray(rawEdits) ? rawEdits : [];
+            const firstEdit =
+              editEntries.length === 1 &&
+              typeof editEntries[0] === "object" &&
+              editEntries[0] !== null
+                ? (editEntries[0] as Record<string, unknown>)
+                : undefined;
+            const pickRawString = (
+              source: unknown,
+              ...keys: ReadonlyArray<string>
+            ): string | undefined => {
+              if (typeof source !== "object" || source === null) return undefined;
+              for (const key of keys) {
+                const value = (source as Record<string, unknown>)[key];
+                if (typeof value === "string") return value;
+              }
+              return undefined;
+            };
+            const oldStr =
+              toolName === "edit" && !isError
+                ? (pickRawString(args, "oldText", "old_string") ??
+                  pickRawString(firstEdit, "oldText", "old_string"))
+                : undefined;
+            const newStr =
+              toolName === "write"
+                ? pickRawString(args, "content")
+                : !isError
+                  ? (pickRawString(args, "newText", "new_string") ??
+                    pickRawString(firstEdit, "newText", "new_string"))
+                  : undefined;
             yield* emit({
               type: "turn_item.updated",
               driver: PI_PROVIDER,
@@ -1256,6 +1286,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 type: "file_change",
                 fileName,
                 ...(diffStr === undefined ? {} : { diffStr }),
+                ...(oldStr === undefined ? {} : { oldStr }),
                 ...(newStr === undefined ? {} : { newStr }),
               },
             });

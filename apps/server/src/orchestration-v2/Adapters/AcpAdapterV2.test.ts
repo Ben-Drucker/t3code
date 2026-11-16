@@ -316,6 +316,19 @@ describe("acpToolCallDiffPatch", () => {
     ];
     assert.isUndefined(acpToolCallDiffPatch(twoDiffs));
     assert.isUndefined(acpToolCallSnippetEdit(twoDiffs));
+
+    // A new-file snippet without oldText still preserves newStr for line-count calculation.
+    assert.deepEqual(
+      acpToolCallSnippetEdit([
+        {
+          type: "diff",
+          path: "/repo/new.ts",
+          newText: "export const x = 1;\n",
+          patch: { format: "snippet", text: "+export const x = 1;" },
+        },
+      ]),
+      { newStr: "export const x = 1;\n" },
+    );
   });
 
   it("builds per-file patches from ACP hunks and recorded old/new text", () => {

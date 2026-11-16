@@ -1145,6 +1145,14 @@ function structuredFileChanges(toolCall: AcpToolCallState) {
       const oldPath = typeof change?.oldPath === "string" ? change.oldPath.trim() : "";
       const fileType = typeof change?.fileType === "string" ? change.fileType.trim() : "";
       const mimeType = typeof change?.mimeType === "string" ? change.mimeType.trim() : "";
+      const additions =
+        typeof change?.additions === "number" && Number.isFinite(change.additions)
+          ? change.additions
+          : undefined;
+      const deletions =
+        typeof change?.deletions === "number" && Number.isFinite(change.deletions)
+          ? change.deletions
+          : undefined;
       return [
         {
           operation,
@@ -1152,6 +1160,8 @@ function structuredFileChanges(toolCall: AcpToolCallState) {
           ...(oldPath.length === 0 ? {} : { oldPath }),
           ...(fileType.length === 0 ? {} : { fileType }),
           ...(mimeType.length === 0 ? {} : { mimeType }),
+          ...(additions === undefined ? {} : { additions }),
+          ...(deletions === undefined ? {} : { deletions }),
         },
       ];
     });
@@ -1173,9 +1183,121 @@ export function acpToolCallSnippetEdit(content: unknown) {
   });
   const diff = diffs.length === 1 ? diffs[0] : undefined;
   if (diff === undefined || unknownRecord(diff.patch)?.format !== "snippet") return undefined;
-  return typeof diff.oldText === "string" && typeof diff.newText === "string"
-    ? { oldStr: diff.oldText, newStr: diff.newText }
-    : undefined;
+  if (typeof diff.newText !== "string") return undefined;
+  return {
+    ...(typeof diff.oldText === "string" ? { oldStr: diff.oldText } : {}),
+    newStr: diff.newText,
+  };
+}
+
+function acpToolCallDiffStats(
+  content: unknown,
+): { additions: number; deletions: number } | undefined {
+  if (!Array.isArray(content)) return undefined;
+  let additions = 0;
+  let deletions = 0;
+  let found = false;
+  for (const entry of content) {
+    const diff = unknownRecord(entry);
+    if (diff?.type !== "diff") continue;
+    const patch = unknownRecord(diff.patch);
+    if (
+      typeof patch?.additions === "number" &&
+      Number.isFinite(patch.additions) &&
+      typeof patch?.deletions === "number" &&
+      Number.isFinite(patch.deletions)
+    ) {
+      additions += patch.additions;
+      deletions += patch.deletions;
+      found = true;
+      continue;
+    }
+    if (typeof diff.newText === "string" && diff.oldText === undefined) {
+      additions +=
+        diff.newText.length === 0
+          ? 0
+          : diff.newText.split(/\r?\n/u).length - (diff.newText.endsWith("\n") ? 1 : 0);
+      found = true;
+      continue;
+    }
+    if (typeof diff.oldText === "string" && typeof diff.newText === "string") {
+      const oldLines = diff.oldText.split(/\r?\n/u);
+      const newLines = diff.newText.split(/\r?\n/u);
+      if (oldLines.length + newLines.length <= 2_000) {
+        const structured = structuredPatch(
+          "a",
+          "b",
+          diff.oldText,
+          diff.newText,
+          undefined,
+          undefined,
+          {
+            context: 0,
+            maxEditLength: ACP_V1_DIFF_MAX_EDITS,
+          },
+        );
+        if (structured) {
+          for (const hunk of structured.hunks) {
+            for (const line of hunk.lines) {
+              if (line.startsWith("+")) additions += 1;
+              else if (line.startsWith("-")) deletions += 1;
+            }
+          }
+          found = true;
+        }
+      }
+    }
+  }
+  return found ? { additions, deletions } : undefined;
+}
+
+function acpRawInputEditFields(
+  rawInput: Record<string, unknown> | undefined,
+  fileName: string,
+): { oldStr?: string; newStr?: string; diffStr?: string } {
+  if (!rawInput) return {};
+  const pickString = (...keys: ReadonlyArray<string>) => {
+    for (const key of keys) {
+      const value = rawInput[key];
+      if (typeof value === "string") return value;
+    }
+    return undefined;
+  };
+  if (Array.isArray(rawInput.ReplacementChunks)) {
+    const patches = rawInput.ReplacementChunks.flatMap((entry) => {
+      const chunk = unknownRecord(entry);
+      if (!chunk) return [];
+      const target = typeof chunk.TargetContent === "string" ? chunk.TargetContent : undefined;
+      const replacement =
+        typeof chunk.ReplacementContent === "string" ? chunk.ReplacementContent : undefined;
+      if (target === undefined || replacement === undefined) return [];
+      const patch = structuredPatch(fileName, fileName, target, replacement);
+      return patch.hunks.length === 0 ? [] : [formatPatch(patch, FILE_HEADERS_ONLY)];
+    });
+    if (patches.length > 0) return { diffStr: patches.join("\n") };
+  }
+  const oldStr = pickString(
+    "old_string",
+    "oldString",
+    "oldText",
+    "old_str",
+    "oldStr",
+    "TargetContent",
+  );
+  const newStr = pickString(
+    "new_string",
+    "newString",
+    "newText",
+    "new_str",
+    "newStr",
+    "content",
+    "CodeContent",
+    "ReplacementContent",
+  );
+  return {
+    ...(oldStr === undefined ? {} : { oldStr }),
+    ...(newStr === undefined ? {} : { newStr }),
+  };
 }
 
 /**
@@ -4283,12 +4405,17 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             yield* rearmDeferredFinalize(context);
             return;
           } else if (changes.length > 0) {
+            const snippet = acpToolCallSnippetEdit(toolCall.data.content);
+            const unpreviewable = acpToolCallDiffUnpreviewable(toolCall.data.content);
+            const stats = unpreviewable ? acpToolCallDiffStats(toolCall.data.content) : undefined;
             turnItem = {
               ...base,
               type: "file_change",
               fileName: changes[0]!.path,
               changes,
-              ...(diffText === undefined ? {} : { diffStr: diffText }),
+              ...(snippet ??
+                (unpreviewable || diffText === undefined ? {} : { diffStr: diffText })),
+              ...(stats === undefined ? {} : stats),
             };
           } else {
             switch (toolCall.kind) {
@@ -4376,14 +4503,32 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               case "edit":
               case "delete":
               case "move": {
+                const fileName = path ?? toolCall.title ?? "File change";
                 const snippet = acpToolCallSnippetEdit(toolCall.data.content);
                 const unpreviewable = acpToolCallDiffUnpreviewable(toolCall.data.content);
+                const stats = unpreviewable
+                  ? acpToolCallDiffStats(toolCall.data.content)
+                  : undefined;
+                const rawFallback =
+                  snippet === undefined &&
+                  !unpreviewable &&
+                  (diffText === undefined || !/^(?:--- |@@ |diff --git )/m.test(diffText))
+                    ? acpRawInputEditFields(rawInputRecord, fileName)
+                    : {};
+                const resolvedDiffStr =
+                  snippet !== undefined || unpreviewable
+                    ? undefined
+                    : (rawFallback.diffStr ?? diffText);
                 turnItem = {
                   ...base,
                   type: "file_change",
-                  fileName: path ?? toolCall.title ?? "File change",
-                  ...(snippet ??
-                    (unpreviewable || diffText === undefined ? {} : { diffStr: diffText })),
+                  fileName,
+                  ...(snippet ?? {
+                    ...(rawFallback.oldStr === undefined ? {} : { oldStr: rawFallback.oldStr }),
+                    ...(rawFallback.newStr === undefined ? {} : { newStr: rawFallback.newStr }),
+                    ...(resolvedDiffStr === undefined ? {} : { diffStr: resolvedDiffStr }),
+                  }),
+                  ...(stats === undefined ? {} : stats),
                 };
                 break;
               }
