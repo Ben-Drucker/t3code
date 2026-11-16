@@ -356,16 +356,15 @@ describe("ChatMarkdown streaming", () => {
       "````bash\necho four\n````",
       "- Command\n\n  ```bash\n  echo list\n  ```",
       "```bash\r\necho crlf\r\n```\r",
+      "```bash\necho one\necho two\n```",
     ]) {
       await rerender(message(text));
       expect(runButtons()).toHaveLength(1);
     }
 
     for (const text of [
-      "```bash\necho one\necho two\n```",
       "```typescript\necho hello\n```",
       "```bash\n\n```",
-      "```bash\necho hello\n\n```",
       "```bash\necho hello\\\n```",
       "```bash\necho safe \u202e#\n```",
       "```bash\necho incomplete",
@@ -719,5 +718,23 @@ describe("ChatMarkdown Windows file links", () => {
       expect(container.innerHTML).not.toContain("d:alert");
       expect(fileHrefs(container)).toEqual([]);
     }
+  });
+});
+
+describe("ChatMarkdown URL autolinking", () => {
+  it("auto-links URLs and safe bare domains without mangling code or file names", async () => {
+    setup();
+    await using screen = await renderText(
+      "Visit https://example.com, www.github.com/t3tools/t3code, docs.python.org/3/ and check `ignored.com` or src/app.ts.",
+    );
+    const links = [...screen.container.querySelectorAll("a")].map((anchor) => ({
+      text: anchor.textContent,
+      href: anchor.getAttribute("href"),
+    }));
+    expect(links).toEqual([
+      { text: "https://example.com", href: "https://example.com" },
+      { text: "www.github.com/t3tools/t3code", href: "http://www.github.com/t3tools/t3code" },
+      { text: "docs.python.org/3/", href: "https://docs.python.org/3/" },
+    ]);
   });
 });

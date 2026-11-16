@@ -276,7 +276,7 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     const writeResult = await terminalActions.writeToTerminal(
       targetTerminalId,
       options?.shellHistory === "preserve"
-        ? `${script.command}\r`
+        ? `${script.command.replace(/\r\n/g, "\n")}\r`
         : projectScriptTerminalInput(script.command),
     );
     if (!writeResult) return;

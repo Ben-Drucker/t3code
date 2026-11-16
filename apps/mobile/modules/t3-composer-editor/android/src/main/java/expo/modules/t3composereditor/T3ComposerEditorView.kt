@@ -504,7 +504,8 @@ class T3ComposerEditorView(context: Context, appContext: AppContext) : ExpoView(
               label = token.label,
               detail = token.detail,
               iconUri = token.iconUri,
-              tintsIcon = token.tintsIcon
+              tintsIcon = token.tintsIcon,
+              monospaced = token.monospaced
             ),
             fontSize = editor.textSize,
             color = T3ContextChip.color(token.accent, editor.currentTextColor),
@@ -557,6 +558,7 @@ private data class ComposerToken(
   val accent: String,
   val iconUri: String,
   val tintsIcon: Boolean,
+  val monospaced: Boolean,
   val start: Int,
   val end: Int
 )
@@ -613,6 +615,7 @@ private fun parseTokens(value: String): List<ComposerToken> = try {
       accent = token.optString("accent"),
       iconUri = if (token.isNull("iconUri")) "" else token.optString("iconUri"),
       tintsIcon = token.optBoolean("tintsIcon"),
+      monospaced = token.optBoolean("monospaced"),
       start = token.optInt("start"),
       end = token.optInt("end"),
     )

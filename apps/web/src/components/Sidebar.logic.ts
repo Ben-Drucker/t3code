@@ -1009,12 +1009,14 @@ function hasUnseenUserRequest(
   >,
   descendantStatus?: SidebarThreadStatus | null,
 ): boolean {
-  const directRequest = thread.hasPendingApprovals || thread.hasPendingUserInput;
-  const subagentRequest =
+  const pendingApproval =
+    thread.hasPendingApprovals ||
     thread.pendingSubagentRequest === "approval" ||
-    thread.pendingSubagentRequest === "user_input" ||
-    descendantStatus === "approval" ||
-    descendantStatus === "input";
+    descendantStatus === "approval";
+  if (pendingApproval) return true;
+  const directRequest = thread.hasPendingUserInput;
+  const subagentRequest =
+    thread.pendingSubagentRequest === "user_input" || descendantStatus === "input";
   if (!directRequest && !subagentRequest) return false;
   if (!thread.lastVisitedAt) return true;
 

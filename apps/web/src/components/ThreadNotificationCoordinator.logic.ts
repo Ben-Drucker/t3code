@@ -69,18 +69,24 @@ export function createThreadNotificationGate<Key>(
       // The grace survives updates that keep the wake's completion; anything else cancels it.
       const pending = releases.get(key);
       if (pending?.at === next.completedAt && !options.archived && !options.quiet) {
+        if (attend(key, prior, next)) {
+          cancel(key);
+          notify(key, "input");
+          return;
+        }
         if (pending.timer === undefined) release(key, pending.at);
         return;
       }
       cancel(key);
       // The first sighting, archived threads, and stopped or silent runs never notify completion.
       if (!prior || options.archived || options.quiet) skip(key, next.completedAt);
-      const fresh = attend(key, prior, next);
-      if (!prior || options.archived) return;
+      const fresh = options.archived || options.quiet ? false : attend(key, prior, next);
+      if (options.archived) return;
       if (fresh) {
         notify(key, "input");
         return;
       }
+      if (!prior) return;
       const at = next.completedAt;
       if (!next.settled || at === null || at <= (handled.get(key) ?? -Infinity)) return;
       if (next.backgroundWake) {

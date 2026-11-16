@@ -767,7 +767,24 @@ function viewedImagesRows(
   groupId: string,
   createdAt: string,
   groupedEntries: ReadonlyArray<WorkLogEntry>,
+  options?: { readonly expanded?: boolean; readonly suppressAfterThinking?: boolean },
 ): Array<Extract<MessagesTimelineRow, { kind: "viewed-images" }>> {
+  if (options?.expanded) {
+    return [];
+  }
+  if (options?.suppressAfterThinking) {
+    const lastImageIndex = groupedEntries.findLastIndex(
+      (entry) => workEntriesViewedImagePaths([entry]).length > 0,
+    );
+    if (
+      lastImageIndex !== -1 &&
+      groupedEntries
+        .slice(lastImageIndex + 1)
+        .some((entry) => entry.itemType === "reasoning" || entry.tone === "thinking")
+    ) {
+      return [];
+    }
+  }
   const paths = workEntriesViewedImagePaths(groupedEntries);
   return paths.length === 0
     ? []
@@ -1930,6 +1947,7 @@ export function deriveMessagesTimelineRows(input: {
         activeWorkRow.groupId,
         activeWorkRow.createdAt,
         activeWorkRow.groupedEntries,
+        { expanded: activeWorkRow.expanded, suppressAfterThinking: true },
       ),
     );
   };
@@ -2210,11 +2228,16 @@ export function deriveMessagesTimelineRows(input: {
             );
           }
         }
+        const groupExpanded =
+          visibleGroupedEntries.length > 1 || !workLogEntryIsToolLike(visibleGroupedEntries[0]!)
+            ? (input.expandedWorkGroupIds?.has(workGroupId(timelineEntry.id)) ?? false)
+            : false;
         nextRows.push(
           ...viewedImagesRows(
             workGroupId(timelineEntry.id),
             timelineEntry.createdAt,
             visibleGroupedEntries,
+            { expanded: groupExpanded },
           ),
         );
       }

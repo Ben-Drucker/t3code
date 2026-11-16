@@ -194,4 +194,32 @@ describe("createThreadNotificationGate", () => {
       expect(notify).not.toHaveBeenCalled();
     }
   });
+
+  it("notifies when an approval or input request arrives during the backgroundWake completion grace window", () => {
+    using _timers = fakeTimers();
+    const { notify, observe } = harness();
+    observe(waking);
+    observe(woke(1));
+    expect(notify).not.toHaveBeenCalled();
+
+    observe({
+      ...woke(1),
+      attention: "approval:req-1",
+      requestId: "req-1",
+    });
+    expect(notify.mock.calls).toEqual([["thread", "input"]]);
+
+    vi.advanceTimersByTime(RELEASED_COMPLETION_GRACE_MS);
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifies when a thread is first sighted with a pending approval or input request", () => {
+    const { notify, observe } = harness();
+    observe({
+      ...working,
+      attention: "approval:req-2",
+      requestId: "req-2",
+    });
+    expect(notify.mock.calls).toEqual([["thread", "input"]]);
+  });
 });

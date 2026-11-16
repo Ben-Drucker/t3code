@@ -288,6 +288,7 @@ export interface ThreadDetailScreenProps {
   readonly serverConfig: T3ServerConfig | null;
   readonly layoutVariant?: LayoutVariant;
   readonly usesAutomaticContentInsets?: boolean;
+  readonly onRunShellCommand?: ((command: string) => void) | undefined;
   readonly onHeaderMaterialVisibilityChange?: (visible: boolean) => void;
   readonly onOpenConnectionEditor: () => void;
   readonly onChangeDraftMessage: (value: string) => void;
@@ -1560,6 +1561,7 @@ function ThreadDetailBody(
                   onIsAtEndChange={setIsAtEnd}
                   skills={selectedProviderSkills}
                   onUseArtifactTemplate={handleUseArtifactTemplate}
+                  onRunShellCommand={props.onRunShellCommand}
                 />
               </ColumnWidth>
             </WorkspaceMutationIdProvider>

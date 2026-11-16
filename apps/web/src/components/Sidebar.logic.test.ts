@@ -662,7 +662,7 @@ describe("resolveThreadStatusPill", () => {
     });
   });
 
-  it("shows Needs you in orange for pending approvals and user input and clears when open or seen", () => {
+  it("shows Needs you in orange for pending approvals until resolved and for user input until open or seen", () => {
     const approvalThread = {
       ...baseThread,
       hasPendingApprovals: true,
@@ -678,6 +678,28 @@ describe("resolveThreadStatusPill", () => {
     expect(
       resolveThreadStatusPill({
         thread: { ...approvalThread, lastVisitedAt: "2026-03-09T10:06:00.000Z" },
+      }),
+    ).toMatchObject({
+      label: "Needs you",
+      dotClass: "bg-orange-500 dark:bg-orange-400",
+      pulse: false,
+    });
+
+    const userInputThread = {
+      ...baseThread,
+      hasPendingUserInput: true,
+      pendingRequestAt: "2026-03-09T10:06:00.000Z",
+      lastVisitedAt: "2026-03-09T10:04:00.000Z",
+    };
+    expect(resolveThreadStatusPill({ thread: userInputThread })).toMatchObject({
+      label: "Needs you",
+      dotClass: "bg-orange-500 dark:bg-orange-400",
+      pulse: false,
+    });
+    expect(resolveThreadStatusPill({ thread: userInputThread, isOpen: true })).toBeNull();
+    expect(
+      resolveThreadStatusPill({
+        thread: { ...userInputThread, lastVisitedAt: "2026-03-09T10:06:00.000Z" },
       }),
     ).toBeNull();
   });
@@ -876,6 +898,28 @@ describe("resolveThreadAttentionDot", () => {
           pendingRequestAt: "2026-03-09T10:08:00.000Z",
         },
       }),
+    ).toBe("orange");
+  });
+
+  it("keeps the orange dot when a pending approval prompt remains unanswered after visiting the thread", () => {
+    expect(
+      resolveThreadAttentionDot({
+        thread: {
+          ...baseIdleThread,
+          hasPendingApprovals: true,
+          pendingRequestAt: "2026-03-09T10:07:00.000Z",
+          lastVisitedAt: "2026-03-09T10:08:00.000Z",
+        },
+      }),
+    ).toBe("orange");
+    expect(
+      resolveThreadAttentionDot({
+        thread: {
+          ...baseIdleThread,
+          pendingSubagentRequest: "approval",
+        },
+        lastVisitedAt: "2026-03-09T10:08:00.000Z",
+      } as never),
     ).toBe("orange");
   });
 });

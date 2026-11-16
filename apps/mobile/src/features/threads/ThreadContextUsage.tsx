@@ -7,12 +7,14 @@ import {
   resolveContextBreakdown,
 } from "@t3tools/client-runtime/context-breakdown";
 import { formatContextWindowTokens } from "@t3tools/shared/contextWindow";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
+import Svg, { Circle, Line } from "react-native-svg";
 
 import { AppText as Text } from "../../components/ui/AppText";
+import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useSelectedThreadProjection } from "../../state/use-thread-detail";
 
-export function ThreadContextUsage() {
+function useActiveThreadContextSnapshot() {
   const thread = useSelectedThreadProjection();
   const projection = thread?.projection;
   const providerThread = projection?.providerThreads.find(
@@ -25,6 +27,88 @@ export function ThreadContextUsage() {
   );
   const entries = projection?.visibleTurnItems ?? [];
   const context = deriveLatestContextWindowSnapshot(entries, liveUsage, providerThread);
+  return { projection, entries, context };
+}
+
+export function ThreadContextIndicator(props: {
+  readonly onPress: () => void;
+  readonly size?: "regular" | "large";
+}) {
+  const { context } = useActiveThreadContextSnapshot();
+  const theme = useUniwindTheme();
+  if (!context) return null;
+
+  const normalizedPercentage = Math.max(0, Math.min(100, context.usedPercentage ?? 0));
+  const radius = 9.75;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference * (1 - normalizedPercentage / 100);
+  const isOverloaded = normalizedPercentage > 90;
+  const strokeColor = isOverloaded
+    ? theme["--color-danger-foreground"]
+    : theme["--color-foreground-muted"];
+  const trackColor = theme["--color-subtle-strong"];
+  const threshold = context.autoCompactThreshold ?? null;
+  const thresholdRatio =
+    context.maxTokens != null &&
+    context.maxTokens > 0 &&
+    threshold !== null &&
+    threshold > 0 &&
+    threshold < context.maxTokens
+      ? threshold / context.maxTokens
+      : null;
+  const tickAngle = thresholdRatio !== null ? 2 * Math.PI * thresholdRatio : null;
+  const buttonSize = props.size === "large" ? 36 : 30;
+  const label =
+    context.maxTokens !== null && context.usedPercentage !== null
+      ? `Context window ${Math.round(normalizedPercentage)}% used`
+      : `Context window ${formatContextWindowTokens(context.usedTokens)} tokens used`;
+
+  return (
+    <Pressable
+      onPress={props.onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint="Opens thread details and context usage"
+      hitSlop={4}
+      style={{
+        width: buttonSize,
+        height: buttonSize,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Svg width={18} height={18} viewBox="0 0 24 24" style={{ transform: [{ rotate: "-90deg" }] }}>
+        <Circle cx={12} cy={12} r={radius} fill="none" stroke={trackColor} strokeWidth={3} />
+        <Circle
+          cx={12}
+          cy={12}
+          r={radius}
+          fill="none"
+          stroke={strokeColor}
+          strokeWidth={3}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={dashOffset}
+        />
+        {tickAngle !== null ? (
+          <Line
+            x1={12 + (radius - 2.25) * Math.cos(tickAngle)}
+            y1={12 + (radius - 2.25) * Math.sin(tickAngle)}
+            x2={12 + (radius + 2.25) * Math.cos(tickAngle)}
+            y2={12 + (radius + 2.25) * Math.sin(tickAngle)}
+            stroke={theme["--color-foreground"]}
+            strokeOpacity={0.7}
+            strokeWidth={1.5}
+            strokeLinecap="round"
+          />
+        ) : null}
+      </Svg>
+    </Pressable>
+  );
+}
+
+export function ThreadContextUsage() {
+  const { projection, entries, context } = useActiveThreadContextSnapshot();
   if (!context) return null;
   const breakdown = resolveContextBreakdown({
     reported: context.breakdown,

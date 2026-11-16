@@ -7,7 +7,7 @@ import { useMarkdownCodeHighlight } from "../features/threads/markdownCodeHighli
 import { copyTextWithHaptic } from "../lib/copyTextWithHaptic";
 import type { HighlightScheme } from "../lib/highlights";
 import { CodeBlockFrame, CodeBlockHeaderButton } from "./CodeBlockFrame";
-import { fencedCodeMarkdown } from "./codeBlockMarkdown";
+import { fencedCodeMarkdown, RUNNABLE_SHELL_FENCES } from "./codeBlockMarkdown";
 import type { NativeMarkdownTextStyle } from "./SelectableMarkdownText.types";
 
 // Header names from enriched-markdown's CodeBlockLanguages.cpp that are not the fence capitalized.
@@ -44,6 +44,7 @@ export function HighlightedCodeBlock(props: {
   readonly scheme: HighlightScheme;
   readonly textStyle: NativeMarkdownTextStyle;
   readonly codeStyle: NonNullable<MarkdownStyle["codeBlock"]>;
+  readonly onRunShellCommand?: ((command: string) => void) | undefined;
 }) {
   const { code, codeStyle, textStyle } = props;
   const [wrapped, setWrapped] = useState(false);
@@ -54,6 +55,14 @@ export function HighlightedCodeBlock(props: {
     enabled: props.complete,
   });
   const fence = props.fence.toLowerCase();
+  const command = code.trim();
+  const canRun =
+    props.onRunShellCommand !== undefined &&
+    props.complete &&
+    RUNNABLE_SHELL_FENCES.has(fence) &&
+    command.length > 0 &&
+    !command.endsWith("\\") &&
+    !/[\p{Cc}\p{Cf}]/u.test(code.replace(/[\r\n\t]/g, ""));
   let offset = 0;
   const text = (
     // Not selectable: as in the native block, a long-press opens the copy menu instead.
@@ -104,6 +113,14 @@ export function HighlightedCodeBlock(props: {
       textStyle={textStyle}
       actions={
         <>
+          {canRun ? (
+            <CodeBlockHeaderButton
+              icon="play"
+              label="Run in terminal"
+              textStyle={textStyle}
+              onPress={() => props.onRunShellCommand?.(command)}
+            />
+          ) : null}
           <CodeBlockHeaderButton
             icon="text.alignleft"
             label={wrapped ? "Disable line wrap" : "Wrap lines"}

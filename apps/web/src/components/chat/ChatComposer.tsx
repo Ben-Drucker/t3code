@@ -2810,11 +2810,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const insertComposerText = (
     text: string,
-    position: "cursor" | "end",
+    position: "cursor" | "start" | "end",
     options?: {
       ensureLeadingBoundary?: boolean;
       citationCommentAnchor?: AssistantCitationSourceAnchor;
       clipboardData?: DataTransfer;
+      preserveUserCursor?: boolean;
     },
   ): boolean => {
     if (
@@ -2830,12 +2831,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       text = importPastedComposerText(options.clipboardData, importContextFragment);
     }
     const prompt = promptRef.current;
-    const cursor = position === "cursor" ? readComposerSnapshot().expandedCursor : prompt.length;
+    const previousExpandedCursor = readComposerSnapshot().expandedCursor;
+    const cursor =
+      position === "start" ? 0 : position === "cursor" ? previousExpandedCursor : prompt.length;
     const needsLeadingSpace =
       (options?.ensureLeadingBoundary ?? false) &&
       cursor > 0 &&
       !/\s/.test(prompt[cursor - 1] ?? "");
     const rangeEnd = extendReplacementRangeForTrailingSpace(prompt, cursor, text);
+    const expandedCursorAfterReplace =
+      position === "start" && options?.preserveUserCursor
+        ? previousExpandedCursor <= rangeEnd
+          ? text.length
+          : previousExpandedCursor + (text.length - rangeEnd)
+        : undefined;
     return applyPromptReplacement(
       cursor,
       rangeEnd,
@@ -2848,8 +2857,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               insertedSpaces: { before: needsLeadingSpace, after: rangeEnd === cursor },
             },
             focusEditorAfterReplace: false,
+            ...(expandedCursorAfterReplace !== undefined ? { expandedCursorAfterReplace } : {}),
           }
-        : undefined,
+        : expandedCursorAfterReplace !== undefined
+          ? { expandedCursorAfterReplace }
+          : undefined,
     );
   };
   const insertComposerTextStable = useStableCallback(insertComposerText);
@@ -2882,8 +2894,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       composerEditorRef.current?.removeQqChips();
       return;
     }
-    insertComposerTextStable(hasKnownQqSkill ? "$qq " : "/qq ", "cursor", {
-      ensureLeadingBoundary: true,
+    insertComposerTextStable(hasKnownQqSkill ? "$qq " : "/qq ", "start", {
+      preserveUserCursor: true,
     });
   });
 

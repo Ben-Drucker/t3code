@@ -39,4 +39,22 @@ describe("ContextChip", () => {
       0,
     );
   });
+
+  it("renders skill chips in monospace with no underline", async () => {
+    await using screen = await render(
+      <div>
+        <span data-testid="mono-ref" className="font-mono">
+          ref
+        </span>
+        <ContextChip kind="skill" render={<button type="button" />}>
+          <ContextChipLabel>/qq</ContextChipLabel>
+        </ContextChip>
+      </div>,
+    );
+    const monoRef = screen.getByTestId("mono-ref").element() as HTMLElement;
+    const chip = screen.container.querySelector<HTMLElement>('[data-chip-kind="skill"]')!;
+    const label = screen.container.querySelector<HTMLElement>('[data-slot="context-chip-label"]')!;
+    expect(getComputedStyle(chip).fontFamily).toBe(getComputedStyle(monoRef).fontFamily);
+    expect(getComputedStyle(label).textDecorationLine).toBe("none");
+  });
 });

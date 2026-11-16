@@ -1,6 +1,6 @@
 import { modelChipIcon } from "../lib/contextChipIconSource";
 import { useMemo } from "react";
-import { Image } from "react-native";
+import { Image, Platform } from "react-native";
 import type { LinkPillContent, MarkdownStyle } from "react-native-enriched-markdown";
 import type { ComposerContextRecord } from "@t3tools/contracts";
 import { contextChipAccent, contextChipPresentation } from "../lib/composerChipPresentation";
@@ -72,7 +72,7 @@ function presentation(
     return {
       label: formatProviderSkillDisplayName(skill),
       icon: CONTEXT_CHIP_ICON_SOURCES.skill,
-      chip: { accent: contextChipPresentation("skill").accent, tintsIcon: true },
+      chip: { accent: contextChipPresentation("skill").accent, tintsIcon: true, monospaced: true },
     };
   const model = enrichedModelReference(url, props.models);
   if (model) {
@@ -153,7 +153,13 @@ export function useEnrichedLinkVariants(
                 paddingHorizontal: 5,
                 paddingVertical: 2,
               },
-              fontFamily: chipForeground ? FONT_FAMILIES.medium : textStyle.fontFamily,
+              fontFamily: link.chip?.monospaced
+                ? Platform.OS === "ios"
+                  ? "Menlo"
+                  : "monospace"
+                : chipForeground
+                  ? FONT_FAMILIES.medium
+                  : textStyle.fontFamily,
               color: chipForeground ?? link.color ?? textStyle.fileTextColor,
               underline: false,
               backgroundColor: "transparent",

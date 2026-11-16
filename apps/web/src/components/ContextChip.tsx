@@ -25,7 +25,7 @@ const contextChipVariants = cva(
         "pr-draft": "[--context-chip-accent:var(--context-chip-pr-draft)]",
         "pr-merged": "[--context-chip-accent:var(--context-chip-pr-merged)]",
         "pr-closed": "[--context-chip-accent:var(--context-chip-pr-closed)]",
-        skill: "[--context-chip-accent:var(--context-chip-skill)]",
+        skill: "font-mono [--context-chip-accent:var(--context-chip-skill)]",
         model: "[--context-chip-accent:var(--context-chip-model)]",
         thread: "[--context-chip-accent:var(--context-chip-thread)]",
         environment: "[--context-chip-accent:var(--context-chip-environment)]",
@@ -61,6 +61,7 @@ function ContextChip({ className, kind, state, shape, render, ...props }: Contex
   const defaultProps = {
     className: cn(contextChipVariants({ kind, state, shape }), className),
     "data-slot": "context-chip",
+    "data-chip-kind": kind,
     "data-state": state,
   };
   return useRender({
@@ -74,7 +75,7 @@ function ContextChipLabel({ className, ...props }: React.ComponentProps<"span">)
   return (
     <span
       className={cn(
-        "block min-w-0 self-baseline overflow-x-clip text-ellipsis whitespace-nowrap underline decoration-transparent decoration-1 underline-offset-[0.2em] transition-colors motion-reduce:transition-none [:is(button:enabled,a):hover>&]:decoration-current",
+        "block min-w-0 self-baseline overflow-x-clip text-ellipsis whitespace-nowrap underline decoration-transparent decoration-1 underline-offset-[0.2em] transition-colors motion-reduce:transition-none [:is(button:enabled,a):hover>&]:decoration-current [[data-chip-kind=skill]_&]:no-underline [[data-chip-kind=skill]:is(button:enabled,a):hover_&]:no-underline",
         className,
       )}
       data-slot="context-chip-label"

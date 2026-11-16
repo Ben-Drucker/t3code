@@ -523,6 +523,10 @@
       "types": "./src/threadSearch.ts",
       "import": "./src/threadSearch.ts"
     },
+    "./markdownAutolinkUrls": {
+      "types": "./src/markdownAutolinkUrls.ts",
+      "import": "./src/markdownAutolinkUrls.ts"
+    },
     "./markdownLinks": {
       "types": "./src/markdownLinks.ts",
       "import": "./src/markdownLinks.ts"

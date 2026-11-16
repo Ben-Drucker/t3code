@@ -43,11 +43,32 @@ type CodeFenceRenderer =
   | { readonly kind: "highlight"; readonly language: string }
   | { readonly kind: "native" };
 
+export const RUNNABLE_SHELL_FENCES = new Set([
+  "sh",
+  "bash",
+  "zsh",
+  "fish",
+  "shell",
+  "powershell",
+  "pwsh",
+  "console",
+  "shellsession",
+  "cmd",
+  "bat",
+]);
+
 /** Mermaid and math fences first: highlights knows `mermaid` too, and would claim it as code. */
-export function codeFenceRenderer(fence: string, mathRenderingEnabled: boolean): CodeFenceRenderer {
+export function codeFenceRenderer(
+  fence: string,
+  mathRenderingEnabled: boolean,
+  hasShellRunner = false,
+): CodeFenceRenderer {
   if (fence === "mermaid") return { kind: "mermaid" };
   if (fence === "math" && mathRenderingEnabled) return { kind: "math" };
   const name = fence.toLowerCase();
+  if (hasShellRunner && RUNNABLE_SHELL_FENCES.has(name)) {
+    return { kind: "highlight", language: resolveHighlightLanguage({ language: name }) };
+  }
   if (NATIVE_HIGHLIGHT_FENCES.has(name)) return { kind: "native" };
   const language = resolveHighlightLanguage({ language: name });
   return language === "text" ? { kind: "native" } : { kind: "highlight", language };

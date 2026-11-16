@@ -2364,6 +2364,83 @@ describe("deriveMessagesTimelineRows", () => {
     expect(viewedImages(true, new Set([runId]))).toEqual([{ after: "work-toggle", paths }]);
   });
 
+  it("does not render viewed-images under active thinking work or expanded read blocks", () => {
+    const threadId = ThreadId.make("viewed-images-thinking-thread");
+    const runId = RunId.make("viewed-images-thinking-run");
+    const at = (second: number) =>
+      DateTime.makeUnsafe(new Date(Date.UTC(2026, 10, 4, 12, 0, second)).toISOString());
+    const base = (id: string, ordinal: number) => ({
+      id: TurnItemId.make(id),
+      threadId,
+      runId,
+      nodeId: null,
+      providerThreadId: null,
+      providerTurnId: null,
+      nativeItemRef: null,
+      parentItemId: null,
+      ordinal,
+      status: "completed" as const,
+      title: null,
+      startedAt: at(ordinal),
+      completedAt: at(ordinal),
+      updatedAt: at(ordinal),
+    });
+    const visibleTurnItems = [
+      {
+        ...base("prompt", 0),
+        type: "user_message" as const,
+        messageId: MessageId.make("prompt"),
+        text: "Inspect screenshot.png",
+        attachments: [],
+        inputIntent: "turn_start" as const,
+        createdBy: "user" as const,
+        creationSource: "web" as const,
+      },
+      {
+        ...base("read-img", 1),
+        type: "dynamic_tool" as const,
+        toolName: "Read",
+        viewedImagePath: "/repo/screenshot.png",
+        input: { path: "/repo/screenshot.png" },
+      },
+      {
+        ...base("think-after", 2),
+        status: "running" as const,
+        completedAt: null,
+        type: "reasoning" as const,
+        streaming: true,
+        summary: "Analyzing screenshot...",
+        text: "Analyzing screenshot...",
+      },
+    ].map((item, position) => ({
+      position,
+      visibility: "local" as const,
+      sourceThreadId: threadId,
+      sourceItemId: item.id,
+      item,
+    }));
+
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: deriveTimelineEntriesFromVisibleTurnItems({
+        visibleTurnItems,
+        optimisticMessages: [],
+      }),
+      latestRun: {
+        runId,
+        status: "running",
+        startedAt: DateTime.formatIso(at(0)),
+        completedAt: null,
+      },
+      runningRunId: runId,
+      isWorking: true,
+      activeTurnStartedAt: DateTime.formatIso(at(0)),
+      turnDiffSummaries: [],
+      supportsConversationRollback: false,
+    });
+
+    expect(rows.some((row) => row.kind === "viewed-images")).toBe(false);
+  });
+
   it("keeps imported V1 turns folded once the thread's first V2 run starts", () => {
     const at = (second: number) => `2026-01-01T00:00:${String(second).padStart(2, "0")}Z`;
     const message = (

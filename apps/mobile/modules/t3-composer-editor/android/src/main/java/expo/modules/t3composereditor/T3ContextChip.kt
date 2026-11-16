@@ -25,19 +25,20 @@ class T3ContextChip(
     val label: String,
     val detail: String = "",
     val iconUri: String = "",
-    val tintsIcon: Boolean = false
+    val tintsIcon: Boolean = false,
+    val monospaced: Boolean = false
   )
 
   private val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
     textSize = fontSize
-    typeface = chipTypeface()
+    typeface = chipTypeface(content.monospaced)
     color = this@T3ContextChip.color
   }
   private val em = fontSize
 
   private val detailPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
     textSize = fontSize * 0.84f
-    typeface = chipTypeface()
+    typeface = chipTypeface(content.monospaced)
     color = this@T3ContextChip.color
   }
   private val detailText = if (content.detail.isEmpty()) "" else " ${content.detail}"
@@ -90,7 +91,10 @@ class T3ContextChip(
     private const val CHIP_FONT_FAMILY = "DMSans-Medium"
 
     // Matches the iOS chips; builds without the bundled font keep the platform medium.
-    private fun chipTypeface(): Typeface {
+    private fun chipTypeface(monospaced: Boolean): Typeface {
+      if (monospaced) {
+        return Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
+      }
       val fonts = ReactFontManager.getInstance()
       return if (CHIP_FONT_FAMILY in fonts.customFontFamilies) {
         fonts.getTypeface(CHIP_FONT_FAMILY, Typeface.NORMAL, null)

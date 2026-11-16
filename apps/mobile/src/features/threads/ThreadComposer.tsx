@@ -1,3 +1,4 @@
+import { ThreadContextIndicator } from "./ThreadContextUsage";
 import { useSidebarWorkspaceTabs } from "../layout/workspace/useSystemWorkspaceTabBar";
 import { Button } from "../../components/ui/Button";
 import * as Dialog from "../../components/ui/Dialog";
@@ -1185,6 +1186,12 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 }
               >
                 {modelControl}
+                {!props.isDraft ? (
+                  <ThreadContextIndicator
+                    size={usesLargeControls ? "large" : "regular"}
+                    onPress={openSettings}
+                  />
+                ) : null}
                 {quickQuestionControl}
                 <ComposerDictationStartAction
                   size={usesLargeControls ? "large" : "regular"}
