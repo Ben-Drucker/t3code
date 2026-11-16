@@ -41,6 +41,7 @@ import {
   antigravityAuthLabel,
   antigravityAuthUsesBrowser,
   buildAntigravityAcpSpawnInput,
+  ensureAntigravityTerminalPlugin,
   isAntigravitySignInRequiredError,
   prepareAntigravityProfile,
   resolveAntigravityInstanceDirectories,
@@ -281,6 +282,7 @@ export const AntigravityDriver: ProviderDriver<
               ),
             ),
       );
+      const enableTerminalToolHook = (input.mcpServers?.length ?? 0) > 0;
       const spawn = buildAntigravityAcpSpawnInput({
         installation: executable,
         profile,
@@ -288,6 +290,7 @@ export const AntigravityDriver: ProviderDriver<
         baseEnv: processEnvironment,
         auth,
         runtimeTempDirectory,
+        enableTerminalToolHook,
       });
       conversationStore = resolveAntigravityConversationStore({
         managed: executable.harnessPath !== null,
@@ -296,6 +299,25 @@ export const AntigravityDriver: ProviderDriver<
         userHome,
         cwd: input.cwd,
       });
+      if (enableTerminalToolHook && profile.nodeExecutable !== undefined) {
+        const pluginConfigRoots =
+          executable.harnessPath !== null
+            ? [path.join(profile.geminiHome, "config")]
+            : [
+                path.join(profile.geminiHome, "config"),
+                path.join(conversationStore.profileDirectory, "config"),
+              ];
+        for (const configDirectory of new Set(pluginConfigRoots)) {
+          yield* ensureAntigravityTerminalPlugin({
+            configDirectory,
+            nodeExecutable: profile.nodeExecutable,
+            platform: profile.platform,
+          }).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, path),
+          );
+        }
+      }
       const runtime = yield* makeAntigravityAcpRuntime({
         ...input,
         runtimeVersion: executable.version,

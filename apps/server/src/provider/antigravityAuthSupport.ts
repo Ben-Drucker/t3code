@@ -28,6 +28,8 @@ export const ANTIGRAVITY_AUTH_STDOUT_PREFIX =
 export const ANTIGRAVITY_AUTH_BROWSER_MARKER = "__T3_ANTIGRAVITY_AUTH_URL__";
 export const ANTIGRAVITY_SIGN_IN_REQUIRED_MESSAGE =
   "Sign in to Antigravity in Settings before you continue.";
+export const T3_ANTIGRAVITY_TERMINAL_ENV = "T3_ANTIGRAVITY_TERMINAL_TOOL";
+export const T3_ANTIGRAVITY_TERMINAL_TOOL = "t3_terminal_run";
 
 const maxAuthorizationUrlLength = 16_384;
 const maxBrowserHelperLineLength =
@@ -76,6 +78,7 @@ const removedEnvironmentKeys = new Set([
   "BROWSER",
   "PYTHONUNBUFFERED",
   "ELECTRON_RUN_AS_NODE",
+  T3_ANTIGRAVITY_TERMINAL_ENV,
   // An inherited pipe whose owner exited makes Electron-as-Node print Crashpad errors to stderr.
   "CHROME_CRASHPAD_PIPE_NAME",
 ]);
@@ -87,6 +90,7 @@ export interface AntigravityProfile {
   readonly tokenPath: string;
   readonly tempDirectory: string;
   readonly browserCommand: string;
+  readonly nodeExecutable?: string;
   readonly caBundlePath?: string;
 }
 
@@ -189,9 +193,133 @@ export const resolveAntigravityInstanceDirectories = Effect.fn(
   } satisfies AntigravityInstanceDirectories;
 });
 
-function quoteBrowserArgument(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
+function quoteShellArgument(value: string, platform: NodeJS.Platform): string {
+  return platform === "win32"
+    ? `"${value.replaceAll('"', '\\"')}"`
+    : `'${value.replaceAll("'", `'"'"'`)}'`;
 }
+
+const T3_TERMINAL_PLUGIN_MANIFEST = `${JSON.stringify(
+  {
+    name: "t3-terminal",
+    version: "1.0.0",
+    description: "Redirects built-in run_command to T3 Code's t3_terminal_run MCP tool.",
+  },
+  null,
+  2,
+)}\n`;
+
+const T3_TERMINAL_HOOK_SCRIPT = `"use strict";
+const active = process.env.${T3_ANTIGRAVITY_TERMINAL_ENV} === ${JSON.stringify(T3_ANTIGRAVITY_TERMINAL_TOOL)};
+const event = process.argv[2];
+if (!active) {
+  process.stdout.write("{}");
+  process.exit(0);
+}
+if (event === "SessionStart") {
+  process.stdout.write(
+    JSON.stringify({
+      injectSteps: [
+        {
+          systemMessage: {
+            systemMessage:
+              "In T3 Code, built-in \`run_command\` is disabled on Antigravity. Always call \`${T3_ANTIGRAVITY_TERMINAL_TOOL}\` instead (\`mode: \\"foreground\\"\` waits up to 60s and auto-backgrounds; \`mode: \\"background\\"\` runs asynchronously and wakes this thread on completion; \`mode: \\"background_with_timeout\\"\` enforces \`timeoutSeconds\`).",
+          },
+        },
+      ],
+    }),
+  );
+  process.exit(0);
+}
+if (event === "PreToolUse") {
+  process.stdout.write(
+    JSON.stringify({
+      decision: "deny",
+      reason:
+        "Built-in \`run_command\` is disabled in T3 Code. Call \`${T3_ANTIGRAVITY_TERMINAL_TOOL}\` instead (modes: 'foreground' with 60s auto-backgrounding, 'background', or 'background_with_timeout' with timeoutSeconds).",
+    }),
+  );
+  process.exit(0);
+}
+process.stdout.write("{}");
+`;
+
+function renderTerminalPluginHooks(nodeExecutable: string, platform: NodeJS.Platform): string {
+  const quotedNode = quoteShellArgument(nodeExecutable, platform);
+  return `${JSON.stringify(
+    {
+      "t3-terminal": {
+        SessionStart: [
+          {
+            type: "command",
+            command: `${quotedNode} ./hooks/t3-terminal-hook.cjs SessionStart`,
+            timeout: 5,
+          },
+        ],
+        PreToolUse: [
+          {
+            matcher: "run_command",
+            hooks: [
+              {
+                type: "command",
+                command: `${quotedNode} ./hooks/t3-terminal-hook.cjs PreToolUse`,
+                timeout: 5,
+              },
+            ],
+          },
+        ],
+      },
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+const writeFileIfChanged = Effect.fn("writeFileIfChanged")(function* (
+  filePath: string,
+  content: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const existing = yield* fs.readFileString(filePath).pipe(Effect.orElseSucceed(() => undefined));
+  if (existing === content) return;
+  yield* fs.writeFileString(filePath, content);
+});
+
+/**
+ * Installs a T3-scoped Antigravity plugin that injects `t3_terminal_run` instructions at session
+ * start and deterministically denies `run_command` in all permission modes when launched from T3.
+ */
+export const ensureAntigravityTerminalPlugin = Effect.fn("ensureAntigravityTerminalPlugin")(
+  function* (input: {
+    readonly configDirectory: string;
+    readonly nodeExecutable: string;
+    readonly platform: NodeJS.Platform;
+  }): Effect.fn.Return<void, never, FileSystem.FileSystem | Path.Path> {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const pluginRoot = path.join(input.configDirectory, "plugins", "t3-terminal");
+    const hooksDir = path.join(pluginRoot, "hooks");
+    yield* Effect.gen(function* () {
+      yield* fs.makeDirectory(hooksDir, { recursive: true });
+      yield* writeFileIfChanged(path.join(pluginRoot, "plugin.json"), T3_TERMINAL_PLUGIN_MANIFEST);
+      yield* writeFileIfChanged(
+        path.join(hooksDir, "t3-terminal-hook.cjs"),
+        T3_TERMINAL_HOOK_SCRIPT,
+      );
+      yield* writeFileIfChanged(
+        path.join(pluginRoot, "hooks.json"),
+        renderTerminalPluginHooks(input.nodeExecutable, input.platform),
+      );
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Could not install the T3 Antigravity terminal hook plugin.", {
+          pluginRoot,
+          cause,
+        }),
+      ),
+    );
+  },
+);
 
 function antigravityEnvironment(
   profile: AntigravityProfile,
@@ -336,7 +464,9 @@ export const prepareAntigravityProfile = Effect.fn("prepareAntigravityProfile")(
   const helperExecutable =
     platform === "win32" ? runtimeExecutablePath.replaceAll("\\", "/") : runtimeExecutablePath;
   const browserArguments = [helperExecutable, "-e", browserHelperSource, "--", "%s"];
-  const browserCommand = browserArguments.map(quoteBrowserArgument).join(" ");
+  const browserCommand = browserArguments
+    .map((argument) => quoteShellArgument(argument, "linux"))
+    .join(" ");
   if (
     browserCommand.includes(platform === "win32" ? ";" : ":") ||
     helperExecutable.includes("\r") ||
@@ -380,6 +510,7 @@ export const prepareAntigravityProfile = Effect.fn("prepareAntigravityProfile")(
     tokenPath: path.join(acpDirectory, "acp_token.json"),
     tempDirectory,
     browserCommand,
+    nodeExecutable: helperExecutable,
     ...(caBundlePath === undefined ? {} : { caBundlePath }),
   };
   const environment = antigravityEnvironment(profile, input.baseEnv ?? process.env, auth);
@@ -461,6 +592,7 @@ export function buildAntigravityAcpSpawnInput(input: {
   readonly baseEnv?: NodeJS.ProcessEnv;
   readonly auth?: AntigravityAuthConfig;
   readonly runtimeTempDirectory?: string;
+  readonly enableTerminalToolHook?: boolean;
 }): AcpSessionRuntime.AcpSpawnInput {
   return {
     command: input.installation.executablePath,
@@ -482,6 +614,9 @@ export function buildAntigravityAcpSpawnInput(input: {
       ...(input.installation.harnessPath === null
         ? {}
         : { ANTIGRAVITY_HARNESS_PATH: input.installation.harnessPath }),
+      ...(input.enableTerminalToolHook === true
+        ? { [T3_ANTIGRAVITY_TERMINAL_ENV]: T3_ANTIGRAVITY_TERMINAL_TOOL }
+        : {}),
     },
     extendEnv: false,
   };

@@ -3648,6 +3648,29 @@ const OrchestrationV2InternalCommand = Schema.Union([
       }),
     ),
   }),
+  /** Records or settles a server-owned terminal command started via `t3_terminal_run`. */
+  Schema.Struct({
+    type: Schema.Literal("terminal_command.record"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    runId: RunId,
+    nodeId: NodeId,
+    turnItemId: TurnItemId,
+    taskId: TrimmedNonEmptyString,
+    command: TrimmedNonEmptyString,
+    title: Schema.optional(TrimmedNonEmptyString),
+    commandStatus: Schema.Literals(["running", "completed", "failed", "interrupted"]),
+    exitCode: Schema.optional(Schema.NullOr(Schema.Int)),
+    output: Schema.optional(Schema.String),
+    awaited: Schema.Boolean,
+    wake: Schema.optional(
+      Schema.Struct({
+        messageId: MessageId,
+        text: Schema.String,
+        notification: OrchestrationV2Notification,
+      }),
+    ),
+  }),
 ]);
 export type OrchestrationV2InternalCommand = typeof OrchestrationV2InternalCommand.Type;
 

@@ -1,6 +1,7 @@
 import * as Sink from "effect/Sink";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
+import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as TestClock from "effect/testing/TestClock";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
@@ -27,12 +28,15 @@ import {
   type AntigravityAuthConfig,
   type AntigravityProfile,
   buildAntigravityAcpSpawnInput,
+  ensureAntigravityTerminalPlugin,
   isAntigravitySignInRequiredError,
   makeAntigravityStderrHandler,
   makeAntigravityStdoutTransform,
   parseAntigravityAuthorizationUrl,
   prepareAntigravityProfile,
   resolveAntigravityInstanceDirectories,
+  T3_ANTIGRAVITY_TERMINAL_ENV,
+  T3_ANTIGRAVITY_TERMINAL_TOOL,
 } from "./antigravityAuthSupport.ts";
 
 const authorizationUrl =
@@ -781,5 +785,95 @@ it.layer(NodeServices.layer)("Antigravity profile preparation", (it) => {
         expect(yield* fs.exists(profileDirectory)).toBe(false);
       }
     }),
+  );
+
+  it("injects T3_ANTIGRAVITY_TERMINAL_TOOL only when enableTerminalToolHook is true", () => {
+    const testProfile: AntigravityProfile = {
+      platform: "darwin",
+      geminiHome: "/tmp/t3-profile",
+      acpDirectory: "/tmp/t3-profile/antigravity-acp",
+      tokenPath: "/tmp/t3-profile/antigravity-acp/acp_token.json",
+      tempDirectory: "/tmp/t3-profile/antigravity-acp/tmp",
+      browserCommand: "'/usr/bin/node' '-e' 'noop' '--' '%s'",
+    };
+    const enabled = buildAntigravityAcpSpawnInput({
+      installation: { executablePath: "/usr/bin/agy", harnessPath: null },
+      profile: testProfile,
+      cwd: "/project",
+      baseEnv: { PATH: "/usr/bin" },
+      enableTerminalToolHook: true,
+    });
+    expect(enabled.env?.[T3_ANTIGRAVITY_TERMINAL_ENV]).toBe(T3_ANTIGRAVITY_TERMINAL_TOOL);
+
+    const stripped = buildAntigravityAcpSpawnInput({
+      installation: { executablePath: "/usr/bin/agy", harnessPath: null },
+      profile: testProfile,
+      cwd: "/project",
+      baseEnv: { PATH: "/usr/bin", [T3_ANTIGRAVITY_TERMINAL_ENV]: "stale" },
+    });
+    expect(stripped.env?.[T3_ANTIGRAVITY_TERMINAL_ENV]).toBeUndefined();
+  });
+
+  it.effect(
+    "installs a T3-scoped terminal hook plugin that denies run_command only in T3 sessions",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const platform = yield* HostProcess.Platform;
+        const temporaryDirectory = yield* fs.makeTempDirectoryScoped();
+        const configDirectory = path.join(temporaryDirectory, "config");
+
+        yield* ensureAntigravityTerminalPlugin({
+          configDirectory,
+          nodeExecutable: process.execPath,
+          platform,
+        });
+
+        const pluginRoot = path.join(configDirectory, "plugins", "t3-terminal");
+        const hooksJson = decodeJson(
+          yield* fs.readFileString(path.join(pluginRoot, "hooks.json")),
+        ) as {
+          readonly "t3-terminal": {
+            readonly SessionStart: ReadonlyArray<{ readonly command: string }>;
+            readonly PreToolUse: ReadonlyArray<{
+              readonly matcher: string;
+              readonly hooks: ReadonlyArray<{ readonly command: string }>;
+            }>;
+          };
+        };
+        expect(hooksJson["t3-terminal"].PreToolUse[0]?.matcher).toBe("run_command");
+
+        const hookScript = path.join(pluginRoot, "hooks", "t3-terminal-hook.cjs");
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        const runHook = (eventName: string, active: boolean) =>
+          spawner.string(
+            ChildProcess.make(process.execPath, [hookScript, eventName], {
+              env: {
+                ...process.env,
+                ...(active
+                  ? { [T3_ANTIGRAVITY_TERMINAL_ENV]: T3_ANTIGRAVITY_TERMINAL_TOOL }
+                  : { [T3_ANTIGRAVITY_TERMINAL_ENV]: "" }),
+              },
+            }),
+          );
+
+        const outsideT3 = decodeJson(yield* runHook("PreToolUse", false));
+        expect(outsideT3).toEqual({});
+
+        const denied = decodeJson(yield* runHook("PreToolUse", true)) as {
+          readonly decision: string;
+          readonly reason: string;
+        };
+        expect(denied.decision).toBe("deny");
+        expect(denied.reason).toContain("t3_terminal_run");
+
+        const injected = decodeJson(yield* runHook("SessionStart", true)) as {
+          readonly injectSteps: ReadonlyArray<{
+            readonly systemMessage: { readonly systemMessage: string };
+          }>;
+        };
+        expect(injected.injectSteps[0]?.systemMessage.systemMessage).toContain("t3_terminal_run");
+      }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

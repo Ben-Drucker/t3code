@@ -667,6 +667,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
       return command.parentThreadId;
     case "secret_request.record":
     case "link_request.record":
+    case "terminal_command.record":
       return command.threadId;
     case "thread.fork":
     case "thread.merge_back":
@@ -10023,6 +10024,175 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     },
   );
 
+  const dispatchTerminalCommandRecord = Effect.fn("orchestrationV2.dispatch.terminalCommandRecord")(
+    function* (
+      command: Extract<
+        OrchestrationV2InternalCommand,
+        { readonly type: "terminal_command.record" }
+      >,
+      events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+      effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+    ) {
+      const projection = yield* projectionStore
+        .getThreadRecords(
+          command.threadId,
+          ["runs", "nodes", "providerThreads", "turnItems", "attempts", "providerTurns"],
+          { turnItemTypes: ["command_execution"], messageRoles: [] },
+        )
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+          ),
+        );
+      const run = projection.runs.find((candidate) => candidate.id === command.runId);
+      if (run === undefined) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Run ${command.runId} was not found.`,
+        });
+      }
+      const existing = projection.turnItems.find((item) => item.id === command.turnItemId);
+      if (existing !== undefined && existing.type !== "command_execution") {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Turn item ${command.turnItemId} is not a command execution.`,
+        });
+      }
+      if (existing !== undefined && existing.runId !== command.runId) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Terminal command ${command.turnItemId} belongs to another run.`,
+        });
+      }
+      if (existing === undefined && run.rootNodeId !== command.nodeId) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Node ${command.nodeId} is not the root of run ${command.runId}.`,
+        });
+      }
+      if (
+        existing === undefined &&
+        (!isActiveRun(run) || (yield* stopReachedRun(command, command.threadId, run.id)))
+      ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Run ${command.runId} is not active.`,
+        });
+      }
+      // Stop or settlement already closed this command item; never reopen it or wake.
+      if (existing !== undefined && existing.status !== "running") {
+        return;
+      }
+
+      const now = yield* DateTime.now;
+      const nodeId = existing?.nodeId ?? command.nodeId;
+      const providerThreadId = existing?.providerThreadId ?? run.providerThreadId;
+      const turnItem: Extract<OrchestrationV2TurnItem, { readonly type: "command_execution" }> = {
+        id: command.turnItemId,
+        threadId: command.threadId,
+        runId: command.runId,
+        nodeId,
+        providerThreadId,
+        providerTurnId: existing?.providerTurnId ?? providerTurnForRun(projection, run)?.id ?? null,
+        nativeItemRef: null,
+        parentItemId: null,
+        ordinal: existing?.ordinal ?? (yield* nextTurnItemOrdinal(projection)),
+        status: command.commandStatus,
+        title: command.title ?? command.command,
+        startedAt: existing?.startedAt ?? now,
+        completedAt: command.commandStatus === "running" ? null : now,
+        updatedAt: now,
+        type: "command_execution",
+        input: command.command,
+        ...(command.output === undefined ? {} : { output: command.output }),
+        ...(command.exitCode == null ? {} : { exitCode: command.exitCode }),
+        ...(command.commandStatus === "failed" ? { outputIndicatesFailure: true } : {}),
+        ...(command.awaited && command.commandStatus === "running"
+          ? { completionWake: "always" as const }
+          : {}),
+      };
+      const emitEvent = emit(events, command);
+      yield* emitEvent({
+        type: "turn-item.updated",
+        threadId: command.threadId,
+        runId: command.runId,
+        nodeId,
+        providerInstanceId: run.providerInstanceId,
+        occurredAt: now,
+        payload: turnItem,
+      });
+
+      const ownerThread =
+        providerThreadId === null
+          ? undefined
+          : projection.providerThreads.find((candidate) => candidate.id === providerThreadId);
+      if (ownerThread !== undefined) {
+        const existingTasks = ownerThread.pendingBackgroundTasks ?? [];
+        const otherTasks = existingTasks.filter((task) => task.taskId !== command.taskId);
+        const nextTasks =
+          command.awaited && command.commandStatus === "running"
+            ? [
+                ...otherTasks,
+                {
+                  taskId: command.taskId,
+                  kind: "command" as const,
+                  description: command.title ?? command.command,
+                  awaited: true as const,
+                },
+              ]
+            : otherTasks;
+        const changed =
+          nextTasks.length !== existingTasks.length ||
+          (command.awaited && command.commandStatus === "running");
+        if (changed) {
+          yield* emitEvent({
+            type: "provider-thread.updated",
+            threadId: command.threadId,
+            driver: ownerThread.driver,
+            providerInstanceId: ownerThread.providerInstanceId,
+            occurredAt: now,
+            payload: {
+              ...ownerThread,
+              pendingBackgroundTasks: nextTasks,
+              updatedAt: now,
+            },
+          });
+        }
+      }
+
+      if (
+        command.wake === undefined ||
+        command.commandStatus === "running" ||
+        projection.thread.archivedAt !== null ||
+        projection.thread.deletedAt !== null ||
+        projection.thread.settledOverride === "settled"
+      ) {
+        return;
+      }
+      yield* dispatchMessage(
+        {
+          type: "message.dispatch",
+          commandId: command.commandId,
+          threadId: command.threadId,
+          messageId: command.wake.messageId,
+          text: command.wake.text,
+          notification: command.wake.notification,
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: "agent",
+          creationSource: "server",
+        },
+        events,
+        effects,
+      );
+    },
+  );
+
   /**
    * Closes the link cards still waiting for the user. Their agent stopped
    * waiting long ago, so nobody is woken: stopping or archiving the thread
@@ -14470,6 +14640,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "link_request.record":
         yield* dispatchLinkRequestRecord(command, events, effects);
+        break;
+      case "terminal_command.record":
+        yield* dispatchTerminalCommandRecord(command, events, effects);
         break;
       default:
         return yield* dispatchUnsupported(command);

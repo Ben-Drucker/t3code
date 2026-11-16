@@ -16,7 +16,7 @@ it("drops JSON noise, merges tagged unions, and keeps null where it is required"
         Schema.NullOr(
           Schema.Union([
             Schema.Struct({ kind: Schema.Literal("url"), url: Schema.String }),
-            Schema.Struct({ kind: Schema.Literal("number"), number: Schema.Int }),
+            Schema.Struct({ kind: Schema.Literals(["number", "count"]), number: Schema.Int }),
           ]),
         ),
       ),
@@ -33,7 +33,7 @@ it("drops JSON noise, merges tagged unions, and keeps null where it is required"
       target: {
         type: "object",
         properties: {
-          kind: { type: "string", enum: ["url", "number"] },
+          kind: { type: "string", enum: ["url", "number", "count"] },
           url: { type: "string" },
           number: { type: "integer" },
         },

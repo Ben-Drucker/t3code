@@ -62,9 +62,9 @@ const ANTIGRAVITY_PROVIDER = ProviderDriverKind.make("antigravity");
 
 const ANTIGRAVITY_ACP_SESSION_INSTRUCTIONS = `${PULL_REQUEST_LINKING_INSTRUCTIONS}
 
-Background command behavior in ACP:
-- Backgrounded \`run_command\` tasks do NOT deliver reactive wakeups after you end a turn in ACP.
-- Prefer \`WaitMsBeforeAsync: 10000\` for \`run_command\` calls whose output you need, and if a command backgrounds while you still need its result, check/wait on it with \`manage_task\` (\`status\`) before ending your turn instead of ending your turn to wait for a notification.`;
+Terminal execution in T3 Code:
+- Built-in \`run_command\` is disabled in T3 Code; always use \`t3_terminal_run\` instead.
+- \`t3_terminal_run\` modes: \`"foreground"\` (default; waits up to 60s and moves to background if still running), \`"background"\` (runs asynchronously and wakes this thread on exit), and \`"background_with_timeout"\` (same as background with \`timeoutSeconds\`).`;
 
 const AntigravityProviderCapabilitiesV2 = {
   ...AcpProviderCapabilitiesV2,

@@ -21,10 +21,19 @@ const SAFE_INTEGER_BOUNDS: Record<string, number> = {
   minimum: Number.MIN_SAFE_INTEGER,
 };
 
-const tagOf = (branch: JsonObject, key: string): Json => {
+const isTagLiteral = (value: Json): value is string | number | boolean =>
+  typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+
+const tagValuesOf = (
+  branch: JsonObject,
+  key: string,
+): ReadonlyArray<string | number | boolean> | undefined => {
   const property = Predicate.isObject(branch.properties) ? branch.properties[key] : undefined;
-  return Predicate.isObject(property) && Array.isArray(property.enum) && property.enum.length === 1
-    ? property.enum[0]
+  return Predicate.isObject(property) &&
+    Array.isArray(property.enum) &&
+    property.enum.length > 0 &&
+    property.enum.every(isTagLiteral)
+    ? property.enum
     : undefined;
 };
 
@@ -39,12 +48,26 @@ const mergeTaggedObjects = (branches: ReadonlyArray<Json>): JsonObject | undefin
   );
   if (objects.length !== branches.length) return undefined;
   const tag = Object.keys(objects[0]!.properties).find((key) => {
-    const values = objects.map((object) => tagOf(object, key));
-    return values.every((value) => value !== undefined) && new Set(values).size === values.length;
+    const groups = objects.map((object) => tagValuesOf(object, key));
+    if (groups.some((values) => values === undefined)) return false;
+    const values = groups.flat() as Array<string | number | boolean>;
+    return new Set(values).size === values.length;
   });
   if (tag === undefined) return undefined;
+  const tagTypes = new Set(
+    objects.map((object) => {
+      const property = object.properties[tag];
+      return Predicate.isObject(property) && typeof property.type === "string"
+        ? property.type
+        : undefined;
+    }),
+  );
+  const tagType = tagTypes.size === 1 ? [...tagTypes][0] : undefined;
   const properties: JsonObject = {
-    [tag]: { type: "string", enum: objects.map((object) => tagOf(object, tag)) },
+    [tag]: {
+      ...(tagType === undefined ? {} : { type: tagType }),
+      enum: objects.flatMap((object) => tagValuesOf(object, tag)!),
+    },
   };
   for (const object of objects) {
     for (const [name, property] of Object.entries(object.properties)) {

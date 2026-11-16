@@ -23,6 +23,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as Tracer from "effect/Tracer";
@@ -41,6 +42,7 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import * as TerminalCommandService from "../terminal/TerminalCommandService.ts";
 
 import * as DeviceService from "../device/DeviceService.ts";
 import * as PullRequestReviewGuideService from "../pullRequest/PullRequestReviewGuideService.ts";
@@ -1728,4 +1730,76 @@ it.effect("lists optional tools to a deferring client only after tool_search loa
       expect(yield* other.listed).toEqual(["delegate_task", "preview_open", "schedule_task"]);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("lists and permits t3_terminal_run only for callers with the terminal capability", () =>
+  Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    const listFor = (capabilities: ReadonlyArray<McpInvocationContext.McpCapability>) =>
+      Effect.sync(() =>
+        server.tools
+          .filter(({ tool }) => tool.name === "t3_terminal_run")
+          .filter(() => McpInvocationContext.hiddenWithoutTerminalCapability())
+          .map((entry) => entry.tool.name),
+      ).pipe(
+        Effect.provideService(McpInvocationContext.McpInvocationContext, {
+          ...invocation,
+          capabilities: new Set(capabilities),
+        }),
+      );
+
+    expect(yield* listFor(["orchestration", "terminal"])).toEqual(["t3_terminal_run"]);
+    expect(yield* listFor(["orchestration"])).toEqual([]);
+
+    const allowed = yield* server
+      .callTool({ name: "t3_terminal_run", arguments: { command: "echo hi" } })
+      .pipe(
+        Effect.provideService(McpInvocationContext.McpInvocationContext, {
+          ...invocation,
+          capabilities: new Set<McpInvocationContext.McpCapability>(["orchestration", "terminal"]),
+        }),
+        Effect.provideService(McpSchema.McpServerClient, client),
+      );
+    expect(allowed.isError).not.toBe(true);
+    expect(allowed.structuredContent).toMatchObject({
+      mode: "foreground",
+      status: "completed",
+      exitCode: 0,
+      output: "hi\n",
+    });
+
+    const denied = yield* server
+      .callTool({ name: "t3_terminal_run", arguments: { command: "echo hi" } })
+      .pipe(
+        Effect.provideService(McpInvocationContext.McpInvocationContext, {
+          ...invocation,
+          capabilities: new Set<McpInvocationContext.McpCapability>(["orchestration"]),
+        }),
+        Effect.provideService(McpSchema.McpServerClient, client),
+        Effect.result,
+      );
+    expect(Result.isFailure(denied)).toBe(true);
+    if (Result.isFailure(denied)) {
+      expect(String(denied.failure)).toContain("t3_terminal_run");
+    }
+  }).pipe(
+    Effect.provide(
+      McpHttpServer.layerTerminalToolkit.pipe(
+        Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
+        Layer.provide(McpToolAccessTestkit.liveThreadsLayer),
+        Layer.provide(
+          Layer.mock(TerminalCommandService.TerminalCommandService)({
+            run: () =>
+              Effect.succeed({
+                mode: "foreground" as const,
+                status: "completed" as const,
+                exitCode: 0,
+                output: "hi\n",
+              }),
+            interruptThread: () => Effect.void,
+          }),
+        ),
+      ),
+    ),
+  ),
 );

@@ -4,6 +4,7 @@ import {
   T3_CODE_DEVICE_TOOL_INSTRUCTIONS,
   T3_CODE_DEVICE_TOOL_INSTRUCTIONS_WITH_TOOL_SEARCH,
   T3_CODE_ORCHESTRATION_INSTRUCTIONS,
+  T3_CODE_TERMINAL_TOOL_INSTRUCTIONS,
   t3AcpPromptWithInstructions,
   t3OrchestrationPrompt,
   t3OrchestrationSystemPrompt,
@@ -81,5 +82,16 @@ describe("T3 device instructions", () => {
       "Again.",
     );
     assert.notInclude(t3AcpPromptWithInstructions({ prompt: "Hi.", state }), "## T3 Code devices");
+
+    const withTerminal = t3AcpPromptWithInstructions({
+      prompt: "Run pwd",
+      state: { ...state, hasTerminalTools: true },
+      previousState: state,
+    });
+    assert.include(withTerminal, T3_CODE_TERMINAL_TOOL_INSTRUCTIONS);
+    assert.notInclude(
+      t3AcpPromptWithInstructions({ prompt: "Run pwd", state }),
+      "## T3 Code terminal",
+    );
   });
 });
