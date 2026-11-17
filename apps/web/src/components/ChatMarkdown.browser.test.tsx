@@ -674,7 +674,7 @@ describe("ChatMarkdown headings", () => {
 });
 
 describe("ChatMarkdown inline code selection", () => {
-  it("selects only a word on double-click in inline and fenced code", async () => {
+  it("selects the whole span on double-click in inline code and only a word in fenced code", async () => {
     setup();
     await using screen = await renderText(
       "Run `migration-gate --dry-run` first.\n\n```txt\nfenced-block word\n```",
@@ -682,7 +682,7 @@ describe("ChatMarkdown inline code selection", () => {
     await userEvent.dblClick(screen.getByText("migration-gate --dry-run"), {
       position: { x: 12, y: 8 },
     });
-    expect(window.getSelection()?.toString()).toBe("migration");
+    expect(window.getSelection()?.toString()).toBe("migration-gate --dry-run");
 
     window.getSelection()?.removeAllRanges();
     const fenced = screen.container.querySelector("pre code")!;
