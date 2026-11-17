@@ -22,6 +22,14 @@ it.each(["file", "directory"] as const)(
     const submitComposer = vi.fn();
     const handler = composerCommandKeyHandler({
       keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
+      getShortcutContext: () => ({
+        terminalFocus: false,
+        terminalOpen: false,
+        previewFocus: false,
+        previewOpen: false,
+        isWeb: true,
+        isDesktop: false,
+      }),
       sendShortcut: "enter",
       routeKind: "server",
       phase: "ready",
@@ -47,6 +55,8 @@ it.each(["file", "directory"] as const)(
       composerMenuItemsRef: { current: [{ ...item, id: "first" }, item] },
       activeComposerMenuItemRef: { current: item },
       setComposerDraftPrompt: vi.fn(),
+      setComposerDraftThreadContexts: vi.fn(),
+      setComposerDraftEnvironmentContexts: vi.fn(),
       setComposerCursor: vi.fn(),
       setComposerTrigger: vi.fn(),
       setComposerHighlightedItemId: vi.fn(),

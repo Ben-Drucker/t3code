@@ -7,8 +7,12 @@ import {
   normalizeDevinSessionUpdate,
   normalizeDevinToolCall,
   extractDevinSubagentUpdate,
+  devinAnswerablePermissionOptions,
 } from "./devinAcp.ts";
 import { extractDroidElicitationForm } from "./droidAcp.ts";
+import { makeKimiPromptOutcomeWatch } from "./kimiAcp.ts";
+import { extractOmpElicitationForm } from "./ompAcp.ts";
+import { extractOpenCodeElicitationForm } from "./opencodeAcp.ts";
 import {
   KIMI_DEFAULT_RESERVED_TOKENS,
   kimiChosenLimit,
@@ -24,6 +28,7 @@ import {
   isCopilotLostSessionError,
   makeCopilotSubagentRouting,
 } from "./copilotAcp.ts";
+import { prefersHttpMcpTransport } from "./mcpTransport.ts";
 import {
   defaultInstanceIdForDriver,
   ProviderDriverKind,
@@ -208,11 +213,25 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
   const startupKey =
     options.settings.source === "local" ? `local:${options.instanceId}` : registryAgentId;
   const isDevin = registryAgentId === "devin";
+  const isOmp =
+    options.settings.source === "local" &&
+    /^omp(\.exe|\.cmd)?$/i.test(options.settings.commandPath.split(/[\\/]/).pop() ?? "");
+  const isOpenCode =
+    registryAgentId === "opencode" ||
+    registryAgentId === "opencode-v2" ||
+    (options.settings.source === "local" &&
+      /^opencode(?:-v2)?(\.exe|\.cmd)?$/i.test(
+        options.settings.commandPath.split(/[\\/]/).pop() ?? "",
+      ));
   // Local installs launch the `copilot` binary directly with no registry id.
   const isCopilot =
     registryAgentId === "github-copilot-cli" ||
     (options.settings.source === "local" &&
       /^copilot(\.exe|\.cmd)?$/i.test(options.settings.commandPath.split(/[\\/]/).pop() ?? ""));
+  const isKimi =
+    registryAgentId === "kimi-code" ||
+    (options.settings.source === "local" &&
+      /^kimi(\.exe|\.cmd)?$/i.test(options.settings.commandPath.split(/[\\/]/).pop() ?? ""));
   const isClaude =
     registryAgentId === "claude-acp" ||
     (options.settings.source === "local" &&
@@ -229,6 +248,9 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
         },
       }
     : options;
+  const watchKimiPromptOutcome = isKimi
+    ? yield* makeKimiPromptOutcomeWatch(options.environment.KIMI_CODE_HOME)
+    : undefined;
   const copilotRouting = isCopilot ? makeCopilotSubagentRouting() : undefined;
   // Fork: Kimi's ACP server never reports context usage, so read it from the CLI's session files.
   const fileSystem = yield* FileSystem.FileSystem;
@@ -259,6 +281,11 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
         );
       })
     : undefined;
+  // Copilot CLI 1.0.105 rejects stdio MCP servers from the client, and Command Code cannot
+  // start the stdio bridge on Windows (it spawns MCP commands through cmd.exe, which splits
+  // the unquoted "T3 Code (Beta).exe" path). Both take T3's MCP endpoint over ACP HTTP.
+  const useHttpMcpServers =
+    copilotRouting !== undefined || prefersHttpMcpTransport(options.settings);
   const flavor: AcpAdapterV2Flavor = {
     driver: ACP_REGISTRY_PROVIDER,
     unknownSlashCommandsAsText: true,
@@ -278,12 +305,18 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
             availableModeIds?.includes("default") ? "default" : undefined,
         }
       : {}),
+    compactViaAdvertisedCommand: true,
     promptFailure: (cause) => acpRegistryPromptFailure(registryAgentId, cause),
     ...(registryAgentId === "factory-droid"
       ? { extractElicitationForm: extractDroidElicitationForm }
-      : {}),
+      : isOmp
+        ? { extractElicitationForm: extractOmpElicitationForm }
+        : isOpenCode
+          ? { extractElicitationForm: extractOpenCodeElicitationForm }
+          : {}),
     // glm-acp-agent is the one agent whose per-turn usage a live probe has verified.
     ...(registryAgentId === "glm-acp-agent" ? { reportsPerTurnPromptUsage: true } : {}),
+    ...(watchKimiPromptOutcome === undefined ? {} : { watchPromptOutcome: watchKimiPromptOutcome }),
     ...(registryAgentId === "mistral-vibe"
       ? { registerExtensions: registerMistralVibeAcpExtensions }
       : {}),
@@ -317,20 +350,24 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
           normalizeSessionUpdate: normalizeDevinSessionUpdate,
           normalizeToolCall: normalizeDevinToolCall,
           extractSubagentUpdate: extractDevinSubagentUpdate,
+          answerablePermissionOptions: devinAnswerablePermissionOptions,
         }
       : {}),
     ...(copilotRouting === undefined
       ? {}
       : {
           clientCapabilitiesMeta: copilotClientCapabilitiesMeta,
-          // Copilot CLI 1.0.105 rejects stdio MCP servers from the client.
-          mcpOverHttp: true,
           deferMcpTools: true,
           registerExtensions: copilotRouting.registerExtensions,
           normalizeSessionUpdate: copilotRouting.normalizeSessionUpdate,
           extractSubagentUpdate: extractCopilotSubagentUpdate,
           restartRuntimeAfterPromptError: isCopilotLostSessionError,
+          // A finished background agent wakes the root after assistant.idle settled the run.
+          enablePostSettleContinuation: true,
+          // session/new reports a built-in default, not the model Copilot runs (github/copilot-cli#5363).
+          alwaysSetModel: true,
         }),
+    mcpOverHttp: useHttpMcpServers,
     makeRuntime:
       options.makeRuntime ??
       makeAcpRegistryRuntime(runtimeOptions, catalog, kimiLaunchEnvironmentFor),
@@ -342,6 +379,28 @@ export const makeAcpRegistryAdapterV2 = Effect.fn("makeAcpRegistryAdapterV2")(fu
               options.instanceId,
               normalizeAcpRegistryCommands(commands),
             ),
+          // A new Copilot session starts at its own effort, not the one the composer shows.
+          ...(isCopilot
+            ? {
+                unsetOptionDefaults: runtimeCoordinator
+                  .getLiveConfiguration(options.instanceId)
+                  .pipe(
+                    Effect.map(
+                      Option.match({
+                        onNone: () => [],
+                        onSome: ({ configOptions }) =>
+                          configOptions.flatMap((descriptor) =>
+                            descriptor.type === "select" &&
+                            descriptor.role === "reasoning" &&
+                            descriptor.currentValue !== undefined
+                              ? [{ id: descriptor.id, value: descriptor.currentValue }]
+                              : [],
+                          ),
+                      }),
+                    ),
+                  ),
+              }
+            : {}),
           onSessionConfigurationUpdate: (configOptions, modeState, modelState) =>
             runtimeCoordinator.publishLiveConfiguration(
               options.instanceId,

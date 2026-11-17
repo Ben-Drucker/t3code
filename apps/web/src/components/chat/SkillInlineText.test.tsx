@@ -98,7 +98,7 @@ const renderMarkdown = createMarkdownRenderer({
 function renderHtml(markdown: string): string {
   return renderToStaticMarkup(
     <AgentConfigCatalogContext value={catalog}>
-      {renderMarkdown(markdown, false)}
+      {renderMarkdown(markdown)}
     </AgentConfigCatalogContext>,
   );
 }

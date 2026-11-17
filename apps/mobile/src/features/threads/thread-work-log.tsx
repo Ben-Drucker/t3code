@@ -1015,7 +1015,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
       ? shownItem.exitCode
       : null;
   const fullDetail =
-    expanded && !reasoning && !call
+    expanded && !reasoning && !call && !row.workEntry.questionAnswer
       ? fetchedItem && !isRead
         ? formatItemFullDetail(row.projectedItem, fetchedItem)
         : row.getFullDetail()
@@ -1522,8 +1522,10 @@ export function ThreadThinkingRow(props: {
   readonly rowSizing: ReturnType<typeof deriveThreadWorkLogSizing>;
   readonly iconSubtleColor: ColorValue;
   readonly label?: string;
+  /** Replaces "Thinking" while the provider has not started a turn. */
+  readonly providerStartingLabel?: string | undefined;
 }) {
-  const label = props.label ?? "Thinking";
+  const label = props.providerStartingLabel ?? props.label ?? "Thinking";
   return (
     <View
       accessible

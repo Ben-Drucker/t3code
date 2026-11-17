@@ -18,7 +18,7 @@ import {
 } from "@t3tools/shared/model";
 
 import type { DraftId } from "../../composerDraftStore";
-import { getProviderModelCapabilities } from "../../providerModels";
+import { getProviderModelCapabilities, keepsUnavailableModelOptions } from "../../providerModels";
 import {
   getReasoningTraitStep,
   type PromptUltrathink,
@@ -104,7 +104,7 @@ export function getComposerProviderState(input: ComposerProviderStateInput): Com
     promptInjectionState = "none",
     includePlanAgent,
   } = input;
-  if (provider === "opencode") {
+  if (keepsUnavailableModelOptions(provider, model)) {
     const normalizedModel = normalizeModelSlug(model, provider);
     const modelIsInCatalog = models.some((candidate) => candidate.slug === normalizedModel);
     if (!modelIsInCatalog) {

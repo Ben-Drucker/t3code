@@ -485,6 +485,7 @@ export const AntigravityDriver: ProviderDriver<
       Effect.provideService(HttpClient.HttpClient, httpClient),
     );
     const provider = yield* makeAntigravityProvider(settings, {
+      environment: processEnvironment,
       stampIdentity: classifyModels,
       capabilityCacheKey: installation.resolve(settings.binaryPath, processEnvironment).pipe(
         Effect.flatMap((executable) =>
@@ -522,6 +523,11 @@ export const AntigravityDriver: ProviderDriver<
       makeRuntime,
       withProcess: authFlow.withProcess,
       defaultModel,
+      supportsNativeGoals: provider.snapshot.getSnapshot.pipe(
+        Effect.map(
+          (snapshot) => snapshot.slashCommands?.some((command) => command.name === "goal") === true,
+        ),
+      ),
       profileDirectory,
       pollContextUsage: ({ sessionId, generationCursor }) =>
         readAntigravityContextUsage(

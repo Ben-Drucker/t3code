@@ -129,7 +129,10 @@ export class ElectronWindow extends Context.Service<
     readonly sendAll: (channel: string, ...args: readonly unknown[]) => Effect.Effect<void>;
     readonly destroyAll: Effect.Effect<void>;
     readonly syncAllAppearance: <E, R>(
-      sync: (window: Electron.BrowserWindow) => Effect.Effect<void, E, R>,
+      sync: (
+        window: Electron.BrowserWindow,
+        appearance: { readonly titleBarOverlay: boolean },
+      ) => Effect.Effect<void, E, R>,
     ) => Effect.Effect<void, E, R>;
   }
 >()("@t3tools/desktop/electron/ElectronWindow") {}
@@ -150,6 +153,7 @@ export const make = Effect.gen(function* () {
   const mainWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
   const auxiliaryWindows = new WeakSet<Electron.BrowserWindow>();
   const trustedAuxiliaryWindows = new Set<Electron.BrowserWindow>();
+  const titleBarOverlayWindows = new WeakSet<Electron.BrowserWindow>();
 
   const listWindows = Effect.try({
     try: () => Electron.BrowserWindow.getAllWindows(),
@@ -261,6 +265,9 @@ export const make = Effect.gen(function* () {
             window.once("closed", () => {
               trustedAuxiliaryWindows.delete(window);
             });
+          }
+          if (options.titleBarOverlay !== undefined && options.titleBarOverlay !== false) {
+            titleBarOverlayWindows.add(window);
           }
           return window;
         },
@@ -420,14 +427,17 @@ export const make = Effect.gen(function* () {
       }
     }),
     syncAllAppearance: Effect.fn("desktop.electron.window.syncAllAppearance")(function* <E, R>(
-      sync: (window: Electron.BrowserWindow) => Effect.Effect<void, E, R>,
+      sync: (
+        window: Electron.BrowserWindow,
+        appearance: { readonly titleBarOverlay: boolean },
+      ) => Effect.Effect<void, E, R>,
     ) {
       const windows = yield* listWindows;
       for (const window of windows) {
         if (yield* isWindowDestroyed(window)) {
           continue;
         }
-        yield* sync(window);
+        yield* sync(window, { titleBarOverlay: titleBarOverlayWindows.has(window) });
       }
     }),
   });

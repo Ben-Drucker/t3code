@@ -28,7 +28,7 @@ import {
   WrenchIcon,
   type LucideIcon,
 } from "lucide-react";
-import { Fragment, memo, useLayoutEffect, useRef, type KeyboardEvent } from "react";
+import { Fragment, memo, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
 import { cn } from "~/lib/utils";
@@ -37,6 +37,7 @@ import { Command, CommandGroup, CommandGroupLabel, CommandItem, CommandList } fr
 import { Collapsible, CollapsiblePanel } from "../ui/collapsible";
 import { Input } from "../ui/input";
 import { AgentToolSourceIcon } from "./AgentConfigChip";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
@@ -351,6 +352,15 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
     props.triggerKind === "slash-command" && props.item.type === "skill" ? props.item.skill : null;
   const pullRequestPresentation =
     props.item.type === "pull-request" ? resolvePullRequestState(props.item.pullRequest) : null;
+  const descriptionRef = useRef<HTMLSpanElement>(null);
+  const [descriptionTruncated, setDescriptionTruncated] = useState(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the rendered description so only cut-off text gets a tooltip
+  useLayoutEffect(() => {
+    const description = descriptionRef.current;
+    setDescriptionTruncated(
+      props.isActive && !!description && description.scrollWidth > description.clientWidth,
+    );
+  }, [props.isActive]);
 
   return (
     <CommandItem
@@ -448,11 +458,20 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
             props.item.label
           )}
         </span>
-        {props.item.description ? (
-          <span className="min-w-0 flex-1 truncate text-left text-secondary-label text-xs">
+        <Tooltip open={descriptionTruncated}>
+          <TooltipTrigger
+            tabIndex={-1}
+            render={
+              <span
+                ref={descriptionRef}
+                className="min-w-0 flex-1 truncate text-left text-secondary-label text-xs"
+              />
+            }
+          >
             {props.item.description}
-          </span>
-        ) : null}
+          </TooltipTrigger>
+          <TooltipPopup>{props.item.description}</TooltipPopup>
+        </Tooltip>
         {skillSourceKind ? (
           <SkillSourceBadge
             kind={skillSourceKind}

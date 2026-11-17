@@ -15,6 +15,7 @@ import {
   DesktopPreviewDockRectInputSchema,
   DesktopPreviewDockStatusSchema,
   DesktopPreviewSetShownInputSchema,
+  DesktopPreviewSetCaptureDrawnInputSchema,
   DesktopPreviewSetColorSchemeInputSchema,
   DesktopPreviewSetZoomFactorInputSchema,
   BrowserImportResult,
@@ -171,6 +172,11 @@ const refresh = tabMethod(
   "desktop.ipc.preview.refresh",
   (manager, tabId) => manager.refresh(tabId),
 );
+const stopLoading = tabMethod(
+  IpcChannels.PREVIEW_STOP_LOADING_CHANNEL,
+  "desktop.ipc.preview.stopLoading",
+  (manager, tabId) => manager.stopLoading(tabId),
+);
 const zoomIn = tabMethod(
   IpcChannels.PREVIEW_ZOOM_IN_CHANNEL,
   "desktop.ipc.preview.zoomIn",
@@ -257,6 +263,15 @@ const requestDockPermission = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.preview.requestDockPermission")(function* () {
     const dock = yield* WindowDock.WindowDock;
     return yield* dock.requestPermission;
+  }),
+});
+const setCaptureDrawn = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_SET_CAPTURE_DRAWN_CHANNEL,
+  payload: DesktopPreviewSetCaptureDrawnInputSchema,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.preview.setCaptureDrawn")(function* ({ tabId, drawn }) {
+    const manager = yield* PreviewManager.PreviewManager;
+    yield* manager.setCaptureDrawn(tabId, drawn);
   }),
 });
 const openDevTools = tabMethod(
@@ -502,6 +517,7 @@ export const methods = [
   goBack,
   goForward,
   refresh,
+  stopLoading,
   zoomIn,
   zoomOut,
   resetZoom,
@@ -515,6 +531,7 @@ export const methods = [
   setDockRect,
   getDockStatus,
   requestDockPermission,
+  setCaptureDrawn,
   openDevTools,
   clearCookies,
   clearCache,

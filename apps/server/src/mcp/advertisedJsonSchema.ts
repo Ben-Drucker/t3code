@@ -24,6 +24,10 @@ const SAFE_INTEGER_BOUNDS: Record<string, number> = {
 const isTagLiteral = (value: Json): value is string | number | boolean =>
   typeof value === "string" || typeof value === "number" || typeof value === "boolean";
 
+// Gemini rejects function declarations whose enums hold anything but strings.
+const isNonStringEnum = (key: string, value: Json) =>
+  key === "enum" && Array.isArray(value) && value.some((item) => typeof item !== "string");
+
 const tagValuesOf = (
   branch: JsonObject,
   key: string,
@@ -98,6 +102,7 @@ const compact = (schema: Json, optional: boolean): Json => {
   for (const [key, value] of Object.entries(schema)) {
     if (key === "additionalProperties" && value === true) continue;
     if (SAFE_INTEGER_BOUNDS[key] === value) continue;
+    if (isNonStringEnum(key, value)) continue;
     result[key] =
       key === "properties" && Predicate.isObject(value)
         ? Object.fromEntries(

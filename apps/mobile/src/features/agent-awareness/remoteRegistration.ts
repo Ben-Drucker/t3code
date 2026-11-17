@@ -95,6 +95,9 @@ const registeredActivityPushTokens = new Map<string, number>();
 // repaint, so a slow older response never overwrites newer rows.
 let widgetSnapshotReads = 0;
 let lastDeviceRegisteredAt: number | null = null;
+let lastNativePushToken: string | null = null;
+let registeredWithPushToken = false;
+let nativePushTokenRotations = 0;
 let pushTokenSubscription: { remove: () => void } | null = null;
 let appStateSubscription: { remove: () => void } | null = null;
 
@@ -102,11 +105,15 @@ export type AgentAwarenessRegistrationStatus = "unknown" | "pending" | "register
 let registrationStatus: AgentAwarenessRegistrationStatus = "unknown";
 const registrationStatusListeners = new Set<() => void>();
 
-function setRegistrationStatus(next: AgentAwarenessRegistrationStatus): void {
-  if (registrationStatus === next) {
+function setRegistrationStatus(
+  next: AgentAwarenessRegistrationStatus,
+  withPushToken = registeredWithPushToken,
+): void {
+  if (registrationStatus === next && registeredWithPushToken === withPushToken) {
     return;
   }
   registrationStatus = next;
+  registeredWithPushToken = withPushToken;
   for (const listener of registrationStatusListeners) {
     listener();
   }
@@ -114,6 +121,12 @@ function setRegistrationStatus(next: AgentAwarenessRegistrationStatus): void {
 
 export function getAgentAwarenessRegistrationStatus(): AgentAwarenessRegistrationStatus {
   return registrationStatus;
+}
+
+// Live Activities use their own push tokens, so device registration alone does not mean
+// the relay can deliver notifications.
+export function agentAwarenessNotificationsReady(): boolean {
+  return registrationStatus === "registered" && registeredWithPushToken;
 }
 
 export function subscribeAgentAwarenessRegistrationStatus(listener: () => void): () => void {
@@ -291,12 +304,15 @@ const nativePushTokenRegistration = Effect.fn("remoteRegistration.nativePushToke
           )
         : true);
     if (observedPushToken) {
+      lastNativePushToken = observedPushToken;
+      nativePushTokenRotations++;
       return {
         notificationsEnabled: alertsEnabled,
         pushToken: observedPushToken,
         notificationPermissionGranted: permissions.granted,
       };
     }
+    const rotationsBeforeLookup = nativePushTokenRotations;
     const token = yield* Effect.tryPromise({
       try: () => Notifications.getDevicePushTokenAsync(),
       catch: (cause) =>
@@ -312,12 +328,18 @@ const nativePushTokenRegistration = Effect.fn("remoteRegistration.nativePushToke
       ),
       Effect.orElseSucceed(() => null),
     );
-    const pushToken =
+    const lookedUpPushToken =
       token?.type === Platform.OS && typeof token.data === "string" && token.data.trim().length > 0
         ? token.data.trim()
         : null;
+    // A rotation observed while this lookup ran is newer than what the lookup returned.
+    if (lookedUpPushToken && rotationsBeforeLookup === nativePushTokenRotations) {
+      lastNativePushToken = lookedUpPushToken;
+    }
+    const pushToken = lastNativePushToken;
+    // A missing token must not disable notifications the relay accepted.
     return {
-      notificationsEnabled: alertsEnabled && pushToken !== null,
+      notificationsEnabled: alertsEnabled,
       pushToken,
       notificationPermissionGranted: permissions.granted,
     };
@@ -403,7 +425,7 @@ const registerDeviceWithRelay = Effect.fn("remoteRegistration.registerDeviceWith
     persisted.signature === signature &&
     !needsRefresh
   ) {
-    setRegistrationStatus("registered");
+    setRegistrationStatus("registered", Boolean(payload.pushToken));
     return;
   }
 
@@ -419,7 +441,7 @@ const registerDeviceWithRelay = Effect.fn("remoteRegistration.registerDeviceWith
     return;
   }
   lastDeviceRegisteredAt = yield* Clock.currentTimeMillis;
-  setRegistrationStatus("registered");
+  setRegistrationStatus("registered", Boolean(payload.pushToken));
   yield* Effect.promise(() =>
     saveAgentAwarenessRegistrationRecord({
       identity,
@@ -854,6 +876,9 @@ export function __resetAgentAwarenessRemoteRegistrationForTest(): void {
   pendingDeviceRegistration = null;
   registrationStatus = "unknown";
   lastDeviceRegisteredAt = null;
+  registeredWithPushToken = false;
+  lastNativePushToken = null;
+  nativePushTokenRotations = 0;
   registrationStatusListeners.clear();
   registeredActivityPushTokens.clear();
   activityPushTokenLocks.clear();

@@ -68,5 +68,5 @@ it.effect("answers only trusted windows' top frames", () =>
       appSubframe: ["rejected", undefined],
       previewGuest: ["rejected", undefined],
     });
-  }).pipe(Effect.scoped),
+  }),
 );

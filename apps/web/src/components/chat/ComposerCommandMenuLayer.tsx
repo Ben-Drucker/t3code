@@ -23,9 +23,11 @@ export function ComposerCommandMenuLayer(props: {
   onReadCaretPosition?: (() => { left: number; top: number } | null) | undefined;
   compact?: boolean;
   children: ReactNode;
+  /** Keeps the 96px floor past the window top: the stash then loses its header, not its entries. */
+  canOverflowTop?: boolean;
 }) {
   const [position, setPosition] = useState<ComposerCommandMenuPosition | null>(null);
-  const { anchor, compact, onReadCaretPosition } = props;
+  const { anchor, compact, onReadCaretPosition, canOverflowTop = false } = props;
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- positions the menu from the composer's DOM rect, tracking window resize, scroll and ancestor resizes
   useLayoutEffect(() => {
@@ -74,10 +76,15 @@ export function ComposerCommandMenuLayer(props: {
         return;
       }
       const composerOverlap = rootFontSizePx + 1;
+      const spaceAbove = rect.top + composerOverlap;
+      const bottom = window.innerHeight - spaceAbove;
+      const floorHeight = Math.max(96, spaceAbove - 24);
+      const maxHeight = canOverflowTop ? floorHeight : Math.min(floorHeight, window.innerHeight);
       const next = {
-        bottom: window.innerHeight - rect.top - composerOverlap,
+        // With too little room above, the menu slides down over the composer instead of past the window top.
+        bottom: canOverflowTop ? bottom : Math.min(bottom, window.innerHeight - maxHeight),
         left: rect.left + drawerInset,
-        maxHeight: Math.max(96, rect.top - 24 + composerOverlap),
+        maxHeight,
         width,
       };
       setPosition((current) =>
@@ -100,9 +107,9 @@ export function ComposerCommandMenuLayer(props: {
       window.removeEventListener("resize", updatePosition);
       window.removeEventListener("scroll", updatePosition, true);
     };
-  }, [anchor, compact, onReadCaretPosition]);
+  }, [anchor, compact, onReadCaretPosition, canOverflowTop]);
 
-  if (!props.anchor || !position) return null;
+  if (!anchor || !position) return null;
 
   return createPortal(
     <div

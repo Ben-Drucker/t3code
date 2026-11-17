@@ -254,12 +254,14 @@ describe("composer image thumbnails", () => {
     const { canvasSizes } = stubCanvasPipeline(() => 3);
     const source = makeFile(3);
     const compressed = makeFile(2, "image/webp");
-    const sourceThumbnail = await createComposerImageThumbnail(source);
+    // Compression can finish before the placeholder's thumbnail does.
+    const pendingThumbnail = createComposerImageThumbnail(source);
+
+    await inheritComposerImageThumbnail(source, compressed);
+
+    const sourceThumbnail = await pendingThumbnail;
     expect(sourceThumbnail).toMatch(/^data:image\/png;base64,/);
     expect(canvasSizes[0]).toEqual({ width: 256, height: 192 });
-
-    inheritComposerImageThumbnail(source, compressed);
-
     expect(readComposerImageThumbnail(compressed)).toBe(sourceThumbnail);
     expect(await createComposerImageThumbnail(compressed)).toBe(sourceThumbnail);
     expect(createImageBitmap).toHaveBeenCalledTimes(1);
