@@ -196,6 +196,7 @@ vi.mock("../composerDraftStore", () => {
       testState.hasUserText(draft),
     markPromotedDraftThreadByRef: vi.fn(),
     useComposerDraftStore,
+    withStickyModelOptions: (selection: unknown) => selection,
   };
 });
 vi.mock("../lib/chatThreadActions", async (importOriginal) => ({

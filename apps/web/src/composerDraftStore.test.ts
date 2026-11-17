@@ -92,6 +92,7 @@ import {
   composerFileNeedsReattach,
   partializeComposerDraftStoreState,
   useComposerDraftStore,
+  withStickyModelOptions,
   DraftId,
 } from "./composerDraftStore";
 import { waitForDraftHeroTransition } from "./components/chat/draftHeroTransition";
@@ -1929,6 +1930,31 @@ describe("composerDraftStore per-model sticky options", () => {
     expect(mergedState.stickyOptionsByModelByProvider).toEqual({
       [CODEX_INSTANCE]: { "gpt-5.3-codex": [{ id: "reasoningEffort", value: "low" }] },
     });
+  });
+
+  it("restores per-model sticky options onto selections without explicit options", () => {
+    const store = useComposerDraftStore.getState();
+    const opencodeInstance = ProviderInstanceId.make("opencode");
+    const opencodeDriver = ProviderDriverKind.make("opencode");
+    const model = "pnnl-proxy/claude-sonnet-5-5-project--NX8768";
+    const remembered = toSelections({ contextLimit: "200000", compactBuffer: "10" });
+
+    store.setProviderModelOptions(threadRef, opencodeDriver, remembered, {
+      instanceId: opencodeInstance,
+      model,
+      persistSticky: true,
+    });
+
+    expect(withStickyModelOptions(createModelSelection(opencodeInstance, model))).toEqual(
+      createModelSelection(opencodeInstance, model, remembered),
+    );
+    expect(
+      withStickyModelOptions(
+        createModelSelection(opencodeInstance, model, toSelections({ contextLimit: "500000" })),
+      ),
+    ).toEqual(
+      createModelSelection(opencodeInstance, model, toSelections({ contextLimit: "500000" })),
+    );
   });
 });
 
