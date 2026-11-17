@@ -395,6 +395,8 @@ export interface AcpAdapterV2Flavor {
    * is not inferred from the setup result.
    */
   readonly modelOptionArrivesLate?: boolean;
+  /** The polled reading's window is the one that triggers compaction; native `usage_update` reports the model's full window. */
+  readonly preferPolledMaxTokens?: boolean;
   readonly getModelContextWindow?: (
     selection: ModelSelection,
     session: AcpSessionRuntime.AcpSessionRuntimeStartResult,
@@ -2119,6 +2121,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         const activeSessionId = yield* Ref.make<string | null>(null);
         const contextCompactionObserver = flavor.makeContextCompactionObserver?.();
         const nativeContextUsageSessions = new Set<string>();
+        const polledMaxTokensBySessionId = new Map<string, number>();
         let detectedCompactions = 0;
         const contextUsagePollPermit = yield* Semaphore.make(1);
         const lastPolledContextUsage = new WeakMap<ActiveAcpTurn, number>();
@@ -5278,9 +5281,16 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                 contextCompactionObserver !== undefined &&
                 polled &&
                 nativeContextUsageSessions.has(notification.sessionId);
-              const reportedUsage = retainNativeUsage
+              if (flavor.preferPolledMaxTokens === true && polled && stateEvent.usage.maxTokens)
+                polledMaxTokensBySessionId.set(notification.sessionId, stateEvent.usage.maxTokens);
+              const nativeOrPolledUsage = retainNativeUsage
                 ? (previousUsage ?? stateEvent.usage)
                 : stateEvent.usage;
+              const polledMaxTokens = polledMaxTokensBySessionId.get(notification.sessionId);
+              const reportedUsage =
+                polledMaxTokens === undefined
+                  ? nativeOrPolledUsage
+                  : { ...nativeOrPolledUsage, maxTokens: polledMaxTokens };
               const usage =
                 polledBreakdown === undefined
                   ? reportedUsage
@@ -5304,7 +5314,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                       sessionId: notification.sessionId,
                       modelSelection: context.input.modelSelection,
                       usedTokens: usage.usedTokens,
-                      ...(usage.maxTokens === undefined ? {} : { maxTokens: usage.maxTokens }),
+                      ...(nativeOrPolledUsage.maxTokens === undefined
+                        ? {}
+                        : { maxTokens: nativeOrPolledUsage.maxTokens }),
                     });
                 if (compaction !== undefined) {
                   const now = yield* DateTime.now;
