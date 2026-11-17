@@ -356,7 +356,7 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
           readonly messageId: MessageId;
           readonly text: string;
           readonly notification: {
-            readonly source: { readonly kind: "background_task" };
+            readonly source: { readonly kind: "command" };
             readonly outcome: "completed" | "failed";
             readonly summary: string;
           };
@@ -551,7 +551,7 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
                 output: wakeOutput,
               }),
               notification: {
-                source: { kind: "background_task" },
+                source: { kind: "command" },
                 outcome: succeeded ? "completed" : "failed",
                 summary: timedOut
                   ? `${title}: timed out after ${timeoutSeconds}s`

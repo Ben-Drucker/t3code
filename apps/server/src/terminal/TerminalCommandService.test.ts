@@ -194,6 +194,7 @@ it.live(
         assert.isDefined(wakeMessage);
         assert.include(wakeMessage!.text, "exit code 0");
         assert.include(wakeMessage!.text, "step2");
+        assert.equal(wakeMessage!.notification?.source.kind, "command");
       }).pipe(Effect.provide(makeTestLayer(workspaceRoot, 50)));
     }).pipe(Effect.provide(NodeServices.layer)),
 );
