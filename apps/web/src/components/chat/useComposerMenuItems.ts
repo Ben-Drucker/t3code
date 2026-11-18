@@ -57,7 +57,10 @@ import {
   rankPullRequestMatches,
 } from "../pullRequest/pullRequestList.logic";
 import type { ComposerCommandItem } from "./ComposerCommandMenu";
-import { buildAgentToolSections, matchesAgentModelRow } from "./agentToolMenu";
+import {
+  buildAgentToolSections,
+  matchesAgentModelRow,
+} from "@t3tools/client-runtime/agent-tool-menu";
 import { isFilesystemPathQuery } from "./composerFilesystemPath";
 import { matchComposerModelItems } from "./composerModelMentions";
 import type { ModelEsque } from "./providerIconUtils";

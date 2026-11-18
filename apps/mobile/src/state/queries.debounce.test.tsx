@@ -24,6 +24,7 @@ vi.mock("./presentation", () => ({
   }),
 }));
 vi.mock("./pull-requests", () => ({ composerPullRequests: {} }));
+vi.mock("./filesystem", () => ({ filesystemEnvironment: { browse: vi.fn() } }));
 vi.mock("./projects", () => ({
   projectEnvironment: { searchEntries: mocks.searchEntries },
 }));

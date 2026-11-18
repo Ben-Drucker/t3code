@@ -1,7 +1,4 @@
-/** An `@` query that names a place on disk rather than a fuzzy project search. */
-export function isFilesystemPathQuery(query: string): boolean {
-  return /^(?:~(?:[\\/]|$)|\/|\.{1,2}(?:[\\/]|$)|[A-Za-z]:[\\/])/u.test(query);
-}
+export { isFilesystemPathQuery } from "@t3tools/shared/composerTrigger";
 
 /** The part of a typed path that is already settled: everything up to the last separator. */
 export function filesystemPathDirectoryPrefix(query: string): string {

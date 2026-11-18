@@ -58,7 +58,7 @@ const chrome =
     : chromium.executablePath());
 const fixtureHtml = `<!doctype html><meta charset="utf-8"><title>Firefox fixture</title>
 <style>#scroller {width:200px;height:80px;overflow:auto} #scroller div {height:600px} #hover:hover {color:rgb(255,0,0)} #source,#destination {display:inline-block;width:60px;height:40px} iframe {height:100px}</style>
-<label>Name <input id="name"></label><input id="readonly" readonly><button id="send">Send</button><p id="result"></p>
+<a id="next" href="/second">Next page</a><a id="deferred-link" href="/deferred">Deferred page</a><label>Name <input id="name"></label><input id="readonly" readonly><button id="send">Send</button><p id="result"></p>
 <label><input id="check" type="checkbox">Enabled</label>
 <select id="choice"><option value="a">Alpha</option><option value="b">Beta</option></select>
 <select id="multi" multiple><option value="a">Alpha</option><option value="b">Beta</option></select>
@@ -70,6 +70,7 @@ const fixtureHtml = `<!doctype html><meta charset="utf-8"><title>Firefox fixture
 <script>window.events=[];
 for (const event of ['click','keydown','input','pointerover','pointerdown','pointerup','wheel']) document.addEventListener(event, e=>window.events.push({type:e.type,id:e.target.id,trusted:e.isTrusted}));
 document.querySelector('#send').onclick=()=>document.querySelector('#result').textContent=document.querySelector('#name').value;
+document.querySelector('#deferred-link').onclick=event=>{event.preventDefault(); const href=event.currentTarget.href; setTimeout(()=>location.href=href,500);};
 document.querySelector('#alert').onclick=()=>alert('Alert message');
 document.querySelector('#confirm').onclick=()=>document.querySelector('#result').textContent=String(confirm('Confirm message'));
 document.querySelector('#prompt').onclick=()=>document.querySelector('#result').textContent=String(prompt('Prompt message','Original'));
@@ -81,6 +82,10 @@ const harness = async () => {
   let origin = "";
   const server = NodeHttp.createServer((request, response) => {
     response.setHeader("Content-Type", "text/html");
+    if (request.url === "/deferred") {
+      response.end('<!doctype html><p id="destination">Deferred destination</p>');
+      return;
+    }
     if (request.url === "/autofill") {
       response.end(`<!doctype html><title>Autofill fixture</title><input autocomplete="username"><com-1password-uso></com-1password-uso><script>
         const input=document.querySelector('input');input.addEventListener('focus',()=>{const host=document.querySelector('com-1password-uso');if(host.dataset.banner)return;host.dataset.banner='true';host.style.cssText='display:inline;width:0';host.attachShadow({mode:'closed'}).innerHTML='<iframe style="position:fixed;left:180px;top:60px;width:420px;height:240px;border:0" src="http://localhost:${new URL(origin).port}/banner"></iframe>';});
@@ -633,7 +638,7 @@ firefoxTest(
   "attaches through Marionette alone and reports the capabilities that require BiDi",
   () =>
     withBrowser(
-      async ({ invoke, evaluate, connection }) => {
+      async ({ invoke, evaluate, connection, fixture }) => {
         expect(connection.webSocketUrl).toBeUndefined();
         expect(decodeStatus(await invoke("status")).capabilityMessage).toContain(
           "limited capabilities",
@@ -653,6 +658,17 @@ firefoxTest(
         await expect(
           invoke("navigate", { url: "http://localhost", readiness: "none" }),
         ).rejects.toMatchObject({ tag: "PreviewAutomationUnsupportedClientError" });
+        await invoke("click", { selector: "#next" });
+        await invoke("waitFor", { urlIncludes: "/second" });
+        expect(await evaluate("location.pathname")).toBe("/second");
+        await invoke("navigate", { url: fixture.origin });
+        await invoke("click", { selector: "#deferred-link" });
+        await invoke("waitFor", {
+          urlIncludes: "/deferred",
+          selector: "#destination",
+          text: "Deferred destination",
+          timeoutMs: 3000,
+        });
       },
       {
         bidi: false,

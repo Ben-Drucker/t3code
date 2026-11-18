@@ -383,19 +383,25 @@ describe("resolveNewTaskScratchOption", () => {
     ).toEqual({ environmentId: otherId, ready: true });
   });
 
-  it("keeps the selected environment when every offering environment is connected", () => {
-    expect(
-      resolveNewTaskScratchOption({
-        environments: [
-          { environmentId: otherId, connectionState: "connected" },
-          { environmentId, connectionState: "connected" },
-        ],
-        serverConfigs: new Map([
-          [environmentId, { scratchWorkspaceRoot: "/scratch" }],
-          [otherId, { scratchWorkspaceRoot: "/other-scratch" }],
-        ]),
-        selectedEnvironmentId: environmentId,
-      }),
-    ).toEqual({ environmentId, ready: true });
-  });
+  it.each([
+    { selectedEnvironmentId: environmentId, expected: environmentId },
+    { selectedEnvironmentId: null, expected: otherId },
+  ])(
+    "chooses $expected when the selected environment is $selectedEnvironmentId",
+    ({ selectedEnvironmentId, expected }) => {
+      expect(
+        resolveNewTaskScratchOption({
+          environments: [
+            { environmentId: otherId, connectionState: "connected" },
+            { environmentId, connectionState: "connected" },
+          ],
+          serverConfigs: new Map([
+            [environmentId, { scratchWorkspaceRoot: "/scratch" }],
+            [otherId, { scratchWorkspaceRoot: "/other-scratch" }],
+          ]),
+          selectedEnvironmentId,
+        }),
+      ).toEqual({ environmentId: expected, ready: true });
+    },
+  );
 });

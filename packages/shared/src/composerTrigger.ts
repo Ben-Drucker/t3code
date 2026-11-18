@@ -1,4 +1,9 @@
-export type ComposerTriggerKind = "path" | "pull-request" | "slash-command" | "skill";
+export type ComposerTriggerKind =
+  | "path"
+  | "pull-request"
+  | "slash-command"
+  | "skill"
+  | "agent-config";
 export type ComposerSlashCommand = "model" | "plan" | "default";
 
 export interface ComposerTrigger {
@@ -83,6 +88,7 @@ export function detectComposerTrigger(
   text: string,
   cursorInput: number,
   isWhitespaceChar?: (char: string) => boolean,
+  agentConfigs = false,
 ): ComposerTrigger | null {
   const cursor = clampCursor(text, cursorInput);
   const wsCheck = isWhitespaceChar ?? isWhitespace;
@@ -93,6 +99,14 @@ export function detectComposerTrigger(
   const tokenStart = tokenIdx + 1;
 
   const token = text.slice(tokenStart, cursor);
+  if (agentConfigs && token.startsWith("%") && !token.startsWith("%[")) {
+    return {
+      kind: "agent-config",
+      query: token.slice(1),
+      rangeStart: tokenStart,
+      rangeEnd: cursor,
+    };
+  }
   if (token.startsWith("/")) {
     if (isPathWord(text, tokenStart, cursor, wsCheck)) return null;
     return {
@@ -147,4 +161,9 @@ export function isClearComposerCommand(text: string): boolean {
 export function parseSideChatCommand(text: string): { prompt: string } | null {
   const match = /^\/(?:side|btw)(?:\s+([\s\S]*))?$/i.exec(text.trim());
   return match ? { prompt: match[1]?.trim() ?? "" } : null;
+}
+
+/** An `@` query that names a place on disk rather than a fuzzy project search. */
+export function isFilesystemPathQuery(query: string): boolean {
+  return /^(?:~(?:[\\/]|$)|\/|\.{1,2}(?:[\\/]|$)|[A-Za-z]:[\\/])/u.test(query);
 }

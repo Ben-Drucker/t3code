@@ -87,7 +87,10 @@ export function deriveLatestContextWindowSnapshot(
     readonly item: ThreadStructureTurnItem;
   }>,
   liveUsage?: OrchestrationV2ProviderTurnTokenUsage | null,
-  providerThread?: Pick<OrchestrationV2ProviderThread, "id" | "contextUsage" | "updatedAt"> | null,
+  providerThread?:
+    | (Pick<OrchestrationV2ProviderThread, "id" | "contextUsage" | "updatedAt"> &
+        Partial<Pick<OrchestrationV2ProviderThread, "driver">>)
+    | null,
 ): ContextWindowSnapshot | null {
   if (liveUsage != null) {
     const usedTokens = Math.max(0, liveUsage.usedTokens);

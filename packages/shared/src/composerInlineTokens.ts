@@ -100,7 +100,7 @@ function collectAgentConfigTokens(text: string): ComposerInlineToken[] {
 
 export interface CollectComposerInlineTokensOptions {
   readonly preserveTrailingFrom?: ReadonlyArray<ComposerInlineToken>;
-  /** Only the web composer renders `%[...]` chips; other clients keep it as text. */
+  /** Enable model and tool reference chips. */
   readonly agentConfigs?: boolean;
 }
 

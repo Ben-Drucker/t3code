@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3tools/contracts";
 
 vi.mock("react-native", () => ({ Alert: { alert: vi.fn() } }));
+vi.mock("../../connection/runtime", () => ({ connectionAtomRuntime: {} }));
+vi.mock("../../state/query", () => ({ useEnvironmentQuery: () => ({ data: null }) }));
 
 vi.mock("../../state/queries", () => ({
   useComposerPathSearch: () => ({ entries: [], isPending: false }),

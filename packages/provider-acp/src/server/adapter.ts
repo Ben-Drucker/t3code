@@ -444,8 +444,7 @@ export interface AcpAdapterV2Flavor {
    * is not inferred from the setup result.
    */
   readonly modelOptionArrivesLate?: boolean;
-  /** The polled reading's window is the one that triggers compaction; native `usage_update` reports the model's full window. */
-  readonly preferPolledMaxTokens?: boolean;
+  readonly contextUsageWindow?: (model: string) => number;
   readonly getModelContextWindow?: (
     selection: ModelSelection,
     session: AcpSessionRuntime.AcpSessionRuntimeStartResult,
@@ -2259,7 +2258,6 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         const activeSessionId = yield* Ref.make<string | null>(null);
         const contextCompactionObserver = flavor.makeContextCompactionObserver?.();
         const nativeContextUsageSessions = new Set<string>();
-        const polledMaxTokensBySessionId = new Map<string, number>();
         let detectedCompactions = 0;
         const contextUsagePollPermit = yield* Semaphore.make(1);
         const lastPolledContextUsage = new WeakMap<ActiveAcpTurn, number>();
@@ -5567,14 +5565,16 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             );
             if (stateEvent === undefined) return;
             if (stateEvent._tag === "UsageUpdated") {
-              if (contextCompactionObserver !== undefined) {
-                if (
-                  !polled &&
-                  stateEvent.usage.usedTokens !== undefined &&
-                  stateEvent.usage.usedTokens > 0
-                ) {
-                  nativeContextUsageSessions.add(notification.sessionId);
-                }
+              let fixedMaxTokens: number | undefined;
+              if (flavor.contextUsageWindow !== undefined) {
+                const modelOption = findModelConfigOption(yield* runtime.getConfigOptions);
+                const selection =
+                  context?.nativeThreadId === notification.sessionId
+                    ? context.input.modelSelection
+                    : yield* Ref.get(activeSelection);
+                const model =
+                  modelOption?.type === "select" ? modelOption.currentValue : selection?.model;
+                if (model !== undefined) fixedMaxTokens = flavor.contextUsageWindow(model);
               }
               const polledBreakdown = (yield* Ref.get(polledBreakdownBySessionId)).get(
                 notification.sessionId,
@@ -5582,33 +5582,34 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               const previousUsage = (yield* Ref.get(contextUsageBySessionId)).get(
                 notification.sessionId,
               );
+              if (
+                contextCompactionObserver !== undefined &&
+                !polled &&
+                stateEvent.usage.usedTokens !== undefined &&
+                stateEvent.usage.usedTokens > 0
+              ) {
+                if (!nativeContextUsageSessions.has(notification.sessionId)) {
+                  contextCompactionObserver.reset();
+                  nativeContextUsageSessions.add(notification.sessionId);
+                }
+              }
               // Native occupancy takes precedence; DB polls still enrich its breakdown.
               const retainNativeUsage =
                 contextCompactionObserver !== undefined &&
                 polled &&
                 nativeContextUsageSessions.has(notification.sessionId);
-              if (flavor.preferPolledMaxTokens === true && polled && stateEvent.usage.maxTokens)
-                polledMaxTokensBySessionId.set(notification.sessionId, stateEvent.usage.maxTokens);
-              const nativeOrPolledUsage = retainNativeUsage
+              const reportedUsage = retainNativeUsage
                 ? (previousUsage ?? stateEvent.usage)
                 : stateEvent.usage;
-              const polledMaxTokens = polledMaxTokensBySessionId.get(notification.sessionId);
-              const reportedUsage =
-                polledMaxTokens === undefined
-                  ? nativeOrPolledUsage
-                  : { ...nativeOrPolledUsage, maxTokens: polledMaxTokens };
-              const usage =
-                polledBreakdown === undefined
-                  ? reportedUsage
-                  : {
-                      ...reportedUsage,
-                      // A poll that does not know the window must not erase one already reported.
-                      ...(stateEvent.usage.maxTokens === undefined &&
-                      previousUsage?.maxTokens !== undefined
-                        ? { maxTokens: previousUsage.maxTokens }
-                        : {}),
-                      breakdown: polledBreakdown,
-                    };
+              const maxTokens =
+                fixedMaxTokens ??
+                reportedUsage.maxTokens ??
+                (polledBreakdown === undefined ? undefined : previousUsage?.maxTokens);
+              const usage = {
+                ...reportedUsage,
+                ...(maxTokens === undefined ? {} : { maxTokens }),
+                ...(polledBreakdown === undefined ? {} : { breakdown: polledBreakdown }),
+              };
               yield* Ref.update(contextUsageBySessionId, (current) =>
                 new Map(current).set(notification.sessionId, usage),
               );
@@ -5620,9 +5621,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                       sessionId: notification.sessionId,
                       modelSelection: context.input.modelSelection,
                       usedTokens: usage.usedTokens,
-                      ...(nativeOrPolledUsage.maxTokens === undefined
-                        ? {}
-                        : { maxTokens: nativeOrPolledUsage.maxTokens }),
+                      ...(maxTokens === undefined ? {} : { maxTokens }),
                     });
                 if (compaction !== undefined) {
                   const now = yield* DateTime.now;

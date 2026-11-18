@@ -1,3 +1,13 @@
+import {
+  agentToolSectionId,
+  buildAgentToolSections,
+} from "@t3tools/client-runtime/agent-tool-menu";
+import { createComposerToolsEnvironmentAtoms } from "@t3tools/client-runtime/state/composer-tools";
+import { formatAgentConfigChip, formatAgentToolChip } from "@t3tools/shared/composerInlineTokens";
+import { buildProviderOptionSelectionsFromDescriptors } from "@t3tools/shared/model";
+import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
+import { connectionAtomRuntime } from "../../connection/runtime";
+import { useEnvironmentQuery } from "../../state/query";
 import { threadPullRequestKeyOf } from "@t3tools/client-runtime/thread-pull-requests";
 import * as Dialog from "../../components/ui/Dialog";
 import type {
@@ -13,6 +23,9 @@ import {
   matchComposerThreadItems,
 } from "@t3tools/client-runtime/composerThreadItems";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+
+const composerToolsEnvironment = createComposerToolsEnvironmentAtoms(connectionAtomRuntime);
+const OPEN_TOOL_SECTIONS: ReadonlyMap<string, boolean> = new Map();
 
 const EMPTY_THREAD_SHELLS: ReadonlyArray<EnvironmentThreadShell> = [];
 const EMPTY_ENVIRONMENTS: ReadonlyArray<ComposerEnvironmentCandidate> = [];
@@ -32,6 +45,7 @@ import {
 import { USAGE_LIMITS_COMMAND } from "@t3tools/shared/usageLimits";
 import {
   detectComposerTrigger,
+  isFilesystemPathQuery,
   replaceTextRange,
   serializeComposerFileLink,
   type ComposerTrigger,
@@ -218,21 +232,38 @@ export function buildComposerModelItems(
 
 export function resolveComposerCommandSelection(input: {
   readonly draftMessage: string;
-  readonly trigger: Pick<ComposerTrigger, "rangeStart" | "rangeEnd">;
+  readonly trigger: Pick<ComposerTrigger, "rangeStart" | "rangeEnd"> &
+    Partial<Pick<ComposerTrigger, "kind">>;
   readonly item: ComposerCommandItem;
 }): { readonly text: string; readonly cursor: number } {
   const { draftMessage, trigger, item } = input;
   let replacement = "";
   if (item.type === "path") {
-    replacement = `${serializeComposerFileLink(item.path)} `;
+    replacement = `${serializeComposerFileLink(item.path, item.kind)} `;
   } else if (item.type === "skill") {
     replacement = `$${item.skill.name} `;
   } else if (item.type === "slash-command") {
     replacement = `/${item.command} `;
   } else if (item.type === "provider-slash-command") {
     replacement = `/${item.command.name} `;
+  } else if (item.type === "agent-tool") {
+    replacement = `${formatAgentToolChip(item)} `;
   } else if (item.type === "model") {
-    replacement = `${formatComposerModelMention(item.option.selection.instanceId, item.option.selection.model)} `;
+    const { selection, capabilities } = item.option;
+    const reference =
+      trigger.kind === "agent-config"
+        ? formatAgentConfigChip({
+            instanceId: selection.instanceId,
+            model: selection.model,
+            options:
+              buildProviderOptionSelectionsFromDescriptors(
+                resolveProviderOptionDescriptors({ capabilities, selections: selection.options }),
+              ) ??
+              selection.options ??
+              [],
+          })
+        : formatComposerModelMention(selection.instanceId, selection.model);
+    replacement = `${reference} `;
   }
   return replaceTextRange(draftMessage, trigger.rangeStart, trigger.rangeEnd, replacement);
 }
@@ -336,8 +367,20 @@ export function useComposerCommandMenu({
     if (!enabled || selection.start !== selection.end) {
       return null;
     }
-    return detectComposerTrigger(draftMessage, selection.end);
+    return detectComposerTrigger(draftMessage, selection.end, undefined, true);
   })();
+  const toolQuery = useEnvironmentQuery(
+    trigger?.kind === "agent-config" && environmentId !== null
+      ? composerToolsEnvironment.list({
+          environmentId,
+          input: {
+            threadId: currentThreadId,
+            driver: selectedProviderStatus?.driver ?? null,
+            cwd: projectCwd,
+          },
+        })
+      : null,
+  );
   const pathSearch = useComposerPathSearch({
     environmentId,
     cwd: trigger?.kind === "path" ? projectCwd : null,
@@ -501,7 +544,39 @@ export function useComposerCommandMenu({
       }));
     }
 
+    if (trigger.kind === "agent-config") {
+      const models =
+        modelOptions && modelProviders
+          ? buildComposerModelItems(modelOptions, trigger.query, modelProviders)
+          : [];
+      const groups = toolQuery.data?.groups ?? [];
+      const expanded =
+        trigger.query.trim() === ""
+          ? new Map(groups.map((group) => [agentToolSectionId(group.source), true]))
+          : OPEN_TOOL_SECTIONS;
+      const tools = buildAgentToolSections(groups, trigger.query, expanded).flatMap((section) =>
+        section.tools.map((tool) => ({
+          id: JSON.stringify([section.group.source, tool.name]),
+          type: "agent-tool" as const,
+          source: section.group.source,
+          tool: tool.name,
+          label: `${section.group.source} > ${tool.name}`,
+          description: tool.description ?? "",
+        })),
+      );
+      return [...models, ...tools];
+    }
     if (trigger.kind === "path") {
+      if (isFilesystemPathQuery(trigger.query)) {
+        return pathSearch.entries.map((entry) => ({
+          id: `disk:${entry.path}`,
+          type: "path",
+          path: entry.path,
+          kind: entry.kind,
+          label: entry.path.split(/[/\\]/).at(-1) ?? entry.path,
+          description: entry.path,
+        }));
+      }
       const threadItems = environmentId
         ? matchComposerThreadItems({
             shells: threadShells,
@@ -666,7 +741,11 @@ export function useComposerCommandMenu({
     items,
     skills,
     isLoading:
-      trigger?.kind === "pull-request" ? pullRequestSearch.isPending : pathSearch.isPending,
+      trigger?.kind === "pull-request"
+        ? pullRequestSearch.isPending
+        : trigger?.kind === "agent-config"
+          ? toolQuery.isPending
+          : pathSearch.isPending,
     error:
       trigger?.kind === "pull-request"
         ? pullRequestProjectId === null || pullRequestRepository === null

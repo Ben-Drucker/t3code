@@ -125,6 +125,7 @@ import {
   pendingModelAfterPress,
   providerSectionIsCollapsed,
 } from "./thread-settings-sheet-state";
+import { rankModelPickerSearch } from "@t3tools/client-runtime/model-search";
 import { formatProviderUpdateRequiredNotice } from "@t3tools/client-runtime/providerUpdateRequiredModels";
 
 const PRIMARY_PROVIDER_DRIVERS: ReadonlySet<string> = new Set([
@@ -281,6 +282,7 @@ type ThreadSettingsSubmenuPage =
   | { readonly kind: "runtime" };
 
 type ThreadSettingsSessionProps = {
+  readonly onModelPicked?: () => void;
   readonly threadDetails?: ReactNode;
   readonly environmentId: EnvironmentId | null;
   readonly projectId: ProjectId | null;
@@ -305,9 +307,11 @@ export type ExistingThreadSettingsRouteParams = {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
   readonly draftKey: string;
+  readonly pickModel?: boolean;
 };
 
 type ThreadSettingsSessionValue = {
+  readonly pickModel: boolean;
   readonly threadDetails?: ReactNode;
   readonly environmentId: EnvironmentId | null;
   readonly providerInstanceId?: ProviderInstanceId;
@@ -501,7 +505,15 @@ function ThreadSettingsSessionProvider(
     });
   };
   const [showLegacyToggle, setShowLegacyToggle] = useState(false);
-  const [providerFilter, setProviderFilter] = useState<string | null>(null);
+  const [providerFilter, setProviderFilter] = useState<string | null>(() => {
+    if (!props.onModelPicked) return null;
+    const hasFavorite = props.providerGroups.some((group) =>
+      group.models.some((model) => !model.isHidden && favoriteKeys.has(model.key)),
+    );
+    return !props.lockedProviderInstanceId && hasFavorite
+      ? FAVORITES_PROVIDER_FILTER
+      : (props.providerInstanceId ?? null);
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [providerExpansionOverrides, setProviderExpansionOverrides] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -606,6 +618,13 @@ function ThreadSettingsSessionProvider(
   };
 
   const pressModel = (option: ModelOption) => {
+    if (props.onModelPicked && !manageHidden) {
+      if (!canCommitPendingModel(option, props.providerGroups)) return;
+      void Haptics.selectionAsync();
+      if (!isApplied(option)) props.onSelectModel(option);
+      props.onModelPicked();
+      return;
+    }
     void Haptics.selectionAsync();
     if (isApplied(option) || option.key !== pendingModel?.key) {
       setPendingPrompt(null);
@@ -664,6 +683,7 @@ function ThreadSettingsSessionProvider(
     toggleProvider,
     toggleFavorite,
     workspaceScan,
+    pickModel: props.onModelPicked !== undefined,
   } satisfies ThreadSettingsSessionValue;
 
   return (
@@ -787,6 +807,24 @@ function ThreadSettingsProviderListHeader(props: {
 function buildThreadSettingsCatalogItems(
   session: ThreadSettingsSessionValue,
 ): ReadonlyArray<ThreadSettingsCatalogItem> {
+  if (session.pickModel && session.searchQuery.trim()) {
+    const models = session.providerGroups.flatMap((group) => group.models);
+    const ranked = rankModelPickerSearch(models, session.searchQuery, (model) => ({
+      name: model.label,
+      ...(model.shortName ? { shortName: model.shortName } : {}),
+      ...(model.subtitle ? { subProvider: model.subtitle } : {}),
+      driverKind: model.providerDriver,
+      providerDisplayName: model.providerLabel,
+      isFavorite: session.favoriteKeys.has(model.key),
+    }));
+    return ranked.map((option, index) => ({
+      kind: "model",
+      key: `model:${option.key}`,
+      option,
+      isFirst: index === 0,
+      isLast: index === ranked.length - 1,
+    }));
+  }
   return session.providerGroups.flatMap((group) => {
     if (
       session.providerFilter !== null &&
@@ -1257,7 +1295,7 @@ function ThreadSettingsModelsScreen() {
   return (
     <>
       <AppBar
-        title="Thread settings"
+        title={session.pickModel ? "Model" : "Thread settings"}
         onClose={presentation.onClose}
         closeAccessibilityLabel="Cancel thread settings"
         search={search}
@@ -1425,6 +1463,7 @@ export function ExistingThreadSettingsRouteScreen({
 
   return (
     <ThreadSettingsPickerScreen
+      {...(route.params.pickModel ? { onModelPicked: () => navigation.goBack() } : {})}
       threadDetails={
         <>
           <ThreadContextUsage />
@@ -1485,7 +1524,9 @@ function ThreadDetailsMetrics() {
 }
 
 /** RNS owns nested sheet dismissal; Reasoning and Runtime remain ordinary pushes. */
-export function NewTaskThreadSettingsRouteScreen() {
+export function NewTaskThreadSettingsRouteScreen({
+  route,
+}: StaticScreenProps<{ readonly pickModel?: boolean } | undefined>) {
   const flow = useNewTaskFlow();
   const navigation = useNavigation<NativeStackNavigationProp<Record<string, object | undefined>>>();
   const optionDescriptors = resolveProviderOptionDescriptors({
@@ -1495,6 +1536,7 @@ export function NewTaskThreadSettingsRouteScreen() {
 
   return (
     <ThreadSettingsPickerScreen
+      {...(route.params?.pickModel ? { onModelPicked: () => navigation.goBack() } : {})}
       environmentId={flow.selectedEnvironmentId}
       projectId={flow.selectedProject?.id ?? null}
       cwd={flow.workspaceCwd}

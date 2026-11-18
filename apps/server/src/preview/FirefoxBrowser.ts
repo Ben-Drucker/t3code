@@ -29,6 +29,7 @@ import { ThreadId } from "@t3tools/contracts";
 import { resolvePreviewViewport } from "@t3tools/shared/previewViewport";
 import * as NodeCrypto from "node:crypto";
 import * as NodePath from "node:path";
+import * as NodeTimersPromises from "node:timers/promises";
 import * as Schema from "effect/Schema";
 
 import { FirefoxBidi } from "./FirefoxBidi.ts";
@@ -381,21 +382,47 @@ export class FirefoxBrowser implements ServerBrowserBackend {
     input: PreviewAutomationWaitForInput & { readyState?: string },
     timeoutMs: number,
   ) {
-    const result = await this.script<boolean | { error: string }>(
-      PageScript.WAIT,
-      [input, Math.max(1, timeoutMs - 100)],
-      true,
-    );
-    if (result === false)
-      throw new ServerBrowserOperationError({
-        tag: "PreviewAutomationTimeoutError",
-        message: "The Firefox wait conditions did not hold before the deadline.",
-      });
-    if (result !== true)
+    const deadline = Date.now() + timeoutMs;
+    const waitsForUrl = input.urlIncludes !== undefined;
+    for (let remainingMs = timeoutMs; remainingMs > 0; remainingMs = deadline - Date.now()) {
+      let result: boolean | { error: string };
+      try {
+        // A URL wait can outlive the document that was current when it started.
+        result = waitsForUrl
+          ? await this.script<boolean | { error: string }>(PageScript.CHECK_WAIT, [input])
+          : await this.script<boolean | { error: string }>(
+              PageScript.WAIT,
+              [input, Math.max(1, remainingMs - 100)],
+              true,
+            );
+      } catch (cause) {
+        const remote = isMarionetteError(cause) ? (cause.cause as { message?: unknown }) : null;
+        if (
+          !waitsForUrl ||
+          !isMarionetteError(cause) ||
+          cause.code !== "javascript error" ||
+          remote?.message !== "Document was unloaded"
+        ) {
+          throw cause;
+        }
+        result = false;
+      }
+      if (result === true) return;
+      if (result === false) {
+        if (!waitsForUrl) break;
+        const delayMs = Math.min(100, deadline - Date.now());
+        if (delayMs > 0) await NodeTimersPromises.setTimeout(delayMs);
+        continue;
+      }
       throw new ServerBrowserOperationError({
         tag: "PreviewAutomationInvalidSelectorError",
         message: "The Firefox wait locator is invalid.",
       });
+    }
+    throw new ServerBrowserOperationError({
+      tag: "PreviewAutomationTimeoutError",
+      message: "The Firefox wait conditions did not hold before the deadline.",
+    });
   }
 
   private async navigate(tab: Tab, input: PreviewAutomationNavigateInput, timeout: number) {
@@ -985,7 +1012,7 @@ export class FirefoxBrowser implements ServerBrowserBackend {
         const input = request.input as PreviewAutomationWaitForInput;
         const selector = input.locator ?? input.selector;
         if (selector?.startsWith("aria-ref=")) await this.target(tab, input);
-        return this.wait(input, input.timeoutMs ?? request.timeoutMs);
+        return this.wait(input, Math.min(input.timeoutMs ?? request.timeoutMs, request.timeoutMs));
       }
       case "evaluate": {
         const input = request.input as PreviewAutomationEvaluateInput;

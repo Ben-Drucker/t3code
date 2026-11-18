@@ -35,6 +35,7 @@ import {
   describeAntigravitySubagentLaunches,
 } from "../../provider/acp/AntigravityChildWork.ts";
 import { readAntigravityClientTextFile } from "../../provider/acp/AntigravityClientFiles.ts";
+import { antigravityContextWindow } from "../../provider/antigravityCompaction.ts";
 import { readAntigravityContextUsage } from "../../provider/acp/AntigravityContextBreakdown.ts";
 import {
   observeAntigravityContextUsage,
@@ -339,7 +340,7 @@ export function makeAntigravityAcpAdapterFlavor(
     // 1.4.5 returns the root trajectory's Gemini usageMetadata delta; 1.4.1 returns none.
     reportsPerTurnPromptUsage: true,
     geminiPromptUsage: true,
-    preferPolledMaxTokens: true,
+    contextUsageWindow: antigravityContextWindow,
     ...(profileDirectory === undefined
       ? {}
       : {

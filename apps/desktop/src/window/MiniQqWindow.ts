@@ -1,8 +1,11 @@
+import { startMacModifierPairShortcutProcess } from "../snapShot/MacModifierPairShortcutProcess.ts";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
 import * as Electron from "electron";
@@ -20,6 +23,12 @@ import { MINI_QQ_ACTIVATE_CHANNEL, MINI_QQ_OPEN_MAIN_ROUTE_CHANNEL } from "../ip
 import * as DesktopWindow from "./DesktopWindow.ts";
 
 const MINI_QQ_GLOBAL_SHORTCUT = "CommandOrControl+Shift+Space";
+const MINI_QQ_REUSE_MS = 10 * 60_000;
+const MINI_QQ_MAC_FALLBACK = "Alt+Space";
+
+class MiniQqTrayError extends Schema.TaggedError<MiniQqTrayError>()("MiniQqTrayError", {
+  cause: Schema.Defect(),
+}) {}
 const MINI_QQ_HASH_ROUTE = "/__mini-qq";
 
 const MINI_QQ_DEFAULT_WIDTH = 680;
@@ -108,6 +117,12 @@ const make = Effect.gen(function* () {
   const windowMutex = yield* Semaphore.make(1);
   const windowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
   let shortcutRegistered = false;
+  let fallbackRegistered = false;
+  let modifierShortcutStarted = false;
+  let stopModifierShortcut: (() => void) | undefined;
+  let shortcutScopeClosed = false;
+  let previousInvocationAt: number | undefined;
+  let tray: Electron.Tray | undefined;
   let userMovedWindow = false;
   let lastDisplayId: number | null = null;
 
@@ -128,6 +143,14 @@ const make = Effect.gen(function* () {
   yield* Effect.addFinalizer(() =>
     Effect.sync(() => {
       stopMainListening();
+      shortcutScopeClosed = true;
+      stopModifierShortcut?.();
+      tray?.destroy();
+      if (fallbackRegistered) {
+        try {
+          Electron.globalShortcut.unregister(MINI_QQ_MAC_FALLBACK);
+        } catch {}
+      }
       if (shortcutRegistered) {
         try {
           Electron.globalShortcut.unregister(MINI_QQ_GLOBAL_SHORTCUT);
@@ -236,6 +259,7 @@ const make = Effect.gen(function* () {
             backgroundColor: getInitialBackgroundColor(shouldUseDarkColors),
             ...(environment.platform === "darwin"
               ? {
+                  type: "panel",
                   vibrancy: "under-window" as const,
                   visualEffectState: "active" as const,
                   roundedCorners: true,
@@ -376,29 +400,46 @@ const make = Effect.gen(function* () {
     });
   });
 
-  const show = Effect.gen(function* () {
+  const revealMiniQq = Effect.fnUntraced(function* (invokedAt: number) {
+    const resetThread =
+      previousInvocationAt !== undefined && invokedAt - previousInvocationAt >= MINI_QQ_REUSE_MS;
+    previousInvocationAt = invokedAt;
     const ensured = yield* ensureWindow;
     if (Option.isNone(ensured)) return;
     const window = ensured.value;
     if (window.isDestroyed()) return;
 
     positionWindowIfNeeded(window);
-    yield* electronWindow.reveal(window);
+    if (environment.platform === "darwin") {
+      yield* Effect.sync(() => {
+        if (window.isVisible()) window.focus();
+        else window.show();
+      });
+    } else {
+      yield* electronWindow.reveal(window);
+    }
     yield* Effect.sync(() => {
       if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
         window.webContents.focus();
-        window.webContents.send(MINI_QQ_ACTIVATE_CHANNEL, { focusComposer: true });
+        window.webContents.send(MINI_QQ_ACTIVATE_CHANNEL, {
+          focusComposer: true,
+          ...(resetThread ? { resetThread } : {}),
+        });
       }
     });
   });
 
+  const show = Clock.currentTimeMillis.pipe(Effect.flatMap(revealMiniQq));
+
   const toggle = Effect.gen(function* () {
+    const invokedAt = yield* Clock.currentTimeMillis;
     const current = yield* liveWindow;
     if (Option.isSome(current) && current.value.isVisible() && current.value.isFocused()) {
+      previousInvocationAt = invokedAt;
       yield* hide;
       return;
     }
-    yield* show;
+    yield* revealMiniQq(invokedAt);
   });
 
   const openInMainWindow = Effect.fn("MiniQqWindow.openInMainWindow")(function* (
@@ -425,7 +466,76 @@ const make = Effect.gen(function* () {
     }
   });
 
+  const installTray = Effect.gen(function* () {
+    if (environment.platform !== "darwin" || !environment.isPackaged || tray !== undefined) return;
+    const icons = yield* assets.iconPaths;
+    const path = Option.getOrUndefined(Option.orElse(icons.png, () => icons.icns));
+    if (path === undefined) return;
+    yield* Effect.try({
+      try: () => {
+        const image = Electron.nativeImage.createFromPath(path).resize({ width: 18, height: 18 });
+        if (image.isEmpty()) return;
+        const item = new Electron.Tray(image);
+        tray = item;
+        item.setToolTip(environment.displayName);
+        const updateMenu = () => {
+          item.setContextMenu(
+            Electron.Menu.buildFromTemplate([
+              { label: "Quick Question", click: () => void runPromise(show) },
+              {
+                label: `Open ${environment.displayName}`,
+                click: () => void runPromise(desktopWindow.activate),
+              },
+              { type: "separator" },
+              {
+                label: "Start at Login",
+                type: "checkbox",
+                checked: Electron.app.getLoginItemSettings().openAtLogin,
+                click: (entry) => {
+                  Electron.app.setLoginItemSettings({ openAtLogin: entry.checked });
+                  updateMenu();
+                },
+              },
+              { role: "quit" },
+            ]),
+          );
+        };
+        updateMenu();
+      },
+      catch: (cause) => new MiniQqTrayError({ cause }),
+    }).pipe(
+      Effect.catch((cause) =>
+        logMiniQqWarning("could not create Quick Question menu bar item", { cause }),
+      ),
+    );
+  });
+
   const registerShortcut = Effect.gen(function* () {
+    yield* installTray;
+    if (environment.platform === "darwin" && !modifierShortcutStarted) {
+      modifierShortcutStarted = true;
+      yield* Effect.sync(() => {
+        try {
+          fallbackRegistered = Electron.globalShortcut.register(MINI_QQ_MAC_FALLBACK, () => {
+            void runPromise(toggle);
+          });
+        } catch {}
+        const onFailure = (cause: unknown) => {
+          void runPromise(
+            logMiniQqWarning("could not monitor the Quick Question Option shortcut", { cause }),
+          );
+        };
+        void startMacModifierPairShortcutProcess(
+          "alt",
+          () => void runPromise(toggle),
+          onFailure,
+          "double-tap",
+        ).then((stop) => {
+          if (shortcutScopeClosed) stop();
+          else stopModifierShortcut = stop;
+        }, onFailure);
+      });
+    }
     if (shortcutRegistered) return;
     const registered = yield* Effect.sync(() => {
       try {

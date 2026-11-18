@@ -7,7 +7,9 @@ const state = vi.hoisted(() => ({
   phase: "connected" as "connected" | "offline",
   sessionAtom: {},
   searchAtom: {},
+  browseAtom: {},
   searchRequests: vi.fn(),
+  browseRequests: vi.fn(),
 }));
 
 vi.mock("react", async (importOriginal) => ({
@@ -27,6 +29,14 @@ vi.mock("./presentation", () => ({
   }),
 }));
 vi.mock("./pull-requests", () => ({ composerPullRequests: {} }));
+vi.mock("./filesystem", () => ({
+  filesystemEnvironment: {
+    browse: (target: unknown) => {
+      state.browseRequests(target);
+      return state.browseAtom;
+    },
+  },
+}));
 vi.mock("./projects", () => ({
   projectEnvironment: {
     searchEntries: (target: unknown) => {
@@ -46,7 +56,9 @@ vi.mock("./query", () => ({
         ? state.session
         : atom === state.searchAtom
           ? { entries: [{ path: "src/index.ts", kind: "file" }] }
-          : null,
+          : atom === state.browseAtom
+            ? { entries: [{ fullPath: "/other/project.txt", kind: "file" }] }
+            : null,
     error: atom === state.sessionAtom ? state.sessionError : null,
     isPending: atom === state.sessionAtom && state.session === null && state.sessionError === null,
     refresh: vi.fn(),
@@ -66,6 +78,7 @@ beforeEach(() => {
   state.sessionError = null;
   state.phase = "connected";
   state.searchRequests.mockClear();
+  state.browseRequests.mockClear();
 });
 
 it("keeps a file search pending until its grant loads, then shows matches", () => {
@@ -89,4 +102,20 @@ it("searches workspace entries for a bare @", () => {
     environmentId: target.environmentId,
     input: { cwd: target.cwd, query: "", limit: 20 },
   });
+});
+
+it("browses an explicit host path only after the filesystem grant loads", () => {
+  const pathTarget = { ...target, query: "/other/pro" };
+  expect(useComposerPathSearch(pathTarget).isPending).toBe(true);
+  expect(state.browseRequests).not.toHaveBeenCalled();
+
+  state.session = { authenticated: true, scopes: [AuthFilesystemReadScope] };
+  expect(useComposerPathSearch(pathTarget).entries).toEqual([
+    { path: "/other/project.txt", kind: "file" },
+  ]);
+  expect(state.browseRequests).toHaveBeenCalledExactlyOnceWith({
+    environmentId: target.environmentId,
+    input: { partialPath: "/other/pro", includeFiles: true, cwd: target.cwd },
+  });
+  expect(state.searchRequests).not.toHaveBeenCalled();
 });

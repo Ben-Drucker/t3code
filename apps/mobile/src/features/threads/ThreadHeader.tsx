@@ -24,7 +24,7 @@ export function ThreadHeader(props: {
   readonly onOpenTasks?: () => void;
 }) {
   const goBack = useWorkspaceBackNavigation();
-  const { toggleAuxiliaryPane, startNewTask } = useAdaptiveWorkspaceLayout();
+  const { toggleAuxiliaryPane, pressNewChat } = useAdaptiveWorkspaceLayout();
   const { panes } = useWorkspacePaneState();
   const gitMenu = useThreadGitMenuDefinition(props.gitControls);
   const terminalMenu = threadTerminalMenu(props.gitControls);
@@ -56,7 +56,7 @@ export function ThreadHeader(props: {
       title={props.title}
       subtitle={props.subtitle}
       onBackToList={goBack}
-      onCompose={props.draft ? undefined : startNewTask}
+      onCompose={props.draft ? undefined : pressNewChat}
       backInSplitView={
         props.onReturnToThread
           ? {

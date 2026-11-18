@@ -75,25 +75,32 @@ const matches = find(arguments[0]);
 if (matches.length > 1) throw new Error('T3_AMBIGUOUS_SELECTOR');
 return matches[0] ?? null;`;
 
-export const WAIT = `${DOM_HELPERS}
+const WAIT_PREDICATE = `${DOM_HELPERS}
+const matchesWait = input => {
+  try {
+    const target = input.locator ?? input.selector;
+    return (input.urlIncludes === undefined || location.href.includes(input.urlIncludes)) &&
+      (!target || find(target).length > 0) &&
+      (input.text === undefined || (document.body?.innerText ?? '').includes(input.text)) &&
+      (!input.readyState || document.readyState === input.readyState || (input.readyState === 'interactive' && document.readyState === 'complete'));
+  } catch (error) { return { error: String(error) }; }
+};`;
+
+export const CHECK_WAIT = `${WAIT_PREDICATE}
+return matchesWait(arguments[0]);`;
+
+export const WAIT = `${WAIT_PREDICATE}
 const [input, timeout, done] = arguments;
 let observer;
 let timer;
-let urlTimer;
 let finished = false;
-const finish = result => { if (finished) return; finished = true; observer?.disconnect(); clearTimeout(timer); clearInterval(urlTimer); removeEventListener('popstate', check); removeEventListener('hashchange', check); document.removeEventListener('readystatechange',check); done(result); };
+const finish = result => { if (finished) return; finished = true; observer?.disconnect(); clearTimeout(timer); document.removeEventListener('readystatechange', check); done(result); };
 const check = () => {
-  try {
-    const target = input.locator ?? input.selector;
-    if ((!target || find(target).length > 0) && (input.text === undefined || (document.body?.innerText ?? '').includes(input.text)) &&
-        (input.urlIncludes === undefined || location.href.includes(input.urlIncludes)) &&
-        (!input.readyState || document.readyState === input.readyState || (input.readyState === 'interactive' && document.readyState === 'complete'))) finish(true);
-  } catch (error) { finish({ error: String(error) }); }
+  const result = matchesWait(input);
+  if (result !== false) finish(result);
 };
 observer = new MutationObserver(check);
 for (const root of roots(document)) observer.observe(root, { subtree:true, childList:true, attributes:true, characterData:true });
-addEventListener('popstate', check); addEventListener('hashchange', check);
-document.addEventListener('readystatechange', check, { once: true });
+document.addEventListener('readystatechange', check);
 timer = setTimeout(() => finish(false), timeout);
-if (input.urlIncludes !== undefined) urlTimer = setInterval(check,100);
 check();`;

@@ -43,6 +43,10 @@
       "types": "./src/locales.ts",
       "default": "./src/locales.ts"
     },
+    "./agent-tool-menu": {
+      "types": "./src/agentToolMenu.ts",
+      "default": "./src/agentToolMenu.ts"
+    },
     "./model-search": {
       "types": "./src/modelSearch.ts",
       "default": "./src/modelSearch.ts"

@@ -1,3 +1,5 @@
+import { isFilesystemPathQuery } from "@t3tools/shared/composerTrigger";
+import { filesystemEnvironment } from "./filesystem";
 import {
   legacyThreadPullRequestKey,
   threadPullRequestKeyOf,
@@ -407,8 +409,12 @@ export function usePaginatedBranches(target: VcsRefTarget) {
 }
 
 export function useComposerPathSearch(target: ComposerPathSearchTarget) {
+  const { environmentId, cwd } = target;
   const query = normalizeComposerPathSearchQuery(target.query);
-  const normalizedTarget = { environmentId: target.environmentId, cwd: target.cwd, query };
+  const normalizedTarget = useMemo(
+    () => ({ environmentId, cwd, query }),
+    [environmentId, cwd, query],
+  );
   const debouncedTarget = useDebouncedValue(normalizedTarget, COMPOSER_PATH_SEARCH_DEBOUNCE_MS);
   const fileAccessSession = useEnvironmentQuery(
     debouncedTarget.environmentId === null
@@ -423,7 +429,23 @@ export function useComposerPathSearch(target: ComposerPathSearchTarget) {
     sessionError: fileAccessSession.error,
   });
   const { canReadFiles } = fileAccess;
+  const diskPath = debouncedTarget.query !== null && isFilesystemPathQuery(debouncedTarget.query);
+  const browseTarget =
+    diskPath && debouncedTarget.environmentId !== null && debouncedTarget.query !== null
+      ? {
+          environmentId: debouncedTarget.environmentId,
+          input: {
+            partialPath: debouncedTarget.query,
+            includeFiles: true,
+            ...(debouncedTarget.cwd === null ? {} : { cwd: debouncedTarget.cwd }),
+          },
+        }
+      : null;
+  const browse = useEnvironmentQuery(
+    canReadFiles && browseTarget !== null ? filesystemEnvironment.browse(browseTarget) : null,
+  );
   const searchTarget =
+    !diskPath &&
     debouncedTarget.environmentId !== null &&
     debouncedTarget.cwd !== null &&
     debouncedTarget.query !== null
@@ -439,25 +461,37 @@ export function useComposerPathSearch(target: ComposerPathSearchTarget) {
   const result = useEnvironmentQuery(
     canReadFiles && searchTarget !== null ? projectEnvironment.searchEntries(searchTarget) : null,
   );
-  const hasTarget = searchTarget !== null;
+  const hasTarget = searchTarget !== null || browseTarget !== null;
   const isSameCheckout =
     normalizedTarget.environmentId === debouncedTarget.environmentId &&
     normalizedTarget.cwd === debouncedTarget.cwd;
 
   return {
     // Entries from another checkout must not be offered while the new one is debounced.
-    entries: isSameCheckout ? (result.data?.entries ?? []) : [],
+    entries:
+      !isSameCheckout ||
+      diskPath !== (query !== null && isFilesystemPathQuery(query)) ||
+      (diskPath && normalizedTarget.query !== debouncedTarget.query)
+        ? []
+        : diskPath
+          ? (browse.data?.entries ?? []).map((entry) => ({
+              path: entry.fullPath,
+              kind: entry.kind ?? "directory",
+            }))
+          : (result.data?.entries ?? []),
     error:
       !hasTarget || fileAccess.isPending
         ? null
         : canReadFiles
-          ? result.error
+          ? diskPath
+            ? browse.error
+            : result.error
           : (fileAccess.error ?? "This connection cannot search host files."),
     isPending:
       !isSameCheckout ||
       normalizedTarget.query !== debouncedTarget.query ||
-      (hasTarget && (fileAccess.isPending || result.isPending)),
-    refresh: result.refresh,
+      (hasTarget && (fileAccess.isPending || result.isPending || browse.isPending)),
+    refresh: diskPath ? browse.refresh : result.refresh,
   };
 }
 

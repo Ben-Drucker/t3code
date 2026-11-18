@@ -170,7 +170,6 @@ describe("antigravityBreakdownFromGeneration", () => {
     ]);
     expect(antigravityBreakdownFromGeneration(Uint8Array.from(generation))).toEqual({
       usedTokens: 12_977,
-      maxTokens: 256_000,
       breakdown: [
         { category: "messages", tokens: 244 },
         { category: "skills", tokens: 0 },

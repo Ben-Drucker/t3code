@@ -1752,13 +1752,19 @@ function ContextCompactionTimelineRow({
       )}
     >
       <span className={cn("h-px flex-1", row.failed ? "bg-destructive/30" : "bg-border/70")} />
-      <span
-        ref={row.active ? observeVisibleAnimation : undefined}
-        className="relative min-w-0 overflow-hidden"
-      >
-        {content}
-        {row.active ? <ActivityShimmerOverlay>{content}</ActivityShimmerOverlay> : null}
-      </span>
+      <span className="min-w-0 overflow-hidden">{content}</span>
+      {row.active ? (
+        <span
+          role="progressbar"
+          aria-label={label}
+          ref={observeVisibleAnimation}
+          className="relative h-1 w-12 shrink-0 overflow-hidden rounded-full bg-border"
+        >
+          <ActivityShimmerOverlay>
+            <span className="block h-1 w-12 rounded-full bg-muted-foreground" />
+          </ActivityShimmerOverlay>
+        </span>
+      ) : null}
       <span className={cn("h-px flex-1", row.failed ? "bg-destructive/30" : "bg-border/70")} />
     </div>
   );

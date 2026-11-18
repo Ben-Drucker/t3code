@@ -43,7 +43,7 @@ import { buildHomeListFilterMenuItems, homeListFilterEnvironments } from "./home
 
 export function HomeRouteScreen() {
   const nativePrimaryColumn = use(NativePrimaryColumnContext);
-  const { layout, setPrimarySidebarSearchQuery, startNewTask } = useAdaptiveWorkspaceLayout();
+  const { layout, setPrimarySidebarSearchQuery, pressNewChat } = useAdaptiveWorkspaceLayout();
   const { primarySidebarSearchQuery } = useWorkspacePaneState();
   const selectDetail = useSelectWorkspaceDetail();
   const projects = useProjects();
@@ -149,13 +149,13 @@ export function HomeRouteScreen() {
       <WorkspaceListEmptyDetail
         hasConnections={catalogState.hasConnections}
         onAddConnection={() => openSettings(navigation, "SettingsEnvironmentNew")}
-        onStartNewTask={startNewTask}
+        onStartNewTask={pressNewChat}
       />
     );
   }
 
   return (
-    <AndroidHomeFabLayout onStartNewTask={startNewTask}>
+    <AndroidHomeFabLayout onStartNewTask={pressNewChat}>
       <>
         <WorkspaceListHeader
           accessibilityLabel="T3 Code, Threads"
@@ -213,7 +213,7 @@ export function HomeRouteScreen() {
               },
             });
           }}
-          onStartNewTask={startNewTask}
+          onStartNewTask={pressNewChat}
           pendingTasks={pendingTasks}
           projectGroupingMode={listOptions.projectGroupingMode}
           projects={projects}

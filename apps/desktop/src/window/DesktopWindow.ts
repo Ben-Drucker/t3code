@@ -86,6 +86,16 @@ function syncMacosWindowButtons(window: Electron.BrowserWindow): void {
 const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linux
 const TITLEBAR_LIGHT_SYMBOL_COLOR = "#1f2937";
 const TITLEBAR_DARK_SYMBOL_COLOR = "#f8fafc";
+export function desktopOpenedAtLogin(
+  environment: DesktopEnvironment.DesktopEnvironment["Service"],
+) {
+  return (
+    environment.isPackaged &&
+    environment.platform === "darwin" &&
+    Electron.app.getLoginItemSettings().wasOpenedAtLogin
+  );
+}
+
 const MAIN_WINDOW_BOUNDS_PERSIST_DEBOUNCE_MS = 500;
 const DEVELOPMENT_LOAD_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 2_000] as const;
 const RENDERER_RECOVERY_RELOAD_DELAY_MS = 500;
@@ -1175,7 +1185,9 @@ export const make = Effect.gen(function* () {
       backendHasStarted = true;
       yield* Ref.set(backendReadyRef, true);
       yield* logWindowInfo("backend ready", { source: "http", url: httpBaseUrl.href });
-      if (!mainClosedDuringStartup) yield* createMainIfBackendReady;
+      if (!mainClosedDuringStartup && !desktopOpenedAtLogin(environment)) {
+        yield* createMainIfBackendReady;
+      }
     }),
     handleBackendNotReady: Ref.set(backendReadyRef, false).pipe(
       Effect.withSpan("desktop.window.handleBackendNotReady"),

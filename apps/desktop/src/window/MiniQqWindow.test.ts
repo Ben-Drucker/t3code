@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as TestClock from "effect/testing/TestClock";
 import type * as Electron from "electron";
 import { beforeEach, vi } from "vite-plus/test";
 
@@ -49,6 +50,7 @@ function makeFakeBrowserWindow() {
     restore: vi.fn(),
     show: vi.fn(() => {
       visible = true;
+      focused = true;
     }),
     hide: vi.fn(() => {
       visible = false;
@@ -162,11 +164,8 @@ describe("MiniQqWindow", () => {
                         created.push({ options, behavior, window: fake });
                         return fake as unknown as Electron.BrowserWindow;
                       }),
-                    reveal: (win) =>
-                      Effect.sync(() => {
-                        win.show();
-                        win.focus();
-                      }),
+                    reveal: () =>
+                      Effect.die("Mini QQ should focus its panel without activating the app"),
                     currentMainOrFirst: Effect.succeedNone,
                   }),
                 ),
@@ -178,6 +177,10 @@ describe("MiniQqWindow", () => {
         yield* service.toggle;
         assert.equal(created.length, 1);
         assert.deepEqual(created[0]!.behavior, { auxiliary: true, trustedIpc: true });
+        assert.equal(created[0]!.options.type, "panel");
+        assert.deepEqual(created[0]!.window.setVisibleOnAllWorkspaces.mock.calls, [
+          [true, { visibleOnFullScreen: true }],
+        ]);
         assert.equal(created[0]!.window.getLoadedUrl(), `${getDesktopUrl(false)}#/__mini-qq`);
         assert.isTrue(created[0]!.window.isVisible());
         assert.deepEqual(created[0]!.window.sent, [
@@ -203,6 +206,14 @@ describe("MiniQqWindow", () => {
         });
         assert.isTrue(prevented);
         assert.isFalse(created[0]!.window.isVisible());
+
+        yield* TestClock.adjust("10 minutes");
+        yield* service.toggle;
+        assert.equal(created.length, 1);
+        assert.deepEqual(created[0]!.window.sent.at(-1), {
+          channel: MINI_QQ_ACTIVATE_CHANNEL,
+          payload: { focusComposer: true, resetThread: true },
+        });
       }).pipe(Effect.scoped),
   );
 

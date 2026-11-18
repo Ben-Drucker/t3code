@@ -289,6 +289,7 @@ export function ShimmeringWorkContent(props: {
   readonly iconSubtleColor: ColorValue;
   readonly label: string;
   readonly showIcon: boolean;
+  readonly showProgress?: boolean;
   readonly themeAppearance?: "light" | "dark";
   readonly toolIcon?: ToolActivityIcon;
 }) {
@@ -328,7 +329,11 @@ export function ShimmeringWorkContent(props: {
 
   return (
     <View
-      className={cn("min-w-0 flex-1 overflow-hidden", props.className)}
+      className={cn(
+        "min-w-0 flex-1 overflow-hidden",
+        props.showProgress && "flex-row items-center gap-2",
+        props.className,
+      )}
       onLayout={(event) => setAvailableWidth(event.nativeEvent.layout.width)}
     >
       <ShimmerWorkContent
@@ -344,7 +349,29 @@ export function ShimmeringWorkContent(props: {
         toolIcon={props.toolIcon}
         onTextLayout={(event) => setTextWidth(event.nativeEvent.lines[0]?.width ?? 0)}
       />
-      {!reducedMotion && appIsActive && screenIsFocused && contentWidth > 0 ? (
+      {props.showProgress ? (
+        <View
+          className="h-1 w-12 overflow-hidden rounded-full bg-subtle-strong"
+          accessibilityRole="progressbar"
+          accessibilityLabel={props.label}
+        >
+          {!reducedMotion && appIsActive && screenIsFocused ? (
+            <NativeAnimated.View
+              className="h-full w-4 rounded-full bg-foreground-muted"
+              style={{
+                transform: [
+                  {
+                    translateX: progress.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [-16, 48],
+                    }),
+                  },
+                ],
+              }}
+            />
+          ) : null}
+        </View>
+      ) : !reducedMotion && appIsActive && screenIsFocused && contentWidth > 0 ? (
         <NativeAnimated.View
           pointerEvents="none"
           accessible={false}
@@ -1113,6 +1140,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
             iconSubtleColor={props.iconSubtleColor}
             label={displayText}
             showIcon
+            showProgress={row.projectedItem.item.type === "compaction"}
             themeAppearance={props.themeAppearance}
             toolIcon={toolIcon}
           />

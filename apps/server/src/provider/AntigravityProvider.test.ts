@@ -270,9 +270,9 @@ describe("Antigravity model catalog", () => {
         configOptions: [
           {
             ...modelConfig,
-            currentValue: "gemini",
+            currentValue: "gemini-4-carbon",
             options: [
-              { value: "gemini", name: "Gemini" },
+              { value: "gemini-4-carbon", name: "Gemini 4 Carbon" },
               { value: "claude", name: "Claude" },
               { value: "plain", name: "Plain" },
               { value: "unseen", name: "Unseen" },
@@ -291,7 +291,10 @@ describe("Antigravity model catalog", () => {
         .find((model) => model.slug === slug)
         ?.capabilities?.optionDescriptors?.find((option) => option.id === "thinking_level");
 
-    expect(thinkingOf("gemini")).toMatchObject({ id: "thinking_level", currentValue: "high" });
+    expect(thinkingOf("gemini-4-carbon")).toMatchObject({
+      id: "thinking_level",
+      currentValue: "high",
+    });
     expect(thinkingOf("claude")).toMatchObject({ id: "thinking_level", currentValue: "low" });
     expect(thinkingOf("plain")).toBeUndefined();
     expect(thinkingOf("unseen")).toMatchObject({ id: "thinking_level" });
@@ -300,6 +303,11 @@ describe("Antigravity model catalog", () => {
       expect(
         model.capabilities?.optionDescriptors?.filter((option) => option.disabledReason),
       ).toMatchObject([
+        {
+          id: "contextLimit",
+          currentValue: model.slug === "gemini-4-carbon" ? "512000" : "256000",
+          disabledReason: "Fixed for Antigravity models",
+        },
         {
           id: "compactBuffer",
           currentValue: "auto",

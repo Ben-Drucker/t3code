@@ -290,6 +290,7 @@ const bootstrap = Effect.fn("desktop.bootstrap")(function* (backendStarted: bool
 
   yield* snapShot.initialize;
   yield* (yield* MiniQqWindow.MiniQqWindow).registerShortcut;
+  const openedAtLogin = DesktopWindow.desktopOpenedAtLogin(environment);
   // Only the user's own login shell PATH shows every t3 a new terminal runs; a fresh install has
   // no cached one. Without it, the command is left to Settings.
   const installCli = (yield* DesktopCliCommand.DesktopCliCommand).installOnFirstLaunch;
@@ -306,7 +307,7 @@ const bootstrap = Effect.fn("desktop.bootstrap")(function* (backendStarted: bool
   if (!settings.localEnvironmentEnabled) {
     // The backend config refreshes the launcher when the local environment runs; an update may move the app.
     yield* DesktopCliShim.install;
-    if (!(yield* Ref.get(state.quitting))) {
+    if (!openedAtLogin && !(yield* Ref.get(state.quitting))) {
       yield* desktopWindow.createMainIfBackendReady;
     }
     return;
@@ -315,6 +316,7 @@ const bootstrap = Effect.fn("desktop.bootstrap")(function* (backendStarted: bool
   const primaryBackend = yield* (yield* DesktopBackendPool.DesktopBackendPool).primary;
   const config = yield* primaryBackend.currentConfig;
   if (
+    !openedAtLogin &&
     !environment.isDevelopment &&
     Option.isSome(config) &&
     Option.isNone(config.value.preflightFailure)

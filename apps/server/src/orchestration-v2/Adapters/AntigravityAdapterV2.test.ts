@@ -608,9 +608,9 @@ describe("AntigravityAdapterV2 compaction", () => {
         }
         assert.lengthOf(compactions, 1);
         assert.equal(compactions[0]?.runId, RunId.make(`run:${threadId}:2`));
+        assert.equal(providerThread.contextUsage?.usedTokens, 96_000);
+        assert.equal(providerThread.contextUsage?.maxTokens, 256_000);
         if (source === "native plus DB") {
-          assert.equal(providerThread.contextUsage?.usedTokens, 96_000);
-          assert.equal(providerThread.contextUsage?.maxTokens, 256_000);
           assert.deepEqual(providerThread.contextUsage?.breakdown, [
             { category: "messages", tokens: 96_000 },
           ]);

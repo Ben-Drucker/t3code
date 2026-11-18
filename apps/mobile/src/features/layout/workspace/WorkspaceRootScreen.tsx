@@ -79,7 +79,7 @@ function WorkspaceRootTitle(props: {
 function WorkspaceRootContent() {
   const navigation = useNavigation();
   const { width: windowWidth } = useWindowDimensions();
-  const { layout, startNewTask } = useAdaptiveWorkspaceLayout();
+  const { layout, pressNewChat } = useAdaptiveWorkspaceLayout();
   const primaryColumn = use(NativePrimaryColumnContext);
   const columnMetrics = useNativeColumnLayoutMetrics();
   const nativeMetrics = useNativeLayoutMetrics();
@@ -181,9 +181,9 @@ function WorkspaceRootContent() {
         ) : null}
         {enabled.length === 0 && !settingsOpen ? null : settingsOpen ||
           state.selectedTab !== "usage" ? (
-          <WorkspaceToolbar sidebar={sidebarNavigation} onNewTask={startNewTask} />
+          <WorkspaceToolbar sidebar={sidebarNavigation} onNewTask={pressNewChat} />
         ) : (
-          <WorkspaceSectionToolbar onNewTask={startNewTask} showCompose={false} />
+          <WorkspaceSectionToolbar onNewTask={pressNewChat} showCompose={false} />
         )}
       </View>
     </WorkspaceTabsContext>

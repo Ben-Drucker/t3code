@@ -11,7 +11,7 @@ import type {
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowUpRightIcon, PlusIcon, XIcon } from "lucide-react";
+import { ArrowUpIcon, ArrowUpRightIcon, PlusIcon, XIcon } from "lucide-react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 
 import {
@@ -30,6 +30,7 @@ import { threadEnvironment, useEnvironmentThread } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { buildThreadRouteParams } from "../../threadRoutes";
 import ChatView from "../ChatView";
+import type { StartupMessage } from "../chat/ChatComposer";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
@@ -39,6 +40,7 @@ interface MiniQqSession {
   readonly draftId: DraftId;
   readonly environmentId: EnvironmentId;
   readonly draftThreadId: ThreadId;
+  readonly startupMessage?: StartupMessage;
 }
 
 const ZERO_WINDOW_CONTROLS_INSET_STYLE = {
@@ -65,6 +67,9 @@ function focusMiniQqComposer(container: HTMLElement | null) {
 
 export function MiniQqView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const startupInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [queuedText, setQueuedText] = useState<string | null>(null);
+  const queuedTextRef = useRef<string | null>(null);
   const initializingRef = useRef(false);
   const navigate = useNavigate();
   const primaryEnvironment = usePrimaryEnvironment();
@@ -183,11 +188,28 @@ export function MiniQqView() {
     });
     store.applyStickyState(draftId);
 
+    const text = startupInputRef.current?.value ?? "";
+    if (text !== "") store.setPrompt(draftId, text);
+    let pending = text.trim() !== "" && queuedTextRef.current === text;
+    const startupMessage = pending
+      ? {
+          text,
+          take() {
+            const claimed = pending;
+            pending = false;
+            return claimed;
+          },
+        }
+      : undefined;
+    queuedTextRef.current = null;
+    setQueuedText(null);
+
     setPromotedByDraft(null);
     setSession({
       draftId,
       environmentId: projectRef.environmentId,
       draftThreadId,
+      ...(startupMessage ? { startupMessage } : {}),
     });
     focusMiniQqComposer(containerRef.current);
   };
@@ -197,28 +219,44 @@ export function MiniQqView() {
   const primaryConnected =
     primaryEnvironment?.connection.phase === "connected" &&
     primaryEnvironment.serverConfig !== null;
+  const scratchReady = scratchEnvironmentId(null) !== null;
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- bootstraps the initial quick-question draft once an environment or project list is ready
   useEffect(() => {
     if (session !== null) return;
-    if (!primaryConnected && projects.length === 0) return;
+    if (!primaryConnected && !scratchReady && projects.length === 0) return;
     void startFreshSessionStable(null, false);
-  }, [primaryConnected, projects.length, session, startFreshSessionStable]);
+  }, [primaryConnected, scratchReady, projects.length, session, startFreshSessionStable]);
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to desktop Mini QQ activation events so summoning focuses the composer
+  const handleReset = useStableCallback(() => {
+    if (startupInputRef.current) {
+      startupInputRef.current.value = "";
+      queuedTextRef.current = null;
+      setQueuedText(null);
+      startupInputRef.current.focus();
+      return;
+    }
+    void startFreshSession(session, activeServerThreadRef !== null);
+  });
+
+  const queueStartupMessage = () => {
+    const text = startupInputRef.current?.value;
+    if (!text?.trim()) return;
+    queuedTextRef.current = text;
+    setQueuedText(text);
+  };
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to desktop Mini QQ activation events so summoning resets or focuses the composer
   useEffect(() => {
     const miniQq = window.desktopBridge?.miniQq;
     if (!miniQq) return;
-    return miniQq.onActivate(({ focusComposer }) => {
+    return miniQq.onActivate(({ focusComposer, resetThread }) => {
+      if (resetThread) handleReset();
       if (focusComposer) {
         focusMiniQqComposer(containerRef.current);
       }
     });
-  }, []);
-
-  const handleReset = () => {
-    void startFreshSession(session, activeServerThreadRef !== null);
-  };
+  }, [handleReset]);
 
   const handleHide = () => {
     void window.desktopBridge?.miniQq?.hide();
@@ -385,9 +423,40 @@ export function MiniQqView() {
 
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {session === null ? (
-          <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
-            Connecting…
-          </div>
+          <form
+            className="mt-auto flex w-full flex-col gap-2 p-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              queueStartupMessage();
+            }}
+          >
+            <textarea
+              ref={startupInputRef}
+              autoFocus
+              aria-label="Quick Question message"
+              placeholder="Ask a quick question"
+              rows={3}
+              className="resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+              onChange={() => {
+                queuedTextRef.current = null;
+                setQueuedText(null);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing)
+                  return;
+                event.preventDefault();
+                queueStartupMessage();
+              }}
+            />
+            <div className="flex items-center justify-between">
+              <span role="status" className="text-xs text-muted-foreground">
+                {queuedText === null ? "Connecting…" : "Will send when connected"}
+              </span>
+              <Button type="submit" size="icon-xs" aria-label="Send Quick Question">
+                <ArrowUpIcon />
+              </Button>
+            </div>
+          </form>
         ) : activeServerThreadRef ? (
           <ChatView
             key={session.draftId}
@@ -407,6 +476,7 @@ export function MiniQqView() {
             miniQq
             reserveTitleBarControlInset={false}
             forceExpandedMobileComposer
+            {...(session.startupMessage ? { startupMessage: session.startupMessage } : {})}
           />
         )}
       </div>

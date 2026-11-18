@@ -383,7 +383,13 @@ export interface ChatComposerHandle {
   setMultipleModelSelections: (selections: ReadonlyArray<ModelSelection>) => void;
 }
 
+export interface StartupMessage {
+  readonly text: string;
+  readonly take: () => boolean;
+}
+
 export interface ChatComposerProps {
+  startupMessage?: StartupMessage | undefined;
   composerDraftTarget: ScopedThreadRef | DraftId;
   environmentId: EnvironmentId;
   canOperateThread: boolean;
@@ -639,15 +645,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     contextWindowLiveUsage,
     contextWindowProviderThread,
   );
-  const contextBreakdown = activeContextWindow
-    ? resolveContextBreakdown({
-        reported: activeContextWindow.breakdown,
-        entries: contextWindowEntries,
-        messageChars: contextWindowMessageChars,
-        usedTokens: activeContextWindow.usedTokens,
-        reportedReasoningTokens: activeContextWindow.reasoningOutputTokens,
-      })
-    : null;
+  const contextBreakdown =
+    activeContextWindow &&
+    (contextWindowProviderThread?.driver !== "antigravity" || activeContextWindow.breakdown?.length)
+      ? resolveContextBreakdown({
+          reported: activeContextWindow.breakdown,
+          entries: contextWindowEntries,
+          messageChars: contextWindowMessageChars,
+          usedTokens: activeContextWindow.usedTokens,
+          reportedReasoningTokens: activeContextWindow.reasoningOutputTokens,
+        })
+      : null;
   const {
     activePendingProgress: incomingPendingProgress,
     activePendingResolvedAnswers,
@@ -2525,6 +2533,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return true;
   };
   const submitComposerStable = useStableCallback(submitComposer);
+  const startupMessage = props.startupMessage;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- dispatches an explicitly queued startup message once the normal composer can send it
+  useEffect(() => {
+    if (!startupMessage) return;
+    if (prompt !== startupMessage.text) {
+      startupMessage.take();
+      return;
+    }
+    if (submissionBlocked || projectSelectionRequired || isSendBusy || !canOperateThread) return;
+    if (startupMessage.take()) submitComposerStable(undefined, "auto", "foreground");
+  }, [
+    startupMessage,
+    prompt,
+    submissionBlocked,
+    projectSelectionRequired,
+    isSendBusy,
+    canOperateThread,
+    submitComposerStable,
+  ]);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes the committed submission handler to the asynchronous dictation completion
   useLayoutEffect(() => {
     submitComposerRef.current = (mode, intent) => submitComposerStable(undefined, mode, intent);

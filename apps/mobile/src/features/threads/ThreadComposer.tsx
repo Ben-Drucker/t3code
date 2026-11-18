@@ -298,6 +298,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
   const pendingNativeImagePasteCountRef = useRef(0);
   const [pendingPastedTextAttachmentCount, setPendingPastedTextAttachmentCount] = useState(0);
   const settingsRoutePresentedRef = useRef(false);
+  const pickModelRef = useRef(false);
   const settingsSheetPresentation = useThreadSettingsSheetPresentation({
     editorRef: inputRef,
     onPresent: () => {
@@ -306,11 +307,12 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
       // The draft composer edits the new-task flow, which owns its own settings route.
       navigation.dispatch(
         props.isDraft
-          ? StackActions.push("NewTaskThreadSettings")
+          ? StackActions.push("NewTaskThreadSettings", { pickModel: pickModelRef.current })
           : StackActions.push("ThreadSettingsSheet", {
               environmentId: props.environmentId,
               threadId: props.selectedThread.id,
               draftKey: composerDraftKey,
+              pickModel: pickModelRef.current,
             } satisfies ExistingThreadSettingsRouteParams),
       );
     },
@@ -470,7 +472,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     offersUsageLimits: usageLimitsOffered,
     onUsageLimits:
       usageLimitsOffered && draftAttachments.length === 0 ? openUsageLimits : undefined,
-    onOpenModelPicker: settingsSheetPresentation.open,
+    onOpenModelPicker: openModelPicker,
     modelOptions: mentionModelOptions,
     modelProviders: props.serverConfig?.providers,
     ...(props.onFreshSession === undefined ? {} : { onFreshSession: props.onFreshSession }),
@@ -630,9 +632,14 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
         option.selection.instanceId === currentModelSelection.instanceId &&
         option.selection.model === currentModelSelection.model,
     ) ?? null;
-  const openSettings = () => {
+  function openSettings() {
+    pickModelRef.current = false;
     settingsSheetPresentation.open();
-  };
+  }
+  function openModelPicker() {
+    pickModelRef.current = Platform.OS === "ios";
+    settingsSheetPresentation.open();
+  }
 
   useFocusEffect(() => {
     if (!settingsRoutePresentedRef.current) {
@@ -711,7 +718,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
         prompt={draftMessage}
         surfaceColor={composerPanel}
         iconOnly={!compactEditor.isExpanded}
-        onPress={openSettings}
+        onPress={openModelPicker}
       />
     </View>
   );
@@ -1033,6 +1040,10 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 </Animated.View>
                 {!props.isDraft ? (
                   <ThreadContextIndicator
+                    threadRef={{
+                      environmentId: props.environmentId,
+                      threadId: props.selectedThread.id,
+                    }}
                     size={usesLargeControls ? "large" : "regular"}
                     onPress={openSettings}
                   />

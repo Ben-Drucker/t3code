@@ -162,7 +162,7 @@ export function buildAgentToolSections(
     sections.push({
       id,
       group,
-      tools: matched.toSorted((left, right) => left.score - right.score).map((match) => match.tool),
+      tools: matched.sort((left, right) => left.score - right.score).map((match) => match.tool),
       expanded: true,
       score: Math.min(...scores),
       order,
@@ -171,7 +171,7 @@ export function buildAgentToolSections(
   const kindOrder = (section: { readonly group: ComposerToolGroup }) =>
     SECTION_KIND_ORDER[section.group.kind];
   return sections
-    .toSorted((left, right) => {
+    .sort((left, right) => {
       if (needle !== "") return left.score - right.score || left.order - right.order;
       return (
         kindOrder(left) - kindOrder(right) ||

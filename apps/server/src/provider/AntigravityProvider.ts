@@ -118,6 +118,7 @@ export function buildAntigravityModelsFromSession(
           observed === undefined
             ? thinkingCapabilities(currentThinking, false)
             : thinkingCapabilities(observed, true),
+          entry.value,
         ),
       },
     ];

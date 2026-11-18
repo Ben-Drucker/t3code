@@ -7,16 +7,19 @@ import {
   resolveContextBreakdown,
 } from "@t3tools/client-runtime/context-breakdown";
 import { formatContextWindowTokens } from "@t3tools/shared/contextWindow";
+import type { ThreadStructure } from "@t3tools/client-runtime/state/models";
+import type { ScopedThreadRef } from "@t3tools/contracts";
 import { Pressable, View } from "react-native";
 import Svg, { Circle, Line } from "react-native-svg";
 
 import { AppText as Text } from "../../components/ui/AppText";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
-import { useSelectedThreadProjection } from "../../state/use-thread-detail";
+import {
+  useQuietThreadStructure,
+  useSelectedThreadProjection,
+} from "../../state/use-thread-detail";
 
-function useActiveThreadContextSnapshot() {
-  const thread = useSelectedThreadProjection();
-  const projection = thread?.projection;
+function activeThreadContextSnapshot(projection: ThreadStructure | undefined) {
   const providerThread = projection?.providerThreads.find(
     (candidate) => candidate.id === projection.thread.activeProviderThreadId,
   );
@@ -27,14 +30,16 @@ function useActiveThreadContextSnapshot() {
   );
   const entries = projection?.visibleTurnItems ?? [];
   const context = deriveLatestContextWindowSnapshot(entries, liveUsage, providerThread);
-  return { projection, entries, context };
+  return { projection, entries, context, providerThread };
 }
 
 export function ThreadContextIndicator(props: {
+  readonly threadRef: ScopedThreadRef;
   readonly onPress: () => void;
   readonly size?: "regular" | "large";
 }) {
-  const { context } = useActiveThreadContextSnapshot();
+  const thread = useQuietThreadStructure(props.threadRef);
+  const { context } = activeThreadContextSnapshot(thread?.projection);
   const theme = useUniwindTheme();
   if (!context) return null;
 
@@ -108,16 +113,22 @@ export function ThreadContextIndicator(props: {
 }
 
 export function ThreadContextUsage() {
-  const { projection, entries, context } = useActiveThreadContextSnapshot();
+  const thread = useSelectedThreadProjection();
+  const { projection, entries, context, providerThread } = activeThreadContextSnapshot(
+    thread?.projection,
+  );
   if (!context) return null;
-  const breakdown = resolveContextBreakdown({
-    reported: context.breakdown,
-    entries,
-    messageChars:
-      projection?.messages.reduce((count, message) => count + message.text.length, 0) ?? 0,
-    usedTokens: context.usedTokens ?? 0,
-    reportedReasoningTokens: context.reasoningOutputTokens,
-  });
+  const breakdown =
+    providerThread?.driver === "antigravity" && !context.breakdown?.length
+      ? null
+      : resolveContextBreakdown({
+          reported: context.breakdown,
+          entries,
+          messageChars:
+            projection?.messages.reduce((count, message) => count + message.text.length, 0) ?? 0,
+          usedTokens: context.usedTokens ?? 0,
+          reportedReasoningTokens: context.reasoningOutputTokens,
+        });
   const used = formatContextWindowTokens(context.usedTokens);
   const limit =
     context.maxTokens == null ? "Unknown" : formatContextWindowTokens(context.maxTokens);
@@ -144,10 +155,12 @@ export function ThreadContextUsage() {
           <View className="h-full bg-primary" style={{ width: `${context.usedPercentage}%` }} />
         </View>
       ) : null}
-      <Text className="text-xs text-foreground-muted">
-        {breakdown.estimated ? "Estimated breakdown" : "Breakdown"}
-      </Text>
-      {breakdown.categories.map((row) => (
+      {breakdown ? (
+        <Text className="text-xs text-foreground-muted">
+          {breakdown.estimated ? "Estimated breakdown" : "Breakdown"}
+        </Text>
+      ) : null}
+      {breakdown?.categories.map((row) => (
         <View key={row.category} className="flex-row justify-between gap-4">
           <Text className="text-xs text-foreground-muted">
             {CONTEXT_BREAKDOWN_LABELS[row.category]}

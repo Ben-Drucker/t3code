@@ -26,6 +26,14 @@ import { pullRequestStatus } from "../pull-requests/pullRequestStatus";
 export type ComposerCommandItem =
   | {
       readonly id: string;
+      readonly type: "agent-tool";
+      readonly source: string;
+      readonly tool: string;
+      readonly label: string;
+      readonly description: string;
+    }
+  | {
+      readonly id: string;
       readonly type: "pull-request";
       readonly pullRequest: PullRequestContextMetadata;
       readonly label: string;
@@ -132,6 +140,8 @@ function itemIcon(item: ComposerCommandItem): AppSymbolName | null {
       return null;
     case "thread":
       return "text.bubble";
+    case "agent-tool":
+      return "terminal";
     case "environment":
       return ENVIRONMENT_MACHINE_SYMBOLS[item.machine];
   }
@@ -148,6 +158,8 @@ function groupLabel(
       return "Commands";
     case "skill":
       return "Skills";
+    case "agent-config":
+      return "Models and tools";
     case "path":
       return items.every((item) => item.type === "path") ? "Files" : "Mentions";
     default:

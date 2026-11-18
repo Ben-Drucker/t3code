@@ -10,7 +10,10 @@ import {
   ComposerPromptEditorTiptap as ComposerPromptEditor,
   type ComposerPromptEditorHandle,
 } from "../ComposerPromptEditorTiptap";
-import { buildAgentToolSections, matchesAgentModelRow } from "./agentToolMenu";
+import {
+  buildAgentToolSections,
+  matchesAgentModelRow,
+} from "@t3tools/client-runtime/agent-tool-menu";
 import { ComposerCommandMenu, type ComposerCommandItem } from "./ComposerCommandMenu";
 import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 

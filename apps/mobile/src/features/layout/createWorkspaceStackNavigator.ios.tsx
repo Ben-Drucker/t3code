@@ -228,7 +228,7 @@ function WorkspaceColumns(
     layout,
     setPrimarySidebarVisible,
     toggleAuxiliaryPane,
-    startNewTask,
+    pressNewChat,
     openWorkspaceTab,
     nativeInspectorWidth,
     setNativeInspectorWidth,
@@ -274,7 +274,7 @@ function WorkspaceColumns(
   const workspaceTabs = useWorkspaceTabs();
   const selectedTab = workspaceTabs?.state.selectedTab;
   const settingsOpen = workspaceTabs?.settingsOpen ?? false;
-  const openNewTask = startNewTask;
+  const openNewTask = pressNewChat;
   // The cover detail rail needs room for thread tools above the fixed tabs.
   // The unfolded Duo keeps compose in its detail bar.
   const compose = useWorkspaceCompose();

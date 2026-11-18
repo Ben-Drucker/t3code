@@ -287,7 +287,7 @@ import {
   useThreadCheckpointSummaries,
 } from "../state/entities";
 import { useEnvironmentShellHasSnapshot } from "../state/shell";
-import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
+import { ChatComposer, type ChatComposerHandle, type StartupMessage } from "./chat/ChatComposer";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialogHost, openExpandedImagePreview } from "./chat/ExpandedImageDialog";
 import {
@@ -433,6 +433,7 @@ type ChatViewProps =
       miniQq?: boolean;
       routeKind: "server";
       draftId?: never;
+      startupMessage?: never;
     }
   | {
       environmentId: EnvironmentId;
@@ -445,6 +446,7 @@ type ChatViewProps =
       miniQq?: boolean;
       routeKind: "draft";
       draftId: DraftId;
+      startupMessage?: StartupMessage;
     };
 
 const DismissedFallbackWindowSchema = Schema.NullOr(Schema.String);
@@ -1538,18 +1540,20 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadLiveTokenUsage,
     activeProviderThread,
   );
-  const activeContextBreakdown = activeContextWindow
-    ? resolveContextBreakdown({
-        reported: activeContextWindow.breakdown,
-        entries: serverVisibleTurnItems ?? [],
-        messageChars: (serverProjection?.messages ?? []).reduce(
-          (sum, message) => sum + message.text.length,
-          0,
-        ),
-        usedTokens: activeContextWindow.usedTokens,
-        reportedReasoningTokens: activeContextWindow.reasoningOutputTokens,
-      })
-    : null;
+  const activeContextBreakdown =
+    activeContextWindow &&
+    (activeProviderThread?.driver !== "antigravity" || activeContextWindow.breakdown?.length)
+      ? resolveContextBreakdown({
+          reported: activeContextWindow.breakdown,
+          entries: serverVisibleTurnItems ?? [],
+          messageChars: (serverProjection?.messages ?? []).reduce(
+            (sum, message) => sum + message.text.length,
+            0,
+          ),
+          usedTokens: activeContextWindow.usedTokens,
+          reportedReasoningTokens: activeContextWindow.reasoningOutputTokens,
+        })
+      : null;
   const pendingBackgroundTasks = deriveThreadPendingBackgroundTasks(serverProjection);
   const activeWorkStartedAt =
     deriveActiveWorkStartedAt(activeActivityRun, activeRuntime, localDispatchStartedAt) ??
@@ -3682,6 +3686,11 @@ export default function ChatView(props: ChatViewProps) {
                             ) : null}
                             {!composerMounted ? null : (
                               <ChatComposer
+                                startupMessage={
+                                  miniQq && clientSettingsHydrated && activeThread && activeProject
+                                    ? props.startupMessage
+                                    : undefined
+                                }
                                 canOperateThread={canOperateThread}
                                 reportedModelSelection={reportedModelSelection}
                                 multipleModelSelections={multipleModelSelections}

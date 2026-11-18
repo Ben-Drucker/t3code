@@ -152,9 +152,7 @@ const GROUP = {
 
 export function antigravityBreakdownFromGeneration(
   generation: Uint8Array,
-):
-  | { readonly usedTokens: number; readonly maxTokens?: number; readonly breakdown: Breakdown }
-  | undefined {
+): { readonly usedTokens: number; readonly breakdown: Breakdown } | undefined {
   const chat = new Proto(generation).message(1);
   const context = chat?.message(9)?.message(10);
   const groups = context?.message(3)?.messages(1);
@@ -164,7 +162,6 @@ export function antigravityBreakdownFromGeneration(
   let system = 0;
   let chatTokens = 0;
   let chatItems: ReadonlyArray<Proto> = [];
-  let sawPromptOrTools = false;
   for (const group of groups) {
     const type = group.int(2);
     const tokens = group.int(4);
@@ -179,12 +176,10 @@ export function antigravityBreakdownFromGeneration(
           extracted += child.int(3);
         }
         system += tokens - extracted;
-        sawPromptOrTools = true;
         break;
       }
       case GROUP.tools:
         system += tokens;
-        sawPromptOrTools = true;
         break;
       case GROUP.skills:
         skills += tokens;
@@ -206,12 +201,6 @@ export function antigravityBreakdownFromGeneration(
     }
   }
   messages = chatTokens;
-  // Without a system prompt group, the API input beyond the chat is overhead.
-  if (!sawPromptOrTools && chatTokens > 0) {
-    const usage = chat?.message(4);
-    const apiInput = usage === undefined ? 0 : usage.int(2) + usage.int(5);
-    if (chatTokens < apiInput) system += apiInput - chatTokens;
-  }
   // System-type chat rows belong to the system share, not the conversation.
   for (const item of chatItems) {
     const [, label = ""] = item.string(1).split(": ");
@@ -221,12 +210,10 @@ export function antigravityBreakdownFromGeneration(
     }
   }
   messages = Math.max(0, messages);
-  const usedTokens = messages + skills + system;
+  const usedTokens = context?.int(1) || messages + skills + system;
   if (usedTokens <= 0) return undefined;
-  const maxTokens = context?.int(4);
   return {
     usedTokens,
-    ...(maxTokens !== undefined && maxTokens > 0 ? { maxTokens } : {}),
     breakdown: [
       { category: "messages", tokens: messages },
       { category: "skills", tokens: skills },

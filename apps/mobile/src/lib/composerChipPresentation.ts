@@ -27,6 +27,7 @@ const CONTEXT_CHIP_PRESENTATIONS = {
   video: { accent: "#d06217", icon: "film" },
   file: { accent: "#0090cd", icon: null },
   mention: { accent: "#0096af", icon: null },
+  "agent-config": { accent: "#0096af", icon: null },
   terminal: { accent: "#009f6e", icon: "terminal" },
   element: { accent: "#b87501", icon: "mouse-pointer-click" },
   "preview-annotation": {

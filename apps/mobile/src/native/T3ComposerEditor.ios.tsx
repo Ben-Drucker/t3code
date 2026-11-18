@@ -1,6 +1,10 @@
 import { PASTED_TEXT_ATTACHMENT_THRESHOLD_BYTES } from "@t3tools/client-runtime/text-paste";
 import { PROVIDER_SEND_TURN_MAX_INPUT_CHARS } from "@t3tools/contracts";
-import { collectComposerInlineTokens } from "@t3tools/shared/composerInlineTokens";
+import {
+  collectComposerInlineTokens,
+  parseAgentConfigChip,
+  parseAgentToolChip,
+} from "@t3tools/shared/composerInlineTokens";
 import { composerContextEditorTokens, composerSkillLabels } from "../lib/composerContext";
 import { useComposerModelTokens } from "./useComposerModelTokens";
 import { requireNativeView } from "expo";
@@ -167,11 +171,12 @@ export function ComposerEditor({
   // an abandoned render from leaking a trailing token into the next one.
   const [confirmedTokens, setConfirmedTokens] = useState(() => ({
     value: props.value,
-    tokens: collectComposerInlineTokens(props.value),
+    tokens: collectComposerInlineTokens(props.value, { agentConfigs: true }),
   }));
   let tokens = confirmedTokens.tokens;
   if (confirmedTokens.value !== props.value) {
     tokens = collectComposerInlineTokens(props.value, {
+      agentConfigs: true,
       preserveTrailingFrom: confirmedTokens.tokens,
     });
     setConfirmedTokens({ value: props.value, tokens });
@@ -187,6 +192,8 @@ export function ComposerEditor({
     return JSON.stringify(
       composerContextEditorTokens(props.value, tokens, skillLabels, modelTokens).map((token) => {
         const model = token.type === "model" ? modelsBySource.get(token.source) : undefined;
+        const config = token.type === "agent-config" ? parseAgentConfigChip(token.value) : null;
+        const tool = token.type === "agent-config" ? parseAgentToolChip(token.value) : null;
         const record =
           token.type === "context"
             ? props.context?.records.find((record) => record.contextId === token.contextId)
@@ -216,7 +223,8 @@ export function ComposerEditor({
                 ? model.label
                 : token.type === "context"
                   ? `${token.label}${props.context?.records.some((record) => record.contextId === token.contextId) ? "" : " · unavailable"}`
-                  : basename(token.value),
+                  : (config?.model ??
+                    (tool ? `${tool.source} > ${tool.tool}` : basename(token.value))),
           detail: token.type === "context" ? composerChipSizeSuffix(record) : "",
           iconUri: model ? modelChipIconUri(model) : contextChipIconUri(icon),
           tintsIcon: model ? modelChipIcon(model).tintsIcon : icon.kind === "chip",

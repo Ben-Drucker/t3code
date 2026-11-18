@@ -86,7 +86,16 @@ import { startOpeningDetail } from "./workspace/useSelectWorkspaceDetail";
 import { useWorkspaceTabs } from "./workspace/WorkspaceTabsContext";
 import { HomeListOptionsProvider } from "../home/home-list-options";
 import { buildHomeProjectScopes, resolveHomeProjectFilterScope } from "../home/homeThreadList";
-import { newTaskDestination, newTaskFilteredProject } from "../threads/new-task-project-selection";
+import {
+  newTaskDestination,
+  newTaskFilteredProject,
+  resolveNewTaskScratchOption,
+} from "../threads/new-task-project-selection";
+import { toggleComposerQuickQuestion } from "@t3tools/shared/composerInlineTokens";
+import { createNewTaskDraft, setComposerDraftText } from "../../state/use-composer-drafts";
+import { environmentServerConfigsAtom } from "../../state/server";
+import { useAtomCommand } from "../../state/use-atom-command";
+import { projectEnvironment } from "../../state/projects";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
 import { PaneContext } from "../../components/ui/Pane";
 import { WORKSPACE_PANE_TIMING } from "./workspace-pane-animation";
@@ -205,6 +214,7 @@ function useStableActions(actions: Required<AdaptiveWorkspaceActions>): Adaptive
   });
   const [stable] = useState((): AdaptiveWorkspaceActions => ({
     startNewTask: () => latest.current.startNewTask(),
+    pressNewChat: () => latest.current.pressNewChat(),
     selectDetail: (detail, sheet) => latest.current.selectDetail(detail, sheet),
     registerWorkspaceInspector: (content, routeKey, revealKey) =>
       latest.current.registerWorkspaceInspector(content, routeKey, revealKey),
@@ -646,6 +656,62 @@ function AdaptiveWorkspaceLayoutContent(
     );
   };
 
+  const openScratch = useAtomCommand(projectEnvironment.openScratch);
+  const composePressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const quickQuestionOpening = useRef(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- cancels a pending toolbar tap when the workspace closes
+  useEffect(
+    () => () => {
+      if (composePressTimer.current !== null) clearTimeout(composePressTimer.current);
+    },
+    [],
+  );
+
+  const handlePressNewChat = () => {
+    if (Platform.OS !== "ios") {
+      handleStartNewTask();
+      return;
+    }
+    if (quickQuestionOpening.current) return;
+    if (composePressTimer.current === null) {
+      composePressTimer.current = setTimeout(() => {
+        composePressTimer.current = null;
+        handleStartNewTask();
+      }, 275);
+      return;
+    }
+    clearTimeout(composePressTimer.current);
+    composePressTimer.current = null;
+    const scratch = resolveNewTaskScratchOption({
+      environments: appAtomRegistry.get(workspaceConnections.environmentsAtom),
+      serverConfigs: appAtomRegistry.get(environmentServerConfigsAtom),
+      selectedEnvironmentId: null,
+    });
+    if (!scratch?.ready) {
+      handleStartNewTask();
+      return;
+    }
+    quickQuestionOpening.current = true;
+    void openScratch({ environmentId: scratch.environmentId, input: {} }).then((result) => {
+      quickQuestionOpening.current = false;
+      if (result._tag !== "Success") return;
+      const project = result.value;
+      const draftId = createNewTaskDraft({
+        environmentId: project.environmentId,
+        projectId: project.id,
+      });
+      setComposerDraftText(draftId, toggleComposerQuickQuestion(""));
+      handleSelectThreadRoute({
+        draft: {
+          requestId: uuidv4(),
+          draftId,
+          environmentId: project.environmentId,
+          projectId: project.id,
+        },
+      });
+    });
+  };
+
   useHardwareKeyboardCommand("newTask", () => {
     handleStartNewTask();
     return true;
@@ -936,6 +1002,7 @@ function AdaptiveWorkspaceLayoutContent(
 
   const actions = useStableActions({
     startNewTask: handleStartNewTask,
+    pressNewChat: handlePressNewChat,
     selectDetail: handleSelectDetail,
     registerWorkspaceInspector,
     setPrimarySidebarSearchQuery,
