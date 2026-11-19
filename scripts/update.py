@@ -36,7 +36,7 @@ REPO = Path(__file__).resolve().parent.parent
 DEFAULT_STEPS = [("Fetching upstream", 5), ("Installing dependencies", 15), ("Building the app", 130), ("Installing", 12)]
 FALLBACK_ESTIMATE = 30
 BUILD_STEP = "Building the app"
-IGNORED_UNTRACKED = ("task-history-handoffs",)
+IGNORED_UNTRACKED = ("task-history-handoffs", "task-history-compactions")
 CONFLICT_CODES = {"DD", "AU", "UD", "UA", "DU", "AA", "UU"}
 
 # Lines fork.sh deploy prints (see cmd_deploy in scripts/fork.sh).
@@ -76,7 +76,8 @@ def parse_status(raw: str) -> list[tuple[str, str]]:
 
 def classify_status(raw: str, repo: Path, out_dir: Path) -> tuple[list[str], list[str]]:
     """Splits dirty paths into (ignorable, blocking). Anything under the build output directory and
-    untracked task-history-handoffs/ and Python __pycache__ are ignorable; conflicted and other changed paths block."""
+    untracked task-history-handoffs/, task-history-compactions/, and Python __pycache__ are ignorable;
+    conflicted and other changed paths block."""
     try:
         out_rel = out_dir.resolve().relative_to(repo.resolve()).as_posix()
     except ValueError:

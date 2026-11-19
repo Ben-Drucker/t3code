@@ -50,5 +50,8 @@ node_modules/
 # pnpm content-addressable store; never belongs in the repo.
 .pnpm-store/
 __pycache__/
+.fork-out/
+.repos/
+/task-history-compactions/
 
 /packages/ssh/.ssh-launcher-test-*/

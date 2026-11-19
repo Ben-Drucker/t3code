@@ -307,7 +307,11 @@ permissions:
     skills: false
   drizzle-kit:
     skills: false
+  e2e:
+    skills: false
   expo-sqlite:
+    skills: false
+  get-tsconfig:
     skills: false
 
 # @cursor/sdk finds its platform package (sandbox helper, rg, tree-sitter) by

@@ -156,19 +156,36 @@ step_sync() {
   git -C "$REPO" fetch --quiet --tags origin
 }
 
-step_deps() { in_node 'vp i'; }
+step_deps() { in_node 'vp i --frozen-lockfile'; }
 
 # ---------------------------------------------------------------- build
 
+# Untracked agent session history and Python bytecode never affect the app bundle.
+untracked_ignorable() {
+  case "$1" in
+    "?? task-history-handoffs/"*|"?? task-history-compactions/"*|"?? "*/__pycache__/*|"?? __pycache__"*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 check_tree() {
   cd "$REPO"
-  local branch dirty
+  local branch dirty line blocking=""
   branch="$(git branch --show-current)"
   [ "$branch" = "$BRANCH" ] || die "On '$branch', expected '$BRANCH'. Switch branches or set T3_FORK_BRANCH."
-  dirty="$(git status -s)"
+  dirty="$(git status -s -uall)"
   if [ -n "$dirty" ] && [ "$ALLOW_DIRTY" = 0 ]; then
-    printf '%s\n' "$dirty"
-    die "Uncommitted changes. Commit them (run 'vp run typecheck' first) or pass --allow-dirty."
+    while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      untracked_ignorable "$line" && continue
+      blocking="${blocking:+$blocking$'\n'}$line"
+    done <<<"$dirty"
+    if [ -n "$blocking" ]; then
+      printf '%s\n' "$blocking"
+      die "Uncommitted changes. Commit them (run 'vp run typecheck' first) or pass --allow-dirty."
+    fi
   fi
 }
 
