@@ -5,7 +5,6 @@ import {
 import * as Dialog from "../../components/ui/Dialog";
 import { tokenThroughput } from "@t3tools/shared/tokenThroughput";
 import { ThreadContextUsage } from "./ThreadContextUsage";
-import { useSelectedThreadProjection } from "../../state/use-thread-detail";
 import { createV5StackNavigator as createNativeStackNavigator } from "../../native/createV5StackNavigator";
 import { useSheetStackOptions } from "../layout/nested-stacks";
 import { DEFAULT_SERVER_SETTINGS, ProviderInstanceId } from "@t3tools/contracts";
@@ -20,6 +19,7 @@ import type {
   ProviderOptionDescriptor,
   ProviderOptionSelection,
   RuntimeMode,
+  ScopedThreadRef,
   ServerSettings,
   ThreadId,
 } from "@t3tools/contracts";
@@ -1466,8 +1466,8 @@ export function ExistingThreadSettingsRouteScreen({
       {...(route.params.pickModel ? { onModelPicked: () => navigation.goBack() } : {})}
       threadDetails={
         <>
-          <ThreadContextUsage />
-          <ThreadDetailsMetrics />
+          <ThreadContextUsage threadRef={selectedThreadDetailRef} />
+          <ThreadDetailsMetrics threadRef={selectedThreadDetailRef} />
         </>
       }
       environmentId={selectedThread.environmentId}
@@ -1504,8 +1504,8 @@ export function ExistingThreadSettingsRouteScreen({
   );
 }
 
-function ThreadDetailsMetrics() {
-  const thread = useSelectedThreadProjection();
+function ThreadDetailsMetrics(props: { readonly threadRef: ScopedThreadRef | null }) {
+  const thread = useQuietThreadStructure(props.threadRef);
   const throughput = tokenThroughput(thread?.projection.providerTurns ?? []);
   const rate = (value: number | null) =>
     value === null ? "Unavailable" : `${value.toFixed(1)} tok/s`;

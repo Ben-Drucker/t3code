@@ -14,10 +14,7 @@ import Svg, { Circle, Line } from "react-native-svg";
 
 import { AppText as Text } from "../../components/ui/AppText";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
-import {
-  useQuietThreadStructure,
-  useSelectedThreadProjection,
-} from "../../state/use-thread-detail";
+import { useQuietThreadStructure } from "../../state/use-thread-detail";
 
 function activeThreadContextSnapshot(projection: ThreadStructure | undefined) {
   const providerThread = projection?.providerThreads.find(
@@ -112,8 +109,8 @@ export function ThreadContextIndicator(props: {
   );
 }
 
-export function ThreadContextUsage() {
-  const thread = useSelectedThreadProjection();
+export function ThreadContextUsage(props: { readonly threadRef: ScopedThreadRef | null }) {
+  const thread = useQuietThreadStructure(props.threadRef);
   const { projection, entries, context, providerThread } = activeThreadContextSnapshot(
     thread?.projection,
   );
