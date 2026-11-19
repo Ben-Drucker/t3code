@@ -45,6 +45,7 @@ export interface TerminalCommandRunInput {
   readonly timeoutSeconds?: number | undefined;
   readonly cwd?: string | undefined;
   readonly description?: string | undefined;
+  readonly authorizedTurn?: { readonly runId: RunId; readonly cwd: string | null };
 }
 
 export interface TerminalCommandRunResult {
@@ -271,6 +272,7 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
   const resolveRunTarget = Effect.fn("TerminalCommandService.resolveRunTarget")(function* (
     threadId: ThreadId,
     requestedCwd: string | undefined,
+    authorizedTurn: TerminalCommandRunInput["authorizedTurn"],
   ) {
     const projection = yield* orchestrator.getThreadRecords(threadId, ["runs"]).pipe(
       Effect.mapError(
@@ -282,6 +284,20 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
       ),
     );
     const thread = projection.thread;
+    const running = projection.runs.findLast(
+      (run) => run.status === "preparing" || run.status === "starting" || run.status === "running",
+    );
+    if (
+      authorizedTurn &&
+      (thread.runtimeMode !== "full-access" ||
+        thread.interactionMode !== "default" ||
+        running?.id !== authorizedTurn.runId)
+    ) {
+      return yield* new OrchestratorMcpFailure({
+        code: "invalid_request",
+        message: "The T3 terminal requires an active Full access turn outside Plan mode.",
+      });
+    }
     const project = Option.getOrUndefined(
       yield* projects.getById(thread.projectId).pipe(
         Effect.mapError(
@@ -293,11 +309,11 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
         ),
       ),
     );
-    const baseCwd = thread.worktreePath ?? project?.workspaceRoot;
-    if (baseCwd === undefined && requestedCwd === undefined) {
+    const baseCwd = authorizedTurn?.cwd ?? thread.worktreePath ?? project?.workspaceRoot;
+    if (baseCwd === undefined && (requestedCwd === undefined || !path.isAbsolute(requestedCwd))) {
       return yield* new OrchestratorMcpFailure({
         code: "invalid_request",
-        message: "This thread has no workspace directory; pass an explicit `cwd`.",
+        message: "This thread has no workspace directory; pass an absolute `cwd`.",
       });
     }
     const targetCwd =
@@ -321,11 +337,7 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
         message: `Working directory is not a directory: ${targetCwd}`,
       });
     }
-    const activeRun =
-      projection.runs.findLast(
-        (run) =>
-          run.status === "preparing" || run.status === "starting" || run.status === "running",
-      ) ?? projection.runs.findLast((run) => run.status !== "queued");
+    const activeRun = running ?? projection.runs.findLast((run) => run.status !== "queued");
     if (activeRun === undefined || activeRun.rootNodeId === null) {
       return yield* new OrchestratorMcpFailure({
         code: "orchestration_error",
@@ -347,6 +359,7 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
     readonly taskId: string;
     readonly command: string;
     readonly title: string | undefined;
+    readonly commandSummary?: string | undefined;
     readonly commandStatus: "running" | "completed" | "failed" | "interrupted";
     readonly exitCode?: number | null | undefined;
     readonly output?: string | undefined;
@@ -375,6 +388,7 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
         taskId: input.taskId,
         command: input.command,
         ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.commandSummary === undefined ? {} : { commandSummary: input.commandSummary }),
         commandStatus: input.commandStatus,
         ...(input.exitCode === undefined ? {} : { exitCode: input.exitCode }),
         ...(input.output === undefined ? {} : { output: input.output }),
@@ -407,11 +421,26 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
         });
       }
 
-      const { cwd, runId, nodeId } = yield* resolveRunTarget(input.threadId, input.cwd);
+      const { cwd, runId, nodeId } = yield* resolveRunTarget(
+        input.threadId,
+        input.cwd,
+        input.authorizedTurn,
+      );
       const idSuffix = yield* random.uuidV4();
       const taskId = `terminal:${idSuffix}`;
       const turnItemId = TurnItemId.make(`item:terminal:${idSuffix}`);
-      const title = input.description?.trim() || summarizeCommand(input.command);
+      const commandSummary = input.description?.trim().slice(0, 512).trimEnd() || undefined;
+      const title = commandSummary ?? summarizeCommand(input.command);
+      const commandItem = {
+        threadId: input.threadId,
+        runId,
+        nodeId,
+        turnItemId,
+        taskId,
+        command: input.command,
+        title,
+        commandSummary,
+      };
 
       const shell = shellCommandForPlatform(input.command, platform, process.env);
       const startedAtMs = yield* Clock.currentTimeMillis;
@@ -436,7 +465,16 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
             code: "orchestration_error",
             message: `Could not start command: ${cause instanceof Error ? cause.message : String(cause)}`,
           }),
-      });
+      }).pipe(
+        Effect.tapError((error) =>
+          recordCommand({
+            ...commandItem,
+            commandStatus: "failed",
+            output: error.message,
+            awaited: false,
+          }),
+        ),
+      );
 
       const job: ActiveJob = {
         taskId,
@@ -456,7 +494,7 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
         outputBuffer.append(`\n${error.message}\n`);
         Deferred.doneUnsafe(exitDeferred, Exit.succeed({ exitCode: null, signal: null, error }));
       });
-      child.once("exit", (exitCode, signal) => {
+      child.once("close", (exitCode, signal) => {
         Deferred.doneUnsafe(exitDeferred, Exit.succeed({ exitCode, signal }));
       });
 
@@ -504,13 +542,7 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
 
           if (job.cancelledByStop) {
             yield* recordCommand({
-              threadId: input.threadId,
-              runId,
-              nodeId,
-              turnItemId,
-              taskId,
-              command: input.command,
-              title,
+              ...commandItem,
               commandStatus: "interrupted",
               exitCode: exitResult.exitCode,
               output: outputBuffer.snapshot(TERMINAL_COMMAND_RESULT_MAX_CHARS).output,
@@ -526,13 +558,7 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
             `message:terminal:${idSuffix}:${yield* random.uuidV4()}`,
           );
           yield* recordCommand({
-            threadId: input.threadId,
-            runId,
-            nodeId,
-            turnItemId,
-            taskId,
-            command: input.command,
-            title,
+            ...commandItem,
             commandStatus: succeeded ? "completed" : "failed",
             exitCode: timedOut ? null : exitResult.exitCode,
             output: timedOut
@@ -575,18 +601,12 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
           ),
       );
 
+      yield* recordCommand({
+        ...commandItem,
+        commandStatus: "running",
+        awaited: input.mode !== "foreground",
+      });
       if (input.mode === "background" || input.mode === "background_with_timeout") {
-        yield* recordCommand({
-          threadId: input.threadId,
-          runId,
-          nodeId,
-          turnItemId,
-          taskId,
-          command: input.command,
-          title,
-          commandStatus: "running",
-          awaited: true,
-        });
         yield* launchBackgroundMonitor(
           input.mode === "background_with_timeout" ? input.timeoutSeconds : undefined,
         );
@@ -616,6 +636,13 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
         const endedAtMs = yield* Clock.currentTimeMillis;
         const { output, truncated } = outputBuffer.snapshot(TERMINAL_COMMAND_RESULT_MAX_CHARS);
         const succeeded = !job.cancelledByStop && foregroundOutcome.result.exitCode === 0;
+        yield* recordCommand({
+          ...commandItem,
+          commandStatus: job.cancelledByStop ? "interrupted" : succeeded ? "completed" : "failed",
+          exitCode: foregroundOutcome.result.exitCode,
+          output,
+          awaited: false,
+        });
         return {
           mode: "foreground",
           status: succeeded ? "completed" : "failed",
@@ -645,13 +672,7 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
       job.backgrounded = true;
       const { output, truncated } = outputBuffer.snapshot(TERMINAL_COMMAND_RESULT_MAX_CHARS);
       yield* recordCommand({
-        threadId: input.threadId,
-        runId,
-        nodeId,
-        turnItemId,
-        taskId,
-        command: input.command,
-        title,
+        ...commandItem,
         commandStatus: "running",
         output,
         awaited: true,

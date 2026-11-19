@@ -503,9 +503,9 @@ export function NewTaskFlowProvider(
     if (!option) {
       return;
     }
-    const selection = withRememberedModelOptions(
-      options ? { ...option.selection, options } : option.selection,
-    );
+    const selection = options
+      ? { ...option.selection, options }
+      : withRememberedModelOptions(option.selection);
     updateComposerDraftSettings(selectedProjectDraftKey, { modelSelection: selection });
     setStickyComposerModelSelection(selection);
   };

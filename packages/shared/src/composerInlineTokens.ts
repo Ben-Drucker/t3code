@@ -209,6 +209,8 @@ export function composerQuickQuestionTokens(text: string) {
   );
 }
 
+export const QUICK_QUESTION_DOUBLE_PRESS_MS = 275;
+
 export function toggleComposerQuickQuestion(text: string): string {
   const tokens = composerQuickQuestionTokens(text);
   if (tokens.length === 0) return `/qq ${text}`;

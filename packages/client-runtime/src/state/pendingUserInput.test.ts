@@ -32,6 +32,26 @@ const nativeChoiceQuestion = {
 } as const;
 
 describe("resolvePendingUserInputAnswer", () => {
+  it("keeps an inline write-in distinct from the choice IDs", () => {
+    const question = { ...nativeChoiceQuestion, allowCustomAnswer: true, customAnswerId: "other" };
+    const draft = setPendingUserInputCustomAnswer(question, {}, "second");
+    expect(buildPendingUserInputAnswers([question], { result: draft })).toEqual({
+      other: "second",
+    });
+
+    const multi = { ...question, multiSelect: true };
+    const selected = togglePendingUserInputOptionSelection(multi, draft, " first\t");
+    expect(isPendingUserInputOptionSelected(multi, selected, " first\t")).toBe(true);
+    expect(buildPendingUserInputAnswers([multi], { result: selected })).toEqual({
+      result: [" first\t"],
+      other: "second",
+    });
+    expect(setPendingUserInputCustomAnswer(multi, selected, "another option")).toEqual({
+      selectedOptionValues: [" first\t"],
+      customAnswer: "another option",
+    });
+  });
+
   it("preserves exact editor text, including a deliberately cleared answer", () => {
     const question = { ...singleSelectQuestion, initialAnswer: "  Proposed message\n" };
     expect(resolvePendingUserInputAnswer(question, { customAnswer: question.initialAnswer })).toBe(

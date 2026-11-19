@@ -97,6 +97,8 @@ describe("detectComposerTrigger", () => {
 
   it.each([
     ["@src/(#1", "path", "src/(#1"],
+    ["@My Folder/next file", "path", "My Folder/next file"],
+    ["@Name of this thread", "path", "Name of this thread"],
     ["$review(#1", "skill", "review(#1"],
   ])("keeps explicit completion for %j", (token, kind, query) => {
     const text = `Use ${token}`;

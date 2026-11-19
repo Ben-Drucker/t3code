@@ -157,6 +157,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
               environmentId={representative?.environmentId ?? null}
               activeInstanceId={selection.instanceId}
               model={selection.model}
+              activeModelOptions={selection.options}
               lockedProvider={null}
               instanceEntries={entries}
               modelOptionsByInstance={modelOptions}
@@ -172,12 +173,15 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                     search: { environmentId: representative.environmentId, instanceId },
                   });
               }}
-              onInstanceModelChange={(instanceId, model) =>
-                setModel(pickModelSelection(mixedModel ? null : selection, instanceId, model))
+              onInstanceModelChange={(instanceId, model, options) =>
+                setModel(
+                  pickModelSelection(mixedModel ? null : selection, instanceId, model, options),
+                )
               }
             />
             {!mixedModel && !presentation.providerNote && !effortDisabledReason && activeEntry ? (
               <TraitsPicker
+                environmentId={representative?.environmentId ?? null}
                 provider={activeEntry.driverKind}
                 models={activeEntry.models}
                 model={selection.model}
@@ -268,6 +272,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
               environmentId={representative?.environmentId ?? null}
               activeInstanceId={fallbackSelection.instanceId}
               model={fallbackSelection.model}
+              activeModelOptions={fallbackSelection.options}
               lockedProvider={null}
               instanceEntries={entries}
               modelOptionsByInstance={fallbackModelOptions}
@@ -279,7 +284,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                   ? { triggerLabel: "None" }
                   : {})}
               getModelDisabledReason={modelDisabledReason}
-              onInstanceModelChange={(instanceId, model) => {
+              onInstanceModelChange={(instanceId, model, options) => {
                 const reason = modelDisabledReason(instanceId, model);
                 if (reason) {
                   toastManager.add({
@@ -294,12 +299,14 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                     mixedFallback ? null : settings.fallbackModelSelection,
                     instanceId,
                     model,
+                    options,
                   ),
                 });
               }}
             />
             {settings.fallbackModelSelection !== null && fallbackEntry && !mixedFallback ? (
               <TraitsPicker
+                environmentId={representative?.environmentId ?? null}
                 provider={fallbackEntry.driverKind}
                 models={fallbackEntry.models}
                 model={fallbackSelection.model}

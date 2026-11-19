@@ -13,6 +13,7 @@ import type { ToolCallVisibility } from "@t3tools/contracts/settings";
 import {
   resolveT3McpSummaryAction,
   resolveT3McpToolDefinition,
+  resolveT3McpToolId,
   type T3McpToolDefinition,
   type T3McpToolSummaryAction,
 } from "@t3tools/shared/t3McpToolPresentation";
@@ -98,6 +99,7 @@ export interface WorkLogPresentationEntry {
   readonly label: string;
   readonly tone: "thinking" | "tool" | "info" | "error";
   readonly command?: string;
+  readonly commandSummary?: string;
   readonly rawCommand?: string;
   readonly detail?: string;
   readonly viewedImagePath?: string;
@@ -242,16 +244,20 @@ export function resolveWorkEntryToolPresentation(
   >,
   fallbackStatus?: "inProgress" | "completed",
 ) {
-  const definition = resolveT3McpToolDefinition(
-    workEntryToolName(entry),
-    workEntryToolInput(entry),
-  );
+  const name = workEntryToolName(entry);
+  const input = workEntryToolInput(entry);
+  const definition = resolveT3McpToolDefinition(name, input);
   const status = entry.toolLifecycleStatus ?? fallbackStatus;
-  return resolveT3McpToolPresentation(
+  const presentation = resolveT3McpToolPresentation(
     definition,
     definition && t3ToolResultIndicatesFailure(workEntryToolOutput(entry)) ? "failed" : status,
     entry.toolData,
   );
+  const description =
+    resolveT3McpToolId(name) === "t3_search_convos" ? asRecord(input)?.description : undefined;
+  return presentation && typeof description === "string" && description.trim()
+    ? { ...presentation, displayName: description.trim().slice(0, 256) }
+    : presentation;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

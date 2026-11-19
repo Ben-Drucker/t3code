@@ -104,4 +104,62 @@ describe("parseElicitationForm", () => {
       q0__other: "SQLite",
     });
   });
+
+  it("keeps Antigravity write-ins on their original questions", () => {
+    const other = (question: string) => ({
+      type: "string",
+      title: "Other",
+      description: `Optional free-form answer to: ${question}`,
+    });
+    const form = parseElicitationForm(
+      {
+        type: "object",
+        properties: {
+          q1: {
+            type: "string",
+            title: "Which database?",
+            oneOf: [{ const: "pg", title: "Postgres" }],
+          },
+          q1_other: other("Which database?"),
+          q2: {
+            type: "array",
+            title: "Which regions?",
+            items: { anyOf: [{ const: "east", title: "US East" }] },
+          },
+          q2_other: other("Which regions?"),
+          q3_other: { type: "string", title: "What should we run next?" },
+          custom: { type: "string", title: "Custom" },
+        },
+      },
+      "The agent has 3 questions.",
+    );
+    assert(form !== undefined);
+    assert.deepStrictEqual(
+      form.questions.slice(0, 2).map((question) => question.question),
+      ["Which database?", "Which regions?"],
+    );
+    assert.deepStrictEqual(
+      form.questions.map(({ id, allowCustomAnswer, multiSelect, customAnswerId }) => [
+        id,
+        allowCustomAnswer,
+        multiSelect,
+        customAnswerId,
+      ]),
+      [
+        ["q1", undefined, undefined, "q1_other"],
+        ["q2", undefined, true, "q2_other"],
+        ["q3_other", undefined, undefined, undefined],
+        ["custom", undefined, undefined, undefined],
+      ],
+    );
+    assert.deepStrictEqual(form.content({ q1: "SQLite", q2: "Europe" }), {
+      q1_other: "SQLite",
+      q2_other: "Europe",
+    });
+    assert.deepStrictEqual(form.content({ q1_other: "pg" }), { q1_other: "pg" });
+    assert.deepStrictEqual(
+      form.content({ q1: "pg", q2: ["east"], q2_other: "Europe", q3_other: "Smoke test" }),
+      { q1: "pg", q2: ["east"], q2_other: "Europe", q3_other: "Smoke test" },
+    );
+  });
 });

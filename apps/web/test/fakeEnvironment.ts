@@ -224,6 +224,7 @@ export interface FakeThread {
   /** Makes this an older settled thread the shell leaves out; only its family read returns it. */
   readonly olderSettled?: true;
   readonly id: ThreadId;
+  readonly projectId?: ProjectId;
   readonly title: string;
   /** Defaults to GPT-5.4 on Codex. */
   readonly modelSelection?: ModelSelection;
@@ -307,7 +308,7 @@ function shellOf(thread: FakeThread): OrchestrationV2ThreadShell {
   const modelSelection = thread.modelSelection ?? MODEL;
   return {
     id: thread.id,
-    projectId: PROJECT_ID,
+    projectId: thread.projectId ?? PROJECT_ID,
     title: thread.title,
     providerInstanceId: modelSelection.instanceId,
     modelSelection,
@@ -569,12 +570,16 @@ export function installFakeEnvironment(
     /** Commands left unanswered even when accepting, until `rejectPendingCommand`. */
     readonly holdCommand?: (command: OrchestrationV2Command) => boolean;
     readonly providers?: ReadonlyArray<unknown>;
+    readonly scratchWorkspaceRoot?: string;
   },
 ): Disposable {
   threads = fixtures;
   baseServerConfig = {
     ...makeServerConfig(options?.providers ?? [CODEX_PROVIDER]),
     keybindings: options?.keybindings ?? DEFAULT_RESOLVED_KEYBINDINGS,
+    ...(options?.scratchWorkspaceRoot
+      ? { scratchWorkspaceRoot: options.scratchWorkspaceRoot }
+      : {}),
   };
   dispatched = [];
   acceptCommands = options?.acceptCommands === true;

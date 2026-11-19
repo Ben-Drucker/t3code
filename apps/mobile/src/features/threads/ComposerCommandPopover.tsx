@@ -11,6 +11,7 @@ import type {
   ServerProviderSlashCommand,
 } from "@t3tools/contracts";
 import type { ComposerTriggerKind } from "@t3tools/shared/composerTrigger";
+import { useGT } from "gt-react-native";
 import { memo } from "react";
 import { Pressable, ScrollView, StyleSheet, View, type ViewStyle } from "react-native";
 
@@ -93,10 +94,11 @@ export type ComposerCommandItem =
 
 interface ComposerCommandPopoverProps {
   readonly items: ReadonlyArray<ComposerCommandItem>;
+  readonly highlightedItemId?: string | undefined;
   readonly triggerKind: ComposerTriggerKind | null;
   readonly isLoading: boolean;
   readonly error?: string | null;
-  readonly onSelect: (item: ComposerCommandItem) => void;
+  readonly onSelect: (item: ComposerCommandItem, dive?: boolean) => void;
 }
 
 function PopoverSurface(props: { readonly children: React.ReactNode; readonly style?: ViewStyle }) {
@@ -188,6 +190,7 @@ function emptyText(triggerKind: ComposerTriggerKind | null, isLoading: boolean):
 const CommandRow = memo(function CommandRow(props: {
   readonly item: ComposerCommandItem;
   readonly onPress: () => void;
+  readonly highlighted: boolean;
   readonly isLast: boolean;
   readonly isSlashSkill: boolean;
 }) {
@@ -197,7 +200,11 @@ const CommandRow = memo(function CommandRow(props: {
     <Pressable
       accessibilityRole="button"
       onPress={props.onPress}
-      className="flex-row items-center gap-2.5 border-border px-3.5 py-2.5 active:opacity-60"
+      accessibilityState={{ selected: props.highlighted }}
+      className={cn(
+        "flex-row items-center gap-2.5 border-border px-3.5 py-2.5 active:opacity-60",
+        props.highlighted && "bg-subtle",
+      )}
       style={{ borderBottomWidth: props.isLast ? 0 : StyleSheet.hairlineWidth }}
     >
       {props.item.type === "path" ? (
@@ -248,6 +255,7 @@ const CommandRow = memo(function CommandRow(props: {
 export const ComposerCommandPopover = memo(function ComposerCommandPopover(
   props: ComposerCommandPopoverProps,
 ) {
+  const gt = useGT();
   const label = groupLabel(props.triggerKind, props.items);
 
   return (
@@ -265,15 +273,37 @@ export const ComposerCommandPopover = memo(function ComposerCommandPopover(
           keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
         >
-          {props.items.map((item, index) => (
-            <CommandRow
-              key={item.id}
-              item={item}
-              onPress={() => props.onSelect(item)}
-              isLast={index === props.items.length - 1}
-              isSlashSkill={props.triggerKind === "slash-command" && item.type === "skill"}
-            />
-          ))}
+          {props.items.map((item, index) => {
+            const row = (
+              <CommandRow
+                key={item.id}
+                item={item}
+                highlighted={props.highlightedItemId === item.id}
+                onPress={() => props.onSelect(item)}
+                isLast={index === props.items.length - 1}
+                isSlashSkill={props.triggerKind === "slash-command" && item.type === "skill"}
+              />
+            );
+            return item.type === "path" && item.kind === "directory" ? (
+              <View key={item.id} className="flex-row items-center">
+                <View className="flex-1">{row}</View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={gt("Browse folder")}
+                  className="w-11 self-stretch items-center justify-center"
+                  onPress={() => props.onSelect(item, true)}
+                >
+                  <SymbolView
+                    name="chevron.right"
+                    size={14}
+                    tintColorClassName="text-foreground-muted"
+                  />
+                </Pressable>
+              </View>
+            ) : (
+              row
+            );
+          })}
         </ScrollView>
       ) : (
         <View className="px-3.5 py-2.5">

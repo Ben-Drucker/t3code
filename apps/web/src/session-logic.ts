@@ -77,6 +77,7 @@ export interface WorkLogEntry {
   readonly label: string;
   readonly detail?: string;
   readonly command?: string;
+  readonly commandSummary?: string;
   readonly rawCommand?: string;
   readonly changedFiles?: ReadonlyArray<string>;
   readonly tone: "thinking" | "tool" | "info" | "error";
@@ -382,6 +383,7 @@ function projectedWorkEntry(row: OrchestrationV2ProjectedTurnItem): WorkLogEntry
         ...common,
         label: title ?? "Ran command",
         command: item.input,
+        ...(item.commandSummary ? { commandSummary: item.commandSummary } : {}),
         rawCommand: item.input,
         toolTitle: title ?? "Command",
         toolData: item,

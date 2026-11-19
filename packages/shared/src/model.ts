@@ -7,6 +7,7 @@ import {
   ProviderInstanceId,
   type ProviderOptionDescriptor,
   type ProviderOptionSelection,
+  RecentModelConfiguration,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -545,10 +546,115 @@ export function pickModelSelection(
   current: ModelSelection | null | undefined,
   instanceId: ProviderInstanceId,
   model: string,
+  options?: ReadonlyArray<ProviderOptionSelection>,
 ): ModelSelection {
+  if (options) return createModelSelection(instanceId, model, options);
   return current?.instanceId === instanceId && current.model === model
     ? current
     : createModelSelection(instanceId, model);
+}
+
+export function modelConfigurationKey(selection: ModelSelection): string {
+  const options = copySorted(selection.options ?? [], (left, right) =>
+    left.id.localeCompare(right.id),
+  );
+  return JSON.stringify([
+    selection.instanceId,
+    selection.model,
+    options.map(({ id, value }) => [id, value]),
+  ]);
+}
+
+const decodeRecentModelConfiguration = Schema.decodeUnknownOption(RecentModelConfiguration);
+
+export function readRecentModelConfigurations(
+  value: unknown,
+): ReadonlyArray<RecentModelConfiguration> {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 10).flatMap((entry: unknown) =>
+    Option.match(decodeRecentModelConfiguration(entry), {
+      onNone: () => [],
+      onSome: (recent) => [recent],
+    }),
+  );
+}
+
+export function rememberRecentModelConfiguration(
+  recent: ReadonlyArray<RecentModelConfiguration>,
+  configuration: RecentModelConfiguration,
+): ReadonlyArray<RecentModelConfiguration> {
+  const key = modelConfigurationKey(configuration.selection);
+  return [
+    configuration,
+    ...recent.filter(
+      (entry) =>
+        entry.environmentId !== configuration.environmentId ||
+        modelConfigurationKey(entry.selection) !== key,
+    ),
+  ].slice(0, 10);
+}
+
+export function materializeModelConfiguration(
+  selection: ModelSelection,
+  caps: ModelCapabilities | undefined,
+): ModelSelection {
+  if (!caps?.optionDescriptors?.length) return selection;
+  return createModelSelection(
+    selection.instanceId,
+    selection.model,
+    buildProviderOptionSelectionsFromDescriptors(
+      getProviderOptionDescriptors({
+        caps,
+        selections: withImplicitFastModeDefault(caps, selection.options),
+      }),
+    ),
+  );
+}
+
+export function describeRecentModelConfiguration(
+  selection: ModelSelection,
+  caps: ModelCapabilities | undefined,
+  booleanLabel: (value: boolean) => string,
+): string | null {
+  const descriptors = caps?.optionDescriptors ?? [];
+  const descriptions: string[] = [];
+  for (const option of selection.options ?? []) {
+    const descriptor = descriptors.find(({ id }) => id === option.id);
+    if (
+      !descriptor ||
+      (descriptor.disabledReason && option.value !== getProviderOptionCurrentValue(descriptor))
+    )
+      return null;
+    const label =
+      descriptor.type === "boolean"
+        ? typeof option.value === "boolean"
+          ? booleanLabel(option.value)
+          : undefined
+        : descriptor.options.find(({ id }) => id === option.value)?.label;
+    if (label === undefined) return null;
+    descriptions.push(`${descriptor.label}: ${label}`);
+  }
+  return descriptions.join(" · ");
+}
+
+export function preservesLockedModelOptions(
+  selection: ModelSelection,
+  capabilities: ModelCapabilities | undefined,
+  current: ModelSelection | null,
+  currentCapabilities: ModelCapabilities | undefined,
+): boolean {
+  if (current?.instanceId !== selection.instanceId) return true;
+  const before = materializeModelConfiguration(current, currentCapabilities).options ?? [];
+  const after = new Map(
+    materializeModelConfiguration(selection, capabilities).options?.map(({ id, value }) => [
+      id,
+      value,
+    ]),
+  );
+  return (capabilities?.optionDescriptors ?? []).every(
+    ({ id, lockedOnceStarted }) =>
+      !lockedOnceStarted || before.find((option) => option.id === id)?.value === after.get(id),
+  );
 }
 
 export function resolvePromptInjectedEffort(

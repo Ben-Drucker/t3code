@@ -15,9 +15,11 @@ import {
   PullRequestListFilters,
   PullRequestListState,
   type ProviderInstanceId,
+  type RecentModelConfiguration,
   PullRequestMergeMethod,
   type SidebarProjectGroupingMode,
 } from "@t3tools/contracts";
+import { readRecentModelConfigurations } from "@t3tools/shared/model";
 import { ToolCallVisibility } from "@t3tools/contracts/settings";
 import type { AndroidNavigationStyle } from "../lib/androidNavigationStyle";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
@@ -171,6 +173,7 @@ export interface Preferences {
   readonly workingShelfEnabled?: boolean;
   readonly useLastProjectForNewThreads?: boolean;
   readonly lastThreadProject?: typeof ThreadProject.Type;
+  readonly recentModelConfigurations?: ReadonlyArray<RecentModelConfiguration>;
   readonly modelFavorites?: ReadonlyArray<{
     readonly provider: ProviderInstanceId;
     readonly model: string;
@@ -262,6 +265,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     useLastProjectForNewThreads?: boolean;
     lastThreadProject?: typeof ThreadProject.Type;
     modelFavorites?: Preferences["modelFavorites"];
+    recentModelConfigurations?: Preferences["recentModelConfigurations"];
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
     threadListWorkingShelfExpanded?: boolean;
@@ -399,6 +403,11 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (isThreadProject(parsed.lastThreadProject)) {
     preferences.lastThreadProject = parsed.lastThreadProject;
+  }
+  if (Array.isArray(parsed.recentModelConfigurations)) {
+    preferences.recentModelConfigurations = readRecentModelConfigurations(
+      parsed.recentModelConfigurations,
+    );
   }
   if (Array.isArray(parsed.modelFavorites)) {
     preferences.modelFavorites = parsed.modelFavorites.filter(

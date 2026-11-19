@@ -2,11 +2,15 @@ import { createMemoryHistory } from "@tanstack/react-router";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   EnvironmentId,
+  type FilesystemBrowseInput,
+  type ProjectSearchEntriesInput,
   ORCHESTRATION_V2_WS_METHODS,
+  ProjectId,
   RunId,
   ThreadId,
   WS_METHODS,
 } from "@t3tools/contracts";
+import { toggleComposerQuickQuestion } from "@t3tools/shared/composerInlineTokens";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import {
   compileResolvedKeybindingsConfig,
@@ -30,8 +34,11 @@ import { usePromptStashStore } from "~/promptStashStore";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { getRouter } from "~/router";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
+import { readEnvironmentProviders } from "~/state/environments";
 import { environmentThreadDetails } from "~/state/threads";
 import {
+  CLAUDE_PROVIDER,
+  CODEX_PROVIDER,
   ENVIRONMENT_ID,
   PROJECT_ID,
   answerAssetUrls,
@@ -108,6 +115,153 @@ vi.mock(import("~/rpc/requestLatencyState"), async (original) => ({
   ...(await original()),
   trackRpcRequestSent: () => {},
 }));
+
+const composerScratchProjectId = ProjectId.make("project-composer-scratch");
+const composerEnvironmentOptions = {
+  providers: [CODEX_PROVIDER, CLAUDE_PROVIDER],
+  extraProjects: [{ id: composerScratchProjectId, title: "scratch" }],
+  scratchWorkspaceRoot: "/workspace/scratch",
+};
+
+it("browses a space-containing folder with Tab or its button and selects it with Enter", async () => {
+  const thread = threadWithHistory("composer-folder", 1);
+  const matching = {
+    ...threadWithHistory("composer-mention", 1),
+    title: "Investigate build regressions",
+  };
+  using _environment = installFakeEnvironment([thread, matching], composerEnvironmentOptions);
+  using _search = answerRpc(WS_METHODS.projectsSearchEntries, (input: ProjectSearchEntriesInput) =>
+    Effect.succeed({
+      truncated: false,
+      entries: input.query === "My Folder" ? [{ path: "My Folder", kind: "directory" }] : [],
+    }),
+  );
+  using _browse = answerRpc(WS_METHODS.filesystemBrowse, (input: FilesystemBrowseInput) =>
+    Effect.succeed({
+      parentPath: "/workspace/render/My Folder",
+      entries:
+        input.partialPath === "./My Folder/"
+          ? [
+              {
+                name: "notes file.txt",
+                fullPath: "/workspace/render/My Folder/notes file.txt",
+                kind: "file",
+              },
+            ]
+          : [],
+    }),
+  );
+  __setClientSettingsForTests({
+    ...DEFAULT_CLIENT_SETTINGS,
+    onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+  });
+  const router = getRouter(
+    createMemoryHistory({ initialEntries: [`/${ENVIRONMENT_ID}/${thread.id}`] }),
+  );
+  await router.load();
+  // AppRoot brings its own router.
+  await using _app = await render(<AppRoot router={router} />, { router: false });
+  const editor = page.getByTestId("composer-editor");
+  const folder = page.getByRole("option", { name: /My Folder/ });
+  await editor.click();
+  await userEvent.keyboard("@My Folder");
+  await expect.element(folder).toBeVisible();
+  await userEvent.keyboard("{Tab}");
+  await expect.element(page.getByRole("option", { name: /notes file.txt/ })).toBeVisible();
+
+  await userEvent.keyboard("{ControlOrMeta>}a{/ControlOrMeta}@My Folder");
+  await expect.element(folder).toBeVisible();
+  await page.getByRole("button", { name: "Browse folder" }).click();
+  await expect.element(page.getByRole("option", { name: /notes file.txt/ })).toBeVisible();
+
+  await userEvent.keyboard("{ControlOrMeta>}a{/ControlOrMeta}@My Folder");
+  await expect.element(folder).toBeVisible();
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() =>
+    expect(editor.element().querySelector("[data-composer-mention-chip]")?.textContent).toContain(
+      "My Folder",
+    ),
+  );
+
+  await userEvent.keyboard("{ControlOrMeta>}a{/ControlOrMeta}@Investigate build");
+  await expect
+    .element(page.getByRole("option", { name: /Investigate build regressions/ }))
+    .toBeVisible();
+  await userEvent.keyboard("{Enter}");
+  await expect
+    .element(page.getByRole("option", { name: /Investigate build regressions/ }))
+    .not.toBeInTheDocument();
+});
+
+it("inserts one literal percent and opens the model search from a provider query", async () => {
+  const thread = threadWithHistory("composer-percent", 1);
+  using _environment = installFakeEnvironment([thread], composerEnvironmentOptions);
+  __setClientSettingsForTests({
+    ...DEFAULT_CLIENT_SETTINGS,
+    onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+  });
+  const router = getRouter(
+    createMemoryHistory({ initialEntries: [`/${ENVIRONMENT_ID}/${thread.id}`] }),
+  );
+  await router.load();
+  // AppRoot brings its own router.
+  await using _app = await render(<AppRoot router={router} />, { router: false });
+  await vi.waitFor(() =>
+    expect(
+      readEnvironmentProviders(ENVIRONMENT_ID)?.some(
+        (provider) => provider.instanceId === CLAUDE_PROVIDER.instanceId,
+      ),
+    ).toBe(true),
+  );
+  const editor = page.getByTestId("composer-editor");
+  const menu = page.getByRole("searchbox", { name: "Search tools" });
+  await editor.click();
+  await userEvent.keyboard("%");
+  await expect.element(menu).toHaveFocus();
+  await userEvent.keyboard("%");
+  await expect.element(menu).not.toBeInTheDocument();
+  await vi.waitFor(() => {
+    expect(editor.element().textContent).toBe("%");
+    expect(document.activeElement).toBe(editor.element());
+  });
+  await userEvent.keyboard("{End} ");
+  await userEvent.keyboard("%opus");
+  await vi.waitFor(() => expect(menu.element()).toHaveValue("opus"));
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() =>
+    expect(page.getByPlaceholder("Search models...").element()).toHaveValue("opus"),
+  );
+  await expect.element(page.getByRole("option", { name: /Opus 4.6/ })).toBeVisible();
+});
+
+it("double-click New thread opens a fresh Quick Question in No Project", async () => {
+  await page.viewport(1400, 900);
+  const thread = threadWithHistory("qq-double-click", 1);
+  using _environment = installFakeEnvironment([thread], composerEnvironmentOptions);
+  const ensureScratch = vi.fn(() => Effect.succeed({ projectId: composerScratchProjectId }));
+  using _scratch = answerRpc(WS_METHODS.projectsEnsureScratch, ensureScratch);
+  __setClientSettingsForTests({
+    ...DEFAULT_CLIENT_SETTINGS,
+    onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+  });
+  const router = getRouter(
+    createMemoryHistory({ initialEntries: [`/${ENVIRONMENT_ID}/${thread.id}`] }),
+  );
+  await router.load();
+  // AppRoot brings its own router.
+  await using _app = await render(<AppRoot router={router} />, { router: false });
+  const button = page.getByRole("button", { name: "New thread", exact: true });
+  if (!button.query()) await page.getByRole("button", { name: "Toggle main sidebar" }).click();
+  await expect.element(button).toBeEnabled();
+  await button.dblClick();
+  await vi.waitFor(() => {
+    const draftId = DraftId.make(router.state.location.pathname.split("/").at(-1) ?? "");
+    const store = useComposerDraftStore.getState();
+    expect(store.getDraftSession(draftId)?.projectId).toBe(composerScratchProjectId);
+    expect(store.getComposerDraft(draftId)?.prompt).toBe(toggleComposerQuickQuestion(""));
+  });
+  expect(ensureScratch).toHaveBeenCalledTimes(1);
+});
 
 it("a machine chip stashed in one thread restores with its machine in another", async () => {
   const other = threadWithHistory("thread-stash-restore", 1);

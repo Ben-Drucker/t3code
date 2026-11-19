@@ -109,6 +109,9 @@ class T3ComposerEditorModule : Module() {
       Prop("readOnly") { view: T3ComposerEditorView, readOnly: Boolean ->
         view.setReadOnly(readOnly)
       }
+      Prop("pickerKeysEnabled") { view: T3ComposerEditorView, enabled: Boolean ->
+        view.setPickerKeysEnabled(enabled)
+      }
       Prop("enterBehavior") { view: T3ComposerEditorView, behavior: String ->
         view.setEnterBehavior(behavior)
       }
@@ -140,6 +143,7 @@ class T3ComposerEditorModule : Module() {
         "onComposerFocus",
         "onComposerBlur",
         "onComposerSubmit",
+        "onComposerPickerKey",
         "onComposerPasteImages",
         "onComposerContextPress",
         "onComposerPasteContext",

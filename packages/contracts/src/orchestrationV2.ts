@@ -1454,6 +1454,7 @@ export const OrchestrationV2UserInputQuestion = Schema.Struct({
   ),
   multiSelect: Schema.optional(Schema.Boolean),
   allowCustomAnswer: Schema.optional(Schema.Boolean),
+  customAnswerId: Schema.optional(TrimmedNonEmptyString),
   initialAnswer: Schema.optional(Schema.String),
   required: Schema.optional(Schema.Boolean),
 });
@@ -1796,6 +1797,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
     ...OrchestrationV2TurnItemBaseFields,
     type: Schema.Literal("command_execution"),
     input: Schema.String,
+    commandSummary: Schema.optional(TrimmedNonEmptyString),
     output: Schema.optional(Schema.String),
     /** Set on the wire when output was withheld; fetch it with getTurnItem. */
     outputOmitted: Schema.optional(Schema.Boolean),
@@ -2692,6 +2694,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     ...OrchestrationV2TurnItemJsonBaseFields,
     type: Schema.Literal("command_execution"),
     input: Schema.String,
+    commandSummary: Schema.optional(TrimmedNonEmptyString),
     output: Schema.optional(Schema.String),
     /** Set on the wire when output was withheld; fetch it with getTurnItem. */
     outputOmitted: Schema.optional(Schema.Boolean),
@@ -3879,6 +3882,7 @@ const OrchestrationV2InternalCommand = Schema.Union([
     taskId: TrimmedNonEmptyString,
     command: TrimmedNonEmptyString,
     title: Schema.optional(TrimmedNonEmptyString),
+    commandSummary: Schema.optional(TrimmedNonEmptyString),
     commandStatus: Schema.Literals(["running", "completed", "failed", "interrupted"]),
     exitCode: Schema.optional(Schema.NullOr(Schema.Int)),
     output: Schema.optional(Schema.String),

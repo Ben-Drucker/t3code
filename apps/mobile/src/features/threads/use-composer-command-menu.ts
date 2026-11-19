@@ -44,6 +44,7 @@ import {
 } from "../../state/use-composer-drafts";
 import { USAGE_LIMITS_COMMAND } from "@t3tools/shared/usageLimits";
 import {
+  composerDirectoryQuery,
   detectComposerTrigger,
   isFilesystemPathQuery,
   replaceTextRange,
@@ -71,6 +72,7 @@ import { useAtomRefresh } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import { useEffect, useState } from "react";
 
+import type { ComposerPickerKey } from "../../native/T3ComposerEditor.types";
 import type { ComposerEditorSelection } from "../../components/ComposerEditor";
 import { providerWorkspaceSnapshotRefresh } from "../../state/provider-workspace-snapshot-refresh";
 import {
@@ -288,6 +290,7 @@ export function useComposerCommandMenu({
   onChangeDraftMessage,
   onUsageLimits,
   onOpenModelPicker,
+  onConfigureAgentModel,
   modelOptions,
   modelProviders,
   onFreshSession,
@@ -314,6 +317,7 @@ export function useComposerCommandMenu({
   readonly onUsageLimits?: () => void;
   /** `/model` opens this picker instead of inserting text. */
   readonly onOpenModelPicker: () => void;
+  readonly onConfigureAgentModel?: (trigger: ComposerTrigger, option: ModelOption) => void;
   readonly modelOptions?: ReadonlyArray<ModelOption>;
   readonly modelProviders?: ReadonlyArray<ServerProvider>;
   /** Arms a fresh session for the next message; absent where `/clear` is unavailable. */
@@ -324,6 +328,19 @@ export function useComposerCommandMenu({
     ownerKey,
     ...composerSelectionAtEnd(draftMessage),
   }));
+  const [highlight, setHighlight] = useState<{
+    ownerKey: string | null;
+    query: string;
+    itemId: string;
+  } | null>(null);
+  const [dismissedPath, setDismissedPath] = useState<{
+    ownerKey: string | null;
+    position: number;
+  } | null>(null);
+  const [escapedPercent, setEscapedPercent] = useState<{
+    ownerKey: string | null;
+    position: number;
+  } | null>(null);
   // Thread mentions rank by recency as of when the composer mounted.
   const [now] = useState(() => Date.now());
   const insertedSelection = useComposerDraftSelection(ownerKey, draftMessage);
@@ -363,12 +380,39 @@ export function useComposerCommandMenu({
     setSelection(nextSelection);
   };
 
-  const trigger = (() => {
+  const detectedTrigger = (() => {
     if (!enabled || selection.start !== selection.end) {
       return null;
     }
     return detectComposerTrigger(draftMessage, selection.end, undefined, true);
   })();
+  const triggerSuppressed =
+    detectedTrigger?.kind === "agent-config" &&
+    escapedPercent?.ownerKey === ownerKey &&
+    detectedTrigger.rangeStart === escapedPercent.position;
+  const pathDismissed =
+    detectedTrigger?.kind === "path" &&
+    dismissedPath?.ownerKey === ownerKey &&
+    detectedTrigger.rangeStart === dismissedPath.position;
+  const trigger = triggerSuppressed || pathDismissed ? null : detectedTrigger;
+  const onDraftChange = (text: string) => {
+    if (
+      detectedTrigger?.kind === "agent-config" &&
+      detectedTrigger.query === "" &&
+      !triggerSuppressed &&
+      text ===
+        replaceTextRange(draftMessage, detectedTrigger.rangeEnd, detectedTrigger.rangeEnd, "%").text
+    ) {
+      setEscapedPercent({ ownerKey, position: detectedTrigger.rangeStart });
+      setSelection({ start: detectedTrigger.rangeEnd, end: detectedTrigger.rangeEnd });
+      return "restore" as const;
+    }
+    if (escapedPercent?.ownerKey === ownerKey && text[escapedPercent.position] !== "%")
+      setEscapedPercent(null);
+    if (dismissedPath?.ownerKey === ownerKey && text[dismissedPath.position] !== "@")
+      setDismissedPath(null);
+    onChangeDraftMessage(text);
+  };
   const toolQuery = useEnvironmentQuery(
     trigger?.kind === "agent-config" && environmentId !== null
       ? composerToolsEnvironment.list({
@@ -615,8 +659,19 @@ export function useComposerCommandMenu({
     return [];
   })();
 
-  const onSelect = (item: ComposerCommandItem) => {
+  const onSelect = (item: ComposerCommandItem, dive = false) => {
     if (!trigger) return;
+    if (dive && item.type === "path" && item.kind === "directory" && trigger.kind === "path") {
+      const result = replaceTextRange(
+        draftMessage,
+        trigger.rangeStart,
+        trigger.rangeEnd,
+        `@${composerDirectoryQuery(item.path)}`,
+      );
+      onChangeDraftMessage(result.text);
+      setSelection({ start: result.cursor, end: result.cursor });
+      return;
+    }
     if (item.type === "environment") {
       if (!ownerKey || trigger.kind !== "path") return;
       const record = environmentComposerContext(item.environmentId, item.label);
@@ -729,14 +784,48 @@ export function useComposerCommandMenu({
       return;
     }
 
+    if (trigger.kind === "agent-config" && item.type === "model" && onConfigureAgentModel) {
+      onConfigureAgentModel(trigger, item.option);
+      return;
+    }
     const result = resolveComposerCommandSelection({ draftMessage, trigger, item });
     setSelection({ start: result.cursor, end: result.cursor });
     onChangeDraftMessage(result.text);
   };
 
+  const highlightedItem =
+    trigger?.kind === "path"
+      ? ((highlight && highlight.ownerKey === ownerKey && highlight.query === trigger.query
+          ? items.find((item) => item.id === highlight.itemId)
+          : undefined) ?? items[0])
+      : undefined;
+
+  const onPickerKey = (key: ComposerPickerKey) => {
+    if (trigger?.kind !== "path" || !highlightedItem) return;
+    switch (key) {
+      case "select":
+        onSelect(highlightedItem);
+        return;
+      case "browse":
+        onSelect(highlightedItem, true);
+        return;
+      case "dismiss":
+        setDismissedPath({ ownerKey, position: trigger.rangeStart });
+        return;
+      case "previous":
+      case "next": {
+        const offset = key === "next" ? 1 : -1;
+        const next = items[(items.indexOf(highlightedItem) + offset + items.length) % items.length];
+        if (next) setHighlight({ ownerKey, query: trigger.query, itemId: next.id });
+      }
+    }
+  };
+
   return {
     selection,
     onSelectionChange,
+    highlightedItemId: highlightedItem?.id,
+    onPickerKey: highlightedItem ? onPickerKey : undefined,
     trigger,
     items,
     skills,
@@ -753,5 +842,6 @@ export function useComposerCommandMenu({
           : pullRequestSearch.error
         : null,
     onSelect,
+    onDraftChange,
   };
 }

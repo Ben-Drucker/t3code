@@ -73,7 +73,7 @@ export function ComposerEditor({
       text,
       draftKey ? getComposerDraftSnapshot(draftKey) : draft,
     );
-    props.onChangeText(text);
+    if (props.onChangeText(text) === "restore") return "restore" as const;
     if (draftKey) {
       setComposerDraftContext(draftKey, restored.context);
       appendComposerDraftAttachments(draftKey, restored.attachments, { restore: true });

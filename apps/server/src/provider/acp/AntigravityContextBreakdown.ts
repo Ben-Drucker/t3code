@@ -152,11 +152,12 @@ const GROUP = {
 
 export function antigravityBreakdownFromGeneration(
   generation: Uint8Array,
-): { readonly usedTokens: number; readonly breakdown: Breakdown } | undefined {
+): { readonly usedTokens: number; readonly breakdown?: Breakdown } | undefined {
   const chat = new Proto(generation).message(1);
   const context = chat?.message(9)?.message(10);
+  const contextTotal = context?.int(1) ?? 0;
   const groups = context?.message(3)?.messages(1);
-  if (groups === undefined) return undefined;
+  if (!groups?.length) return contextTotal > 0 ? { usedTokens: contextTotal } : undefined;
   let messages = 0;
   let skills = 0;
   let system = 0;
@@ -210,7 +211,7 @@ export function antigravityBreakdownFromGeneration(
     }
   }
   messages = Math.max(0, messages);
-  const usedTokens = context?.int(1) || messages + skills + system;
+  const usedTokens = contextTotal || messages + skills + system;
   if (usedTokens <= 0) return undefined;
   return {
     usedTokens,
@@ -270,10 +271,23 @@ export const readAntigravityContextUsage = (
       const connection = new NodeSqlite.DatabaseSync(database.path, { readOnly: true });
       try {
         connection.exec("PRAGMA busy_timeout = 100");
-        const row = connection
-          .prepare("SELECT idx, data FROM gen_metadata ORDER BY idx DESC LIMIT 1")
-          .get();
-        const latestId = typeof row?.idx === "number" ? row.idx : -1;
+        // Billing-only updates can follow a measured context sample.
+        const recent = connection
+          .prepare("SELECT idx, data FROM gen_metadata ORDER BY idx DESC LIMIT 8")
+          .iterate();
+        let latestId = -1;
+        let latestExecutionId = "";
+        let usage: ReturnType<typeof antigravityBreakdownFromGeneration>;
+        for (const entry of recent) {
+          if (latestId === -1 && typeof entry.idx === "number") {
+            latestId = entry.idx;
+            if (entry.data instanceof Uint8Array)
+              latestExecutionId = new Proto(entry.data).string(4);
+          }
+          if (!(entry.data instanceof Uint8Array)) continue;
+          usage = antigravityBreakdownFromGeneration(entry.data);
+          if (usage !== undefined) break;
+        }
         const checkpoints = new Set(
           generationCursor === undefined
             ? []
@@ -299,18 +313,12 @@ export const readAntigravityContextUsage = (
                     ? []
                     : [{ id: entry.idx, usage, ...(executionId ? { executionId } : {}) }];
                 });
-        const usage =
-          row?.data instanceof Uint8Array
-            ? antigravityBreakdownFromGeneration(row.data)
-            : undefined;
         return {
           ...(usage ?? { usedTokens: 0 }),
           generationUsage: {
             latestId,
             generations,
-            ...(row?.data instanceof Uint8Array && new Proto(row.data).string(4)
-              ? { latestExecutionId: new Proto(row.data).string(4) }
-              : {}),
+            ...(latestExecutionId ? { latestExecutionId } : {}),
           },
         };
       } finally {

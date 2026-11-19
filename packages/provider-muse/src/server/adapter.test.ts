@@ -396,23 +396,58 @@ describe("MuseAdapterV2", () => {
         endpoint: "http://127.0.0.1:43210/mcp",
         authorizationHeader: "Bearer thread-scoped-test-token",
         browserToolsAvailable: true,
+        terminalAccess: { turn: undefined, isAdvertised: Effect.succeed(true) },
       });
       for (const nativeId of [undefined, "saved-native-session"]) {
         const fake = yield* makeFakeMuse();
         fake.host.initializeResult.grantedCapabilities.push("sessionMcp");
-        yield* makeHarness(fake, INSTANCE_ID, nativeId);
+        const shellStates: Array<boolean | undefined> = [];
+        yield* makeHarness(fake, INSTANCE_ID, nativeId, undefined, undefined, runtimePolicy, {
+          createHost: async (options) => {
+            shellStates.push(options.disableShell);
+            return fake.host;
+          },
+        });
+        assert.deepStrictEqual(shellStates, [true]);
         const call = yield* fake.takeCall(nativeId ? "session/resume" : "session/start");
         assert.deepStrictEqual(call.params.config, {
           mcpServers: {
             "t3-code": {
               transport: "streamableHttp",
-              mode: "optional",
+              mode: "required",
               url: "http://127.0.0.1:43210/mcp",
               headers: { Authorization: "Bearer thread-scoped-test-token" },
             },
           },
         });
       }
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("keeps native shell if the host does not grant session MCP", () =>
+    Effect.gen(function* () {
+      yield* (yield* McpProviderSessions.McpProviderSessions).set({
+        environmentId: EnvironmentId.make("test-environment"),
+        threadId: THREAD_ID,
+        providerSessionId: "test-session",
+        providerInstanceId: INSTANCE_ID,
+        endpoint: "http://127.0.0.1:43210/mcp",
+        authorizationHeader: "Bearer fixture-token",
+        browserToolsAvailable: false,
+        terminalAccess: { turn: undefined, isAdvertised: Effect.succeed(true) },
+      });
+      const original = yield* makeFakeMuse();
+      const fallback = yield* makeFakeMuse();
+      const shellStates: Array<boolean | undefined> = [];
+      yield* makeHarness(original, INSTANCE_ID, undefined, fallback, undefined, runtimePolicy, {
+        createHost: async (options) => {
+          shellStates.push(options.disableShell);
+          return shellStates.length === 1 ? original.host : fallback.host;
+        },
+      });
+      assert.deepStrictEqual(shellStates, [true, false]);
+      const opened = yield* fallback.takeCall("session/start");
+      assert.isUndefined(opened.params.config);
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 

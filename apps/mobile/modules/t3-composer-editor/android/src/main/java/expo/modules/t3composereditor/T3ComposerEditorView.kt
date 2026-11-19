@@ -61,6 +61,7 @@ class T3ComposerEditorView(context: Context, appContext: AppContext) : ExpoView(
   private val onComposerFocus by EventDispatcher()
   private val onComposerBlur by EventDispatcher()
   private val onComposerSubmit by EventDispatcher()
+  private val onComposerPickerKey by EventDispatcher()
   private val onComposerPasteImages by EventDispatcher()
   private val onComposerContextPress by EventDispatcher()
   private val onComposerPasteContext by EventDispatcher()
@@ -171,6 +172,9 @@ class T3ComposerEditorView(context: Context, appContext: AppContext) : ExpoView(
           "selection" to currentSelectionPayload(start, end),
         ),
       )
+    }
+    editor.pickerKeyListener = { key ->
+      onComposerPickerKey(mapOf("key" to key))
     }
     editor.submitListener = { alternate ->
       onComposerSubmit(mapOf("alternate" to alternate))
@@ -334,6 +338,10 @@ class T3ComposerEditorView(context: Context, appContext: AppContext) : ExpoView(
 
   fun setEnterBehavior(behavior: String) {
     editor.returnSends = behavior != "newline"
+  }
+
+  fun setPickerKeysEnabled(enabled: Boolean) {
+    editor.pickerKeysEnabled = enabled
   }
 
   fun setSubmitEnabled(enabled: Boolean) {
@@ -506,7 +514,8 @@ class T3ComposerEditorView(context: Context, appContext: AppContext) : ExpoView(
               detail = token.detail,
               iconUri = token.iconUri,
               tintsIcon = token.tintsIcon,
-              monospaced = token.monospaced
+              monospaced = token.monospaced,
+              swatch = if (token.type == "rgb-color") T3ContextChip.color(token.source, Color.TRANSPARENT) else null
             ),
             fontSize = editor.textSize,
             color = T3ContextChip.color(token.accent, editor.currentTextColor),
@@ -635,6 +644,8 @@ internal class SelectionAwareEditText(
   var pasteContextListener: ((Map<String, String>) -> Unit)? = null
   var pasteTextListener: ((String, Int, Int) -> Unit)? = null
   var submitListener: ((Boolean) -> Unit)? = null
+  var pickerKeyListener: ((String) -> Unit)? = null
+  var pickerKeysEnabled = false
   var submitEnabled = false
   var returnSends = true
   var textPasteThresholdBytes = 0
@@ -730,6 +741,20 @@ internal class SelectionAwareEditText(
   }
 
   override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+    if (pickerKeysEnabled && !readOnly && isEnabled && event.hasNoModifiers() && isFromPhysicalKeyboard(event)) {
+      val pickerKey = when (keyCode) {
+        KeyEvent.KEYCODE_DPAD_UP -> "previous"
+        KeyEvent.KEYCODE_DPAD_DOWN -> "next"
+        KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> "select"
+        KeyEvent.KEYCODE_TAB -> "browse"
+        KeyEvent.KEYCODE_ESCAPE -> "dismiss"
+        else -> null
+      }
+      if (pickerKey != null) {
+        if (event.repeatCount == 0 || pickerKey == "next" || pickerKey == "previous") pickerKeyListener?.invoke(pickerKey)
+        return true
+      }
+    }
     val alternate = returnSubmission(keyCode, event)
     if (alternate != null) {
       // A held Return repeats; send once and swallow the repeats instead of typing newlines.

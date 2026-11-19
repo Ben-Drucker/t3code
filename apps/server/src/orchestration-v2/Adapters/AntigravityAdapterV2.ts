@@ -292,6 +292,11 @@ export function makeAntigravityAcpAdapterFlavor(
       };
     },
     normalizeToolCall: normalizeAntigravityToolCall,
+    // The terminal service persists the original MCP invocation and its result under one ID.
+    isServerOwnedToolCall: (call) =>
+      /^(?:Run(?:ning)? )?mcp_t3-code_t3_terminal_run(?: (?:complete|completed))?$/i.test(
+        call.title ?? "",
+      ),
     extractSubagentUpdate: extractAntigravitySubagentUpdate,
     supportsImagePrompts: true,
     // ACP 1.3.0 treats /compact as ordinary model input.

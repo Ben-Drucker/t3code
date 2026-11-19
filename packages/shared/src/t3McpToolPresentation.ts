@@ -352,6 +352,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     "thread-merge",
   ),
   t3_thread_search: tool(["Search", "Searching", "Searched", "thread content"], "thread-search"),
+  t3_search_convos: tool(["Search", "Searching", "Searched", "conversations"], "thread-search"),
   t3_thread_transfers: tool(["Read", "Reading", "Read", "thread transfers"], "thread-transfers"),
   t3_thread_organize: tool(["Organize", "Organizing", "Organized", "a thread"], "thread-organize"),
   t3_thread_update: tool(["Update", "Updating", "Updated", "T3 thread metadata"], "thread-update"),

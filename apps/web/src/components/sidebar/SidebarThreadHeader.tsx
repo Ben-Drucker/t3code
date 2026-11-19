@@ -1,10 +1,13 @@
 import { FolderPlusIcon, SearchIcon, SquarePenIcon, XIcon } from "lucide-react";
+import { QUICK_QUESTION_DOUBLE_PRESS_MS } from "@t3tools/shared/composerInlineTokens";
 import {
   type ComponentProps,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type RefObject,
+  useEffect,
+  useRef,
 } from "react";
 
 import { cn } from "~/lib/utils";
@@ -17,6 +20,7 @@ export interface SidebarThreadHeaderProps {
   projectScope: ReactNode;
   onNewProject: () => void;
   onNewThread: (event: ReactMouseEvent) => void;
+  onQuickQuestion: (event: ReactMouseEvent) => void;
   newThreadDisabled: boolean;
   newThreadShortcutLabel: string | null | undefined;
   newThreadInProjectShortcutLabel: string | null | undefined;
@@ -36,6 +40,7 @@ export function SidebarThreadHeader({
   projectScope,
   onNewProject,
   onNewThread,
+  onQuickQuestion,
   newThreadDisabled,
   newThreadShortcutLabel,
   newThreadInProjectShortcutLabel,
@@ -49,6 +54,32 @@ export function SidebarThreadHeader({
   activeSearchResultIndex,
   onClearSearch,
 }: SidebarThreadHeaderProps) {
+  const pendingClick = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearPendingClick = () => {
+    if (pendingClick.current !== null) clearTimeout(pendingClick.current);
+    pendingClick.current = null;
+  };
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- cancels a pending pointer click when the sidebar closes
+  useEffect(
+    () => () => {
+      if (pendingClick.current !== null) clearTimeout(pendingClick.current);
+    },
+    [],
+  );
+  const onComposeClick = (event: ReactMouseEvent) => {
+    if (event.detail === 0 || event.shiftKey) {
+      clearPendingClick();
+      onNewThread(event);
+    } else if (pendingClick.current !== null) {
+      clearPendingClick();
+      onQuickQuestion(event);
+    } else {
+      pendingClick.current = setTimeout(() => {
+        pendingClick.current = null;
+        onNewThread(event);
+      }, QUICK_QUESTION_DOUBLE_PRESS_MS);
+    }
+  };
   const resultsVisible = isSearching && searchResultCount > 0;
   // Shrinking results can remove the active option; never leave aria-activedescendant pointing at it.
   const activeResultExists = resultsVisible && activeSearchResultIndex < searchResultCount;
@@ -121,7 +152,7 @@ export function SidebarThreadHeader({
             )
           }
           disabled={newThreadDisabled}
-          onClick={onNewThread}
+          onClick={onComposeClick}
         >
           <SquarePenIcon />
         </SidebarHeaderIconButton>

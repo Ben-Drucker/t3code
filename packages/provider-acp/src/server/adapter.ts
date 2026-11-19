@@ -619,6 +619,7 @@ export interface AcpAdapterV2Flavor {
   ) => AcpAdapterV2SubagentUpdate | undefined;
   readonly isProvisionalSubagentTool?: (toolCall: AcpToolCallState) => boolean;
   readonly normalizeToolCall?: (toolCall: AcpToolCallState) => AcpToolCallState;
+  readonly isServerOwnedToolCall?: (toolCall: AcpToolCallState) => boolean;
   readonly extractProposedPlanMarkdown?: (toolCall: AcpToolCallState) => string | undefined;
   readonly extractBackgroundTaskId?: (toolCall: AcpToolCallState) => string | undefined;
   /** Distinguishes commands from monitors when lifecycle notifications omit their kind. */
@@ -2260,7 +2261,10 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
         const nativeContextUsageSessions = new Set<string>();
         let detectedCompactions = 0;
         const contextUsagePollPermit = yield* Semaphore.make(1);
-        const lastPolledContextUsage = new WeakMap<ActiveAcpTurn, number>();
+        const lastPolledContextUsage = new WeakMap<
+          ActiveAcpTurn,
+          Pick<ThreadTokenUsageSnapshot, "usedTokens" | "maxTokens" | "breakdown">
+        >();
         // Fork: a polled reading's split, applied to the usage update the poll raises.
         const polledBreakdownBySessionId = yield* Ref.make(
           new Map<string, ThreadTokenUsageSnapshot["breakdown"]>(),
@@ -4481,6 +4485,10 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           }
           const status =
             projectedStatus ?? stoppedToolStatus(context, toolCall) ?? toolStatus(toolCall.status);
+          if (flavor.isServerOwnedToolCall?.(toolCall)) {
+            yield* rearmDeferredFinalize(context);
+            return;
+          }
           const now = yield* DateTime.now;
           const nativeItemId = `${context.nativeThreadId}:tool:${toolCall.toolCallId}`;
           const ordinal = yield* resolveItemOrdinal(context, nativeItemId);
@@ -4540,6 +4548,11 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           const diffText =
             acpToolCallDiffPatch(toolCall.data.content) ?? textFromUnknown(rawOutput);
           const rawInputRecord = unknownRecord(rawInput);
+          const commandSummary = [rawInputRecord?.toolSummary, rawInputRecord?.description]
+            .find((value): value is string => typeof value === "string" && value.trim().length > 0)
+            ?.trim()
+            .slice(0, 512)
+            .trimEnd();
           const inputVariant =
             typeof rawInputRecord?.variant === "string"
               ? rawInputRecord.variant.trim().toLowerCase()
@@ -4740,6 +4753,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   ...base,
                   type: "command_execution",
                   input: toolCall.command ?? monitorCommand ?? toolCall.title ?? "Command",
+                  ...(commandSummary === undefined ? {} : { commandSummary }),
                   ...(textFromUnknown(rawOutput) === undefined
                     ? {}
                     : { output: textFromUnknown(rawOutput) }),
@@ -4806,6 +4820,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   turnItem = {
                     ...base,
                     type: "command_execution",
+                    ...(commandSummary === undefined ? {} : { commandSummary }),
                     input:
                       toolCall.command ??
                       monitorCommand ??
@@ -5608,7 +5623,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               const usage = {
                 ...reportedUsage,
                 ...(maxTokens === undefined ? {} : { maxTokens }),
-                ...(polledBreakdown === undefined ? {} : { breakdown: polledBreakdown }),
+                ...(polledBreakdown !== undefined || retainNativeUsage
+                  ? { breakdown: polledBreakdown }
+                  : {}),
               };
               yield* Ref.update(contextUsageBySessionId, (current) =>
                 new Map(current).set(notification.sessionId, usage),
@@ -8481,9 +8498,14 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   }
                 }
               }
-              if (usage.usedTokens <= 0 || lastPolledContextUsage.get(context) === usage.usedTokens)
-                return;
-              lastPolledContextUsage.set(context, usage.usedTokens);
+              if (usage.usedTokens <= 0) return;
+              const sample = {
+                usedTokens: usage.usedTokens,
+                maxTokens: usage.maxTokens,
+                breakdown: usage.breakdown,
+              };
+              if (Equal.equals(lastPolledContextUsage.get(context), sample)) return;
+              lastPolledContextUsage.set(context, sample);
               yield* Ref.update(polledBreakdownBySessionId, (current) =>
                 new Map(current).set(context.nativeThreadId, usage.breakdown),
               );

@@ -10,6 +10,7 @@ import {
   parseMarkdownFileLink,
 } from "@t3tools/shared/markdownLinks";
 import { isWindowsAbsolutePath } from "@t3tools/shared/path";
+import { findRgbHexColors } from "@t3tools/shared/rgbHexColors";
 
 const parser = unified().use(remarkParse).use(remarkGfm).use(remarkKeepWindowsProsePaths);
 export type MarkdownNode = Root | RootContent;
@@ -31,6 +32,31 @@ function applyMarkdownEdits(markdown: string, edits: MarkdownEdit[]): string {
   }
   parts.push(markdown.slice(offset));
   return parts.join("");
+}
+
+export function markdownWithRgbHexChips(markdown: string) {
+  const rgbChips = new Map<string, string>();
+  if (!/#[0-9a-f]{6}/i.test(markdown)) return { markdown, rgbChips };
+  const edits: MarkdownEdit[] = [];
+  const visit = (node: MarkdownNode) => {
+    if (node.type === "link" || node.type === "linkReference") return;
+    if ("children" in node) node.children.forEach(visit);
+    if (node.type !== "text") return;
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (start === undefined || end === undefined) return;
+    for (const color of findRgbHexColors(markdown.slice(start, end))) {
+      const url = `t3-color://rgb/${color.source.slice(1)}`;
+      rgbChips.set(url, color.source);
+      edits.push({
+        start: start + color.start,
+        end: start + color.end,
+        content: `[${color.source}](${url})`,
+      });
+    }
+  };
+  visit(parser.parse(markdown));
+  return { markdown: applyMarkdownEdits(markdown, edits), rgbChips };
 }
 
 function decodeCodePoint(codePoint: number, entity: string): string {

@@ -1,5 +1,6 @@
 import { createMemoryHistory } from "@tanstack/react-router";
 import {
+  ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
   ProviderThreadId,
@@ -38,6 +39,59 @@ vi.mock("../../../../packages/client-runtime/src/connection/driver.ts", async (i
   return { ...actual, layer: Layer.succeed(actual.ConnectionDriver, fakeDriver) };
 });
 
+it("dispatches Codex manual compaction before the No Project workspace is loaded", async () => {
+  const modelSelection = {
+    instanceId: ProviderInstanceId.make(CODEX_PROVIDER.instanceId),
+    model: "gpt-5.4",
+  };
+  const driver = ProviderDriverKind.make("codex");
+  const history = threadWithHistory("unassigned-codex", 1, modelSelection);
+  const thread = {
+    ...history,
+    projectId: ProjectId.make("quick-chat-project"),
+    providerThreads: [
+      {
+        ...coldClaudeThread().providerThreads[0],
+        id: ProviderThreadId.make("provider-thread-unassigned"),
+        driver,
+        providerInstanceId: modelSelection.instanceId,
+        appThreadId: history.id,
+        nativeThreadRef: { driver, nativeId: "native-codex", strength: "strong" as const },
+        lastRunOrdinal: 1,
+      },
+    ],
+  };
+  using _environment = installFakeEnvironment([thread], {
+    acceptCommands: true,
+    providers: [{ ...CODEX_PROVIDER, slashCommands: [{ name: "compact" }] }],
+  });
+  __setClientSettingsForTests({
+    ...DEFAULT_CLIENT_SETTINGS,
+    onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+  });
+  const router = getRouter(
+    createMemoryHistory({ initialEntries: [`/${ENVIRONMENT_ID}/${thread.id}`] }),
+  );
+  await router.load();
+  // AppRoot brings its own router.
+  await using _app = await render(<AppRoot router={router} />, { router: false });
+  await expect.element(page.getByText(`Answer 0 for ${thread.id}.`)).toBeVisible();
+
+  await page.getByRole("button", { name: /context window .* used/i }).click();
+  const compact = page.getByRole("button", { name: "Compact context", exact: true });
+  await expect.element(compact).toBeEnabled();
+  await compact.click();
+  await vi.waitFor(() =>
+    expect(dispatchedCommands()).toContainEqual(
+      expect.objectContaining({
+        type: "message.dispatch",
+        threadId: thread.id,
+        text: "/compact",
+      }),
+    ),
+  );
+});
+
 vi.mock(import("~/rpc/requestLatencyState"), async (original) => ({
   ...(await original()),
   trackRpcRequestSent: () => {},
@@ -74,7 +128,7 @@ function coldClaudeThread() {
     createdAt: at,
     updatedAt: at,
   };
-  return { ...thread, providerThreads: [providerThread] };
+  return { ...thread, providerThreads: [providerThread] as const };
 }
 
 it("sends a Codex follow-up on a cold Claude thread without compacting first", async () => {

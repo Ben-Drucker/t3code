@@ -561,6 +561,7 @@ function TextGenerationTaskPicker({
           environmentId={environmentId}
           activeInstanceId={selection.instanceId}
           model={selection.model}
+          activeModelOptions={selection.options}
           lockedProvider={null}
           instanceEntries={targets.entries}
           modelOptionsByInstance={getTextGenerationModelOptionsByInstance(
@@ -570,8 +571,10 @@ function TextGenerationTaskPicker({
             selection.model,
           )}
           triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-          onInstanceModelChange={(instanceId, model) =>
-            updateSettings({ [settingKey]: pickModelSelection(selection, instanceId, model) })
+          onInstanceModelChange={(instanceId, model, options) =>
+            updateSettings({
+              [settingKey]: pickModelSelection(selection, instanceId, model, options),
+            })
           }
         />
       </div>

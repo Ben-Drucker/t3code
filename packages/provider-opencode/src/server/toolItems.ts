@@ -158,10 +158,12 @@ export function openCodeToolTurnItem(
   switch (openCodeToolProjectionKind(tool.name)) {
     case "command_execution": {
       const exitCode = recordNumber(tool.completedMetadata, "exit", "exitCode");
+      const commandSummary = recordString(input, "description")?.trim().slice(0, 512).trimEnd();
       return {
         ...base,
         type: "command_execution",
         input: recordString(input, "command", "cmd") ?? stableJson(input),
+        ...(commandSummary ? { commandSummary } : {}),
         ...(output === undefined ? {} : { output }),
         ...(exitCode === undefined ? {} : { exitCode }),
       };

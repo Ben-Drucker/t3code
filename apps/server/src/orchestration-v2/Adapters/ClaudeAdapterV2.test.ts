@@ -15008,7 +15008,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                 type: "tool_use",
                 id: bashToolUseId,
                 name: "Bash",
-                input: { command: "git status" },
+                input: { command: "git status", description: "Check the working tree status" },
               },
             ],
           },
@@ -15048,6 +15048,12 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         (event) =>
           event.type === "turn_item.updated" &&
           event.turnItem.nativeItemRef?.nativeId === bashToolUseId,
+      );
+      assert.equal(
+        bash?.type === "turn_item.updated" && bash.turnItem.type === "command_execution"
+          ? bash.turnItem.commandSummary
+          : undefined,
+        "Check the working tree status",
       );
       assert.equal(
         bash?.type === "turn_item.updated" && bash.turnItem.type === "command_execution"

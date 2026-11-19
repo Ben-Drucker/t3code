@@ -73,6 +73,19 @@ function permissionRequest(
 }
 
 describe("AntigravityAdapterV2 flavor", () => {
+  it("leaves the T3 terminal invocation to the server and keeps other commands visible", () => {
+    const call = { toolCallId: "tool-1", data: { rawInput: { command: "pwd" } } };
+    assert.isTrue(
+      flavor.isServerOwnedToolCall?.({ ...call, title: "Run mcp_t3-code_t3_terminal_run" }),
+    );
+    assert.isFalse(
+      flavor.isServerOwnedToolCall?.({ ...call, title: "Run run_command", kind: "execute" }),
+    );
+    assert.isFalse(
+      flavor.isServerOwnedToolCall?.({ ...call, title: "Run mcp_other_t3_terminal_run" }),
+    );
+  });
+
   it("keeps a successful subagent launch running until the parent turn becomes idle", () => {
     const batch = flavor.extractSubagentUpdate?.({
       toolCallId: "trajectory:4",
@@ -379,6 +392,9 @@ describe("AntigravityAdapterV2 compaction", () => {
               return {
                 usedTokens: 500,
                 maxTokens: 256_000,
+                ...(generationCursor === undefined
+                  ? {}
+                  : { breakdown: [{ category: "messages" as const, tokens: 500 }] }),
                 generationUsage: yield* Ref.get(generation),
               };
             }),
@@ -401,7 +417,6 @@ describe("AntigravityAdapterV2 compaction", () => {
           runtimePolicy,
         });
         yield* session.events.pipe(
-          throttleContextUsage,
           Stream.runForEach((event) => Queue.offer(events, event)),
           Effect.forkScoped,
         );
@@ -439,14 +454,33 @@ describe("AntigravityAdapterV2 compaction", () => {
             ),
             Stream.runHead,
           );
-        const first = yield* measured();
-        assert.isTrue(Option.isSome(first));
-        if (Option.isSome(first) && first.value.type === "provider_turn.updated") {
-          assert.containSubset(first.value.providerTurn.turnTokenUsage, {
+        const liveEvents = yield* Stream.fromQueue(events).pipe(
+          Stream.takeUntil(
+            (event) =>
+              event.type === "provider_thread.updated" &&
+              event.providerThread.contextUsage?.breakdown !== undefined,
+          ),
+          Stream.runCollect,
+        );
+        const first = liveEvents.find(
+          (event) =>
+            event.type === "provider_turn.updated" &&
+            event.providerTurn.turnTokenUsage?.usageStatus === "partial",
+        );
+        assert.containSubset(
+          first?.type === "provider_turn.updated" && first.providerTurn.turnTokenUsage,
+          {
             outputTokens: 20,
             ...(outcome === "compact" ? { localCommand: true } : {}),
-          });
-        }
+          },
+        );
+        const split = liveEvents.at(-1);
+        assert.deepEqual(
+          split?.type === "provider_thread.updated"
+            ? split.providerThread.contextUsage?.breakdown
+            : undefined,
+          [{ category: "messages", tokens: 500 }],
+        );
         yield* Ref.set(generation, {
           latestId: 13,
           latestExecutionId: "current-prompt",
@@ -553,12 +587,15 @@ describe("AntigravityAdapterV2 compaction", () => {
           defaultModel: Effect.undefined,
           ...(source !== "usage_update"
             ? {
-                pollContextUsage: () =>
+                pollContextUsage: ({ generationCursor }) =>
                   Ref.get(used).pipe(
                     Effect.map((usedTokens) => ({
                       usedTokens: source === "native plus DB" ? 900_000 : usedTokens,
                       maxTokens: 256_000,
-                      breakdown: [{ category: "messages" as const, tokens: usedTokens }],
+                      generationUsage: { latestId: 1, generations: [] },
+                      ...(generationCursor === undefined
+                        ? {}
+                        : { breakdown: [{ category: "messages" as const, tokens: usedTokens }] }),
                     })),
                   ),
               }

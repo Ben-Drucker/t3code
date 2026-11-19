@@ -4,6 +4,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { documentChipKindForFileName } from "~/pierre-icons";
 import { isProviderSkillUserInvocable } from "@t3tools/client-runtime/providerSkills";
 import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
+import { findComposerRgbHexColors } from "@t3tools/shared/rgbHexColors";
 import {
   Extension,
   findChildren,
@@ -792,6 +793,56 @@ function chipSelectionDecorations({ doc, selection }: EditorState): DecorationSe
   return DecorationSet.create(doc, decorations);
 }
 
+const rgbColorKey = new PluginKey<DecorationSet>("composer-rgb-colors");
+
+function rgbColorDecorations({ doc }: EditorState): DecorationSet {
+  if (!doc.textContent.includes("#")) return DecorationSet.empty;
+  const blocks: Array<{ start: number; pos: number }> = [];
+  let source = "";
+  doc.descendants((block, pos) => {
+    if (!block.isTextblock) return;
+    blocks.push({ start: source.length, pos: pos + 1 });
+    block.forEach((child) => {
+      if (block.type.spec.code || child.marks.some((mark) => mark.type.spec.code)) {
+        source += " ".repeat(child.nodeSize);
+      } else {
+        source += child.isText ? child.text : child.type.name === "hardBreak" ? "\n" : "\ufffc";
+      }
+    });
+    source += "\n";
+    return false;
+  });
+  let blockIndex = 0;
+  return DecorationSet.create(
+    doc,
+    findComposerRgbHexColors(source).map((color) => {
+      while (blocks[blockIndex + 1] && blocks[blockIndex + 1]!.start <= color.start) blockIndex++;
+      const block = blocks[blockIndex]!;
+      const from = block.pos + color.start - block.start;
+      return Decoration.inline(from, from + color.source.length, {
+        class: "rgb-hex-chip",
+        style: `--rgb-hex-chip-color: ${color.source}`,
+      });
+    }),
+  );
+}
+
+const ComposerRgbColorExtension = Extension.create({
+  name: "composerRgbColors",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: rgbColorKey,
+        state: {
+          init: (_, state) => rgbColorDecorations(state),
+          apply: (tr, old, _, state) => (tr.docChanged ? rgbColorDecorations(state) : old),
+        },
+        props: { decorations: (state) => rgbColorKey.getState(state) },
+      }),
+    ];
+  },
+});
+
 type TiptapEditor = NonNullable<ReturnType<typeof useEditor>>;
 
 const SILENT_SELECTION_META = "composerSilentSelection";
@@ -886,6 +937,7 @@ function createComposerExtensions(richText: boolean) {
     ComposerCitationExtension,
     ComposerContextReferenceExtension,
     ComposerChipSelectionExtension,
+    ComposerRgbColorExtension,
     ...(richText
       ? [
           ComposerMarkdownSourceExtension,

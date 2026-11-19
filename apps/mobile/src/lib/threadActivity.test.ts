@@ -690,7 +690,7 @@ describe("buildThreadFeed", () => {
   it("omits cached tool output and patch bodies from expanded and copied activity", () => {
     const rawOutput = "RAW_TOOL_OUTPUT";
     const items: OrchestrationV2TurnItem[] = [
-      { ...command(), output: rawOutput },
+      { ...command(), commandSummary: "Check the workspace", output: rawOutput },
       {
         ...base("dynamic-output", "2026-06-20T00:00:03.000Z", 2),
         type: "dynamic_tool",
@@ -717,6 +717,7 @@ describe("buildThreadFeed", () => {
       expect(activity.getCopyText()).not.toContain(rawOutput);
     }
     expect(activities[0]?.detail).toBe("vp check");
+    expect(workEntryRowLabel(activities[0]!.workEntry)).toBe("Check the workspace");
     expect(activities[1]?.getFullDetail()).toContain("keep input");
     expect(activities[2]?.detail).toBe("src/example.ts");
     expect(items[0]).toMatchObject({ output: rawOutput });

@@ -2520,6 +2520,7 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__t3_project_list",
   "mcp__t3-code__t3_project_read",
   "mcp__t3-code__t3_thread_search",
+  "mcp__t3-code__t3_search_convos",
   "mcp__t3-code__t3_preview_list",
   "mcp__t3-code__t3_environment_read",
   "mcp__t3-code__t3_usage_providers",
@@ -7385,6 +7386,13 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           const webSearchResults = webSearchResultsFromClaudeOutput(input.output);
           const webFetchUrl = firstStringInputField(input.toolInput, ["url"])?.trim();
           const outputValue = claudeNativeToolOutputValue(input.output);
+          const commandSummary =
+            itemType === "command_execution"
+              ? firstStringInputField(input.toolInput, ["description"])
+                  ?.trim()
+                  .slice(0, 512)
+                  .trimEnd()
+              : undefined;
           const outputText =
             itemType === "command_execution"
               ? claudeCommandOutputText(input.output)
@@ -7397,6 +7405,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   ...itemBase,
                   type: "command_execution",
                   input: commandInputFromClaudeTool(input.toolName, input.toolInput),
+                  ...(commandSummary ? { commandSummary } : {}),
                   ...(outputText.length === 0 ? {} : { output: outputText }),
                 }
               : itemType === "file_change"

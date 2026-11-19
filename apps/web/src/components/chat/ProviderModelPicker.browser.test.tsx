@@ -1,5 +1,6 @@
 import {
   DEFAULT_CLIENT_SETTINGS,
+  EnvironmentId,
   ProviderDriverKind,
   ProviderInstanceId,
   type ModelSelection,
@@ -14,6 +15,7 @@ import "~/index.css";
 import { render } from "../../../test/render";
 import { __setClientSettingsForTests } from "../../hooks/useSettings";
 import { deriveProviderInstanceEntries } from "../../providerInstances";
+import { recordModelRecent, useModelRecents } from "../../modelRecents";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 
 it("keeps each registry image when adding a model from another ACP agent", async () => {
@@ -342,4 +344,72 @@ it("keeps the touch keyboard down while choosing a provider", async () => {
   await page.getByRole("button", { name: /^Claude/ }).click();
   await expect.element(page.getByRole("option", { name: /Claude model/ })).toBeVisible();
   await expect.element(search).not.toHaveFocus();
+});
+
+it("reselects two exact configurations for the same model from Recents", async () => {
+  const environmentId = EnvironmentId.make("model-recents-test");
+  const instanceId = ProviderInstanceId.make("codex");
+  using restoreStorage = new DisposableStack();
+  const previous = useModelRecents.getState();
+  restoreStorage.defer(() => useModelRecents.setState(previous));
+  useModelRecents.setState({ recent: [] });
+  const model = {
+    slug: "gpt-recent",
+    name: "GPT Recent",
+    isCustom: false,
+    capabilities: {
+      optionDescriptors: [
+        {
+          type: "select" as const,
+          id: "effort",
+          label: "Effort",
+          options: [
+            { id: "low", label: "Low" },
+            { id: "high", label: "High" },
+          ],
+        },
+      ],
+    },
+  };
+  const low = { instanceId, model: model.slug, options: [{ id: "effort", value: "low" }] };
+  const high = { instanceId, model: model.slug, options: [{ id: "effort", value: "high" }] };
+  recordModelRecent(environmentId, high);
+  recordModelRecent(environmentId, low);
+  recordModelRecent(EnvironmentId.make("another-env"), high);
+  const picked = vi.fn();
+  const entries = deriveProviderInstanceEntries([
+    {
+      instanceId,
+      driver: ProviderDriverKind.make("codex"),
+      enabled: true,
+      installed: true,
+      version: null,
+      status: "ready",
+      auth: { status: "authenticated" },
+      checkedAt: "2026-01-01T00:00:00.000Z",
+      models: [model],
+      slashCommands: [],
+      skills: [],
+    },
+  ]);
+  await using screen = await render(
+    <ProviderModelPicker
+      environmentId={environmentId}
+      activeInstanceId={instanceId}
+      model={model.slug}
+      lockedProvider={null}
+      instanceEntries={entries}
+      modelOptionsByInstance={new Map([[instanceId, [model]]])}
+      triggerAriaLabel="Choose model"
+      onInstanceModelChange={picked}
+    />,
+  );
+  await screen.getByRole("button", { name: "Choose model" }).click();
+  await page.getByRole("button", { name: "Recents", exact: true }).click();
+  const lowRow = page.getByRole("option", { name: /Effort: Low/ });
+  const highRow = page.getByRole("option", { name: /Effort: High/ });
+  await expect.element(lowRow).toBeVisible();
+  await expect.element(highRow).toBeVisible();
+  await highRow.click();
+  expect(picked).toHaveBeenCalledExactlyOnceWith(instanceId, model.slug, high.options);
 });

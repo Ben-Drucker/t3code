@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 
-import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { EnvironmentId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ProviderOptionSelections } from "./model.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 
@@ -49,3 +49,9 @@ export const ModelSelection = ModelSelectionSource.pipe(
   ),
 );
 export type ModelSelection = typeof ModelSelection.Type;
+
+export const RecentModelConfiguration = Schema.Struct({
+  environmentId: EnvironmentId,
+  selection: ModelSelection,
+});
+export type RecentModelConfiguration = typeof RecentModelConfiguration.Type;

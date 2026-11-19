@@ -414,7 +414,7 @@ export function useSelectedThreadRequests() {
         return;
       }
       attachmentsByQuestionId.set(
-        question.id,
+        question.customAnswerId ?? question.id,
         attachments.map((attachment) => ({
           type: attachment.type,
           id: attachment.uploadedAttachmentId!,

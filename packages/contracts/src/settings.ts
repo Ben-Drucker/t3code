@@ -342,7 +342,7 @@ export const LoadBalancingWeights = Schema.Record(
   Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100 })),
 );
 
-export const DiffColorScheme = Schema.Literals(["red-green", "blue-orange"]);
+export const DiffColorScheme = Schema.Literals(["red-green", "blue-orange", "lime-rust"]);
 
 export const ChatWidth = Schema.Literals(["comfortable", "wide", "full"]);
 export type ChatWidth = typeof ChatWidth.Type;

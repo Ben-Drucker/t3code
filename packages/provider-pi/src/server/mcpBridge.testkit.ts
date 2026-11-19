@@ -48,6 +48,7 @@ export async function loadMcpBridge(
     readonly toolSearchDisabled?: boolean;
     readonly allowsTool?: (name: string) => boolean;
     readonly runtimeMode?: string;
+    readonly terminal?: boolean;
     readonly inputSchema?: Record<string, unknown>;
   } = {},
 ) {
@@ -75,6 +76,9 @@ export async function loadMcpBridge(
       annotations: { readOnlyHint: false },
     },
     { name: "preview_snapshot", description: "Inspect the collaborative browser." },
+    ...(options.terminal
+      ? [{ name: "t3_terminal_run", description: "Run a terminal command." }]
+      : []),
   ].map((tool) => ({
     ...tool,
     inputSchema: options.inputSchema ?? { type: "object", properties: {} },

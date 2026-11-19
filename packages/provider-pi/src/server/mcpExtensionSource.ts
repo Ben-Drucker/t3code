@@ -394,7 +394,9 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   // Tool exposure arrived with registerMcpServer in Pi 0.99. Keep the HTTP
   // bridge as the credential owner: mcp.json overrides native registrations.
   const supportsExposure = "registerMcpServer" in pi && typeof pi.registerMcpServer === "function";
-  const directTools = new Set(["orchestrator_capabilities", "delegate_task", "task_status"]);
+  const directTools = new Set(["orchestrator_capabilities", "delegate_task", "task_status", "t3_terminal_run"]);
+  const terminalTool = "mcp__t3-code__t3_terminal_run";
+  const nativeShellTools = new Set(["bash", "powershell"]);
   let deferOptionalTools = supportsExposure;
   let catalog: ReadonlyArray<McpTool> = [];
 
@@ -461,8 +463,35 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   // mcp.json configures it; retry a failed connection at session_start.
   await ensureStarted().catch(() => undefined);
 
+  const removedShellTools = new Set<string>();
+  const reconcileTerminal = () => {
+    if (env(RUNTIME_MODE_ENV) !== "full-access" || typeof pi.getAllTools !== "function" ||
+      typeof pi.getActiveTools !== "function" || typeof pi.setActiveTools !== "function") return;
+    const bridgePath = env(EXTENSION_PATH_ENV);
+    const active = pi.getActiveTools();
+    const available = catalog.some((tool) => tool.name === "t3_terminal_run") &&
+      bridgePath && pi.getAllTools().some((tool) =>
+        tool.name === terminalTool && typeof tool.sourceInfo?.path === "string" &&
+        NodePath.resolve(tool.sourceInfo.path) === NodePath.resolve(bridgePath));
+    if (available && !active.includes(terminalTool)) pi.setActiveTools([...active, terminalTool]);
+    const advertised = pi.getActiveTools();
+    if (available && advertised.includes(terminalTool)) {
+      const shellTools = advertised.filter((name) => nativeShellTools.has(name));
+      if (shellTools.length > 0) {
+        for (const name of shellTools) removedShellTools.add(name);
+        pi.setActiveTools(advertised.filter((name) => !nativeShellTools.has(name)));
+      }
+    } else if (removedShellTools.size > 0) {
+      pi.setActiveTools([...new Set([...advertised, ...removedShellTools])]);
+      removedShellTools.clear();
+    }
+  };
+
   const reconcileDiscovery = (ctx: Pick<ExtensionContext, "model">) => {
-    if (!supportsExposure) return;
+    if (!supportsExposure) {
+      reconcileTerminal();
+      return;
+    }
     // A disabled or replaced search builtin cannot discover deferred tools.
     const hasToolSearch = hasBuiltinToolSearch();
     const exposureChanged = deferOptionalTools !== hasToolSearch;
@@ -479,6 +508,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     ];
     const missing = required.filter((name) => !active.includes(name));
     if (missing.length > 0) pi.setActiveTools([...active, ...missing]);
+    reconcileTerminal();
   };
 
   // Tree navigation restores its saved loadout after session_start.
@@ -488,6 +518,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     reconcileDiscovery(ctx);
     try {
       await ensureStarted();
+      reconcileTerminal();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       ctx.ui.notify(\`t3-code MCP unavailable: \${message}\`, "warning");

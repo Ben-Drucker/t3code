@@ -555,6 +555,10 @@
       "types": "./src/markdownAutolinkUrls.ts",
       "import": "./src/markdownAutolinkUrls.ts"
     },
+    "./rgbHexColors": {
+      "types": "./src/rgbHexColors.ts",
+      "import": "./src/rgbHexColors.ts"
+    },
     "./markdownLinks": {
       "types": "./src/markdownLinks.ts",
       "import": "./src/markdownLinks.ts"

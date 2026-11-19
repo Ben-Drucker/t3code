@@ -297,6 +297,42 @@ describe("Pi MCP tool schemas", () => {
 });
 
 describe("Pi tool discovery permissions", () => {
+  it.each([
+    { runtimeMode: "full-access", allowed: true, replaced: true },
+    { runtimeMode: "full-access", allowed: false, replaced: false },
+    { runtimeMode: "approval-required", allowed: true, replaced: false },
+  ])(
+    "replaces shell only with an active T3 terminal in $runtimeMode (allowed: $allowed)",
+    async ({ runtimeMode, allowed, replaced }) => {
+      const name = "mcp__t3-code__t3_terminal_run";
+      const bridge = await loadMcpBridge({
+        modern: true,
+        terminal: true,
+        runtimeMode,
+        allowsTool: (tool) => tool !== name || allowed,
+      });
+      const context = { ui: { notify: assert.fail } };
+      for (const event of ["session_start", "session_tree"]) {
+        bridge.restoreActiveTools(["read", "bash"]);
+        await bridge.handlers.get(event)!({ systemPrompt: "" }, context);
+        assert.include(bridge.getActiveTools(), "read");
+        assert.equal(bridge.getActiveTools().includes("bash"), !replaced);
+      }
+      if (replaced) {
+        const tool = bridge.tools.find((entry) => entry.name === name);
+        const args = { command: "printf ok", description: "Check terminal output" };
+        await tool!.execute("call-1", args);
+        assert.deepEqual(bridge.requests.at(-1)?.params, {
+          name: "t3_terminal_run",
+          arguments: args,
+        });
+        bridge.setBridgeSourcePath("/user/extensions/replacement.ts");
+        await bridge.handlers.get("session_tree")!({ systemPrompt: "" }, context);
+        assert.include(bridge.getActiveTools(), "bash");
+      }
+    },
+  );
+
   it.each(["approval-required", "auto-accept-edits", "auto"])(
     "allows annotated T3 reads in %s while gating mutations and replacements",
     async (runtimeMode) => {

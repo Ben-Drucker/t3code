@@ -144,6 +144,7 @@ export function workEntryDisplayLabel(entry: WorkLogEntry, workspaceRoot: string
   }
   const toolPresentation = resolveWorkEntryToolPresentation(entry);
   if (toolPresentation) return toolPresentation.displayName;
+  if (entry.commandSummary) return entry.commandSummary;
   if (entry.command?.trim()) return commandDisplayText(entry.command);
   const action = toolGroupAction(entry);
   if (action === "code-search" || action === "search") {

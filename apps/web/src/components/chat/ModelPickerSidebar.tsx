@@ -1,7 +1,8 @@
 import { Toolbar } from "@base-ui/react/toolbar";
 import { type ProviderInstanceId } from "@t3tools/contracts";
 import { memo, useLayoutEffect, useRef, useState } from "react";
-import { StarIcon } from "lucide-react";
+import { useGT } from "gt-react";
+import { HistoryIcon, StarIcon } from "lucide-react";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
@@ -30,8 +31,8 @@ const PICKER_TOOLTIP_SIDE = "left" as const;
 const PICKER_TOOLTIP_SIDE_OFFSET = 8;
 
 export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
-  selectedInstanceId: ProviderInstanceId | "favorites";
-  onSelectInstance: (instanceId: ProviderInstanceId | "favorites") => void;
+  selectedInstanceId: ProviderInstanceId | "favorites" | "recents";
+  onSelectInstance: (instanceId: ProviderInstanceId | "favorites" | "recents") => void;
   onFocusSearch: () => void;
   instanceEntries: ReadonlyArray<ProviderInstanceEntry>;
   showFavorites?: boolean;
@@ -39,9 +40,10 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
   selectableUnavailableInstanceIds?: ReadonlySet<ProviderInstanceId>;
   getDisabledInstanceTooltip?: (entry: ProviderInstanceEntry) => string;
 }) {
-  const handleSelect = (instanceId: ProviderInstanceId | "favorites") => {
+  const handleSelect = (instanceId: ProviderInstanceId | "favorites" | "recents") => {
     props.onSelectInstance(instanceId);
   };
+  const gt = useGT();
   const showFavorites = props.showFavorites ?? true;
   const [hoveredInstanceId, setHoveredInstanceId] = useState<ProviderInstanceId | null>(null);
   const sidebarContentRef = useRef<HTMLDivElement>(null);
@@ -116,6 +118,30 @@ export const ModelPickerSidebar = memo(function ModelPickerSidebar(props: {
                     align="center"
                   >
                     Favorites
+                  </TooltipPopup>
+                </Tooltip>
+              </div>
+              <div className="relative w-full" data-model-picker-provider="recents">
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Toolbar.Button
+                        className="relative isolate flex w-full cursor-pointer aspect-square items-center justify-center rounded-md transition-colors hover:bg-foreground/10 focus-visible:bg-foreground/10 focus-visible:outline-none"
+                        onClick={() => handleSelect("recents")}
+                        type="button"
+                        aria-label={gt("Recents")}
+                        aria-pressed={props.selectedInstanceId === "recents"}
+                      >
+                        <HistoryIcon className="size-5 shrink-0" aria-hidden />
+                      </Toolbar.Button>
+                    }
+                  />
+                  <TooltipPopup
+                    side={PICKER_TOOLTIP_SIDE}
+                    sideOffset={PICKER_TOOLTIP_SIDE_OFFSET}
+                    align="center"
+                  >
+                    {gt("Recents")}
                   </TooltipPopup>
                 </Tooltip>
               </div>

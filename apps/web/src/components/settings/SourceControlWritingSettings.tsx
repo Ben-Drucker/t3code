@@ -347,6 +347,7 @@ export function SourceControlWritingSettingsSection() {
                       environmentId={environmentId}
                       activeInstanceId={reviewGuideSelection.instanceId}
                       model={reviewGuideSelection.model}
+                      activeModelOptions={reviewGuideSelection.options}
                       lockedProvider={null}
                       instanceEntries={instanceEntries}
                       modelOptionsByInstance={reviewGuideModelOptionsByInstance}
@@ -354,7 +355,7 @@ export function SourceControlWritingSettingsSection() {
                       triggerAriaLabel="Review guide model"
                       {...(mixedReviewGuideModel ? { triggerLabel: "Mixed" } : {})}
                       getModelDisabledReason={writerModelDisabledReason}
-                      onInstanceModelChange={(instanceId, model) => {
+                      onInstanceModelChange={(instanceId, model, options) => {
                         const reason = writerModelDisabledReason(instanceId, model);
                         if (reason) {
                           toastManager.add({
@@ -369,6 +370,7 @@ export function SourceControlWritingSettingsSection() {
                             mixedReviewGuideModel ? null : reviewGuideSelection,
                             instanceId,
                             model,
+                            options,
                           ),
                         });
                       }}
@@ -379,6 +381,7 @@ export function SourceControlWritingSettingsSection() {
                   !mixedReviewGuideModel &&
                   reviewGuideInstanceEntry ? (
                     <TraitsPicker
+                      environmentId={environmentId}
                       provider={reviewGuideInstanceEntry.driverKind}
                       models={reviewGuideInstanceEntry.models}
                       model={reviewGuideSelection.model}
@@ -540,6 +543,7 @@ export function SourceControlWritingSettingsSection() {
                     environmentId={environmentId}
                     activeInstanceId={activeSelection.instanceId}
                     model={activeSelection.model}
+                    activeModelOptions={activeSelection.options}
                     lockedProvider={null}
                     instanceEntries={writerEntries}
                     modelOptionsByInstance={modelOptionsByInstance}
@@ -557,7 +561,7 @@ export function SourceControlWritingSettingsSection() {
                         }
                       : {})}
                     getModelDisabledReason={writerModelDisabledReason}
-                    onInstanceModelChange={(instanceId, model) => {
+                    onInstanceModelChange={(instanceId, model, options) => {
                       const reason = writerModelDisabledReason(instanceId, model);
                       if (reason) {
                         toastManager.add({
@@ -572,6 +576,7 @@ export function SourceControlWritingSettingsSection() {
                           mixedWriterModel ? null : activeSelection,
                           instanceId,
                           model,
+                          options,
                         ),
                       });
                     }}
@@ -582,6 +587,7 @@ export function SourceControlWritingSettingsSection() {
                 !mixedWriterModel &&
                 writerInstanceEntry ? (
                   <TraitsPicker
+                    environmentId={environmentId}
                     provider={writerInstanceEntry.driverKind}
                     models={writerInstanceEntry.models}
                     model={activeSelection.model}

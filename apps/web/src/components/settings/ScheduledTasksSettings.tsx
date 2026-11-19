@@ -1,3 +1,4 @@
+import { pickModelSelection } from "@t3tools/shared/model";
 import { useAtomValue } from "@effect/atom-react";
 import { connectionStatusTitle } from "@t3tools/client-runtime/connection";
 import { AsyncResult } from "effect/reactivity";
@@ -1796,13 +1797,23 @@ function ScheduledTaskEditorForm({
                 disabled={saving || !connected || draft.threadId !== ""}
                 activeInstanceId={shownInstanceId}
                 model={shownModel}
+                activeModelOptions={draft.baseModelSelection?.options}
                 lockedProvider={null}
                 instanceEntries={instanceEntries}
                 modelOptionsByInstance={modelOptionsByInstance}
                 isComposerOwned={false}
                 triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                onInstanceModelChange={(instanceId, model) =>
-                  setDraft((current) => ({ ...current, modelKey: `${instanceId}:${model}` }))
+                onInstanceModelChange={(instanceId, model, options) =>
+                  setDraft((current) => ({
+                    ...current,
+                    modelKey: `${instanceId}:${model}`,
+                    baseModelSelection: pickModelSelection(
+                      current.baseModelSelection,
+                      instanceId,
+                      model,
+                      options,
+                    ),
+                  }))
                 }
               />
             </div>

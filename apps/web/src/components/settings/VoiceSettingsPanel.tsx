@@ -570,16 +570,18 @@ function CleanupModelRow() {
                   environmentId={environment?.environmentId ?? null}
                   activeInstanceId={selection.instanceId}
                   model={selection.model}
+                  activeModelOptions={selection.options}
                   lockedProvider={null}
                   instanceEntries={instanceEntries}
                   modelOptionsByInstance={modelOptionsByInstance}
                   triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
                   getModelDisabledReason={modelDisabledReason}
-                  onInstanceModelChange={(instanceId, model) =>
-                    setModel(pickModelSelection(selection, instanceId, model))
+                  onInstanceModelChange={(instanceId, model, options) =>
+                    setModel(pickModelSelection(selection, instanceId, model, options))
                   }
                 />
                 <TraitsPicker
+                  environmentId={environment?.environmentId ?? null}
                   provider={instanceEntry.driverKind}
                   models={instanceEntry.models}
                   model={selection.model}

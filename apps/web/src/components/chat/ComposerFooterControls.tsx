@@ -1,4 +1,9 @@
-import type { ModelSelection, ProviderInstanceId, RuntimeMode } from "@t3tools/contracts";
+import type {
+  ModelSelection,
+  ProviderInstanceId,
+  ProviderOptionSelection,
+  RuntimeMode,
+} from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { type ComponentProps, memo, useId, useRef, useState } from "react";
 
@@ -331,8 +336,8 @@ export function ComposerModelPicker({
   readonly onProviderModelSelect: (
     instanceId: ProviderInstanceId,
     model: string,
-    options?: { focusComposer?: boolean },
-  ) => void;
+    options?: { focusComposer?: boolean; exactOptions?: ReadonlyArray<ProviderOptionSelection> },
+  ) => ModelSelection | void;
 }) {
   const { instanceEntries, modelOptionsByInstance } = pickerProps;
   const toggleModel = (instanceId: ProviderInstanceId, model: string) => {
@@ -364,6 +369,8 @@ export function ComposerModelPicker({
   return (
     <ProviderModelPicker
       {...pickerProps}
+      activeModelOptions={selectedModelSelection.options}
+      lockStartedOptions
       {...(multipleModelsEnabled
         ? {
             ...(multipleModelSelections !== null
@@ -372,9 +379,13 @@ export function ComposerModelPicker({
             onToggleModel: toggleModel,
           }
         : {})}
-      onInstanceModelChange={(instanceId, model) => {
+      onInstanceModelChange={(instanceId, model, exactOptions) => {
         onMultipleModelSelectionsChange(null);
-        onProviderModelSelect(instanceId, model);
+        return onProviderModelSelect(
+          instanceId,
+          model,
+          exactOptions ? { exactOptions } : undefined,
+        );
       }}
     />
   );

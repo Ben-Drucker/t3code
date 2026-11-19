@@ -56,6 +56,7 @@ export interface MuseSdkHostOptions {
   readonly environment?: NodeJS.ProcessEnv;
   readonly runtimeMode?: RuntimeMode;
   readonly readOnly?: boolean;
+  readonly disableShell?: boolean;
   /** Read-only generation needs session logging for turn/item notifications. */
   readonly sessionLogging?: boolean;
   readonly signal?: AbortSignal;
@@ -143,13 +144,14 @@ export function musePermissionProfile(runtimeMode: RuntimeMode) {
 }
 
 export function museServeArgs(
-  options: Pick<MuseSdkHostOptions, "readOnly" | "sessionLogging" | "runtimeMode">,
+  options: Pick<MuseSdkHostOptions, "readOnly" | "disableShell" | "sessionLogging" | "runtimeMode">,
 ) {
   const args = ["serve"];
   if (options.readOnly) {
     args.push("--disable-shell", "--disable-write");
     if (options.sessionLogging !== true) args.push("--no-session-log");
   } else {
+    if (options.disableShell) args.push("--disable-shell");
     args.push("--trust-workspace");
     if (options.runtimeMode === "full-access") args.push("--disable-sandbox");
   }

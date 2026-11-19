@@ -148,6 +148,7 @@ export function ComposerControlsBar(props: {
   const applyThreadModelPick = useApplyThreadModelPick();
   const applyRouteThreadModelPick = useStableCallback(() => applyThreadModelPick(routeThreadRef));
   const traitsInput = resolveComposerTraitsInput({
+    environmentId,
     provider: selectedProvider,
     instanceId: selectedInstanceId,
     ...(routeKind === "server"

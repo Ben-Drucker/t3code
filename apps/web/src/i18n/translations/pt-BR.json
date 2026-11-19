@@ -1,4 +1,5 @@
 {
+  "a6d2aa5196b7e23e": "Avisos sobre solicitações lentas",
   "0a75e464d833bca8": "Configurações",
   "6aa1c88c4fa5be28": "Diagnóstico",
   "fb29e435b1219373": "Licenças de código aberto",
@@ -75,5 +76,15 @@
   "1d5052cbe70d0b28": "Confirmação ao arquivar",
   "d5dd27a4eb853248": "Confirmação ao excluir",
   "5503ef439beb8d42": "Confirmação ao fechar terminais",
-  "86b43caa9ff41ea2": "Atalho de saída"
+  "86b43caa9ff41ea2": "Atalho de saída",
+  "0a964bcc614472e2": "Explorar pasta (Tab)",
+  "2e82f7f1d448fd92": "Verde-limão e ferrugem",
+  "2f019f0b4e55d916": "Azul e laranja",
+  "3f383e72dcd7d5a8": "Vermelho e verde (padrão)",
+  "5ca2302ec416f499": "Vermelho e verde",
+  "708991e5756229fe": "Recentes",
+  "82750bfcaef60d24": "Ativado",
+  "90a258fff61fd77e": "Desativado",
+  "bf385e881f6a2c65": "Nenhuma configuração recente",
+  "e252476201125a90": "Explorar pasta"
 }

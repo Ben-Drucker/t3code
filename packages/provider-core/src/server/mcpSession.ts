@@ -1,5 +1,16 @@
-import type { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ProviderInstanceId, RunId, ThreadId } from "@t3tools/contracts";
 import type * as Effect from "effect/Effect";
+import type { ProviderAdapterV2RuntimePolicy } from "./ProviderAdapter.ts";
+
+export function permitsHostTerminal(policy: ProviderAdapterV2RuntimePolicy): boolean {
+  return (
+    policy.runtimeMode === "full-access" &&
+    policy.interactionMode === "default" &&
+    (policy.maxRuntimeMode === undefined || policy.maxRuntimeMode === "full-access") &&
+    policy.approvalPolicy === undefined &&
+    policy.sandboxPolicy === undefined
+  );
+}
 
 /**
  * Sent by MCP clients that cannot defer tools themselves. The T3 MCP server then
@@ -17,6 +28,10 @@ export interface McpProviderSessionConfig {
   /** Omit preview_* instructions when the user withholds agent browser access. */
   readonly browserToolsAvailable: boolean;
   readonly capabilities?: ReadonlySet<string>;
+  readonly terminalAccess?: {
+    readonly isAdvertised: Effect.Effect<boolean>;
+    turn: { readonly runId: RunId; readonly cwd: string | null } | undefined;
+  };
   readonly agentDeviceEnvironment?: Readonly<Record<string, string>>;
   /** True while a delegated task this thread started will wake it with its result. */
   readonly hasPendingWake?: Effect.Effect<boolean>;

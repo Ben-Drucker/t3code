@@ -44,7 +44,10 @@ export function pendingModelAfterPress(input: {
   if (input.pressedIsApplied) {
     return null;
   }
-  if (input.current?.key === input.pressed.key) {
+  if (
+    (input.current?.recentKey ?? input.current?.key) ===
+    (input.pressed.recentKey ?? input.pressed.key)
+  ) {
     return input.current;
   }
   return input.restoreSelection

@@ -91,6 +91,15 @@ private final class ComposerTextView: UITextView {
   var onPasteText: ((String, NSRange) -> Void)?
   var clipboardFragment = ""
   var onSubmit: ((Bool) -> Void)?
+  var onPickerKey: ((String) -> Void)?
+  var pickerKeysEnabled = false
+  private static let pickerKeys = [
+    UIKeyCommand.inputUpArrow: "previous",
+    UIKeyCommand.inputDownArrow: "next",
+    "\r": "select",
+    "\t": "browse",
+    UIKeyCommand.inputEscape: "dismiss",
+  ]
   var isReadOnly = false
   var textPasteThresholdBytes = 0
   var maxInputChars = Int.max
@@ -103,6 +112,13 @@ private final class ComposerTextView: UITextView {
   override var keyCommands: [UIKeyCommand]? {
     var commands = super.keyCommands ?? []
     guard !isReadOnly, markedTextRange == nil else { return commands }
+    if pickerKeysEnabled {
+      for input in Self.pickerKeys.keys {
+        let command = UIKeyCommand(input: input, modifierFlags: [], action: #selector(pickerKey(_:)))
+        command.wantsPriorityOverSystemBehavior = true
+        commands.append(command)
+      }
+    }
     if enterBehavior == .send {
       let submitOnReturn = UIKeyCommand(
         input: "\r",
@@ -111,7 +127,7 @@ private final class ComposerTextView: UITextView {
       )
       submitOnReturn.discoverabilityTitle = submitTitle
       submitOnReturn.wantsPriorityOverSystemBehavior = true
-      commands.append(submitOnReturn)
+      if !pickerKeysEnabled { commands.append(submitOnReturn) }
 
       let submitAlternate = UIKeyCommand(
         input: "\r",
@@ -160,6 +176,12 @@ private final class ComposerTextView: UITextView {
       commands.append(pasteAsText)
     }
     return commands
+  }
+
+  @objc private func pickerKey(_ sender: UIKeyCommand) {
+    guard pickerKeysEnabled, !isReadOnly, markedTextRange == nil,
+      let input = sender.input, let key = Self.pickerKeys[input] else { return }
+    onPickerKey?(key)
   }
 
   @objc private func submitMessage(_ sender: UIKeyCommand) {
@@ -507,6 +529,7 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
   let onComposerFocus = EventDispatcher()
   let onComposerBlur = EventDispatcher()
   let onComposerSubmit = EventDispatcher()
+  let onComposerPickerKey = EventDispatcher()
   let onComposerPasteImages = EventDispatcher()
   let onComposerContextPress = EventDispatcher()
   let onComposerPasteContext = EventDispatcher()
@@ -562,6 +585,9 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
         "text": text,
         "selection": ["start": selection.start, "end": selection.end],
       ])
+    }
+    textView.onPickerKey = { [weak self] key in
+      self?.onComposerPickerKey(["key": key])
     }
     textView.onSubmit = { [weak self] alternate in
       self?.onComposerSubmit(["alternate": alternate])
@@ -867,6 +893,10 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
     ]
   }
 
+  func setPickerKeysEnabled(_ enabled: Bool) {
+    textView.pickerKeysEnabled = enabled
+  }
+
   func setSelection(start: Int, end: Int) {
     let previousSelection = sourceSelection()
     requestedSelection = ComposerSelectionPayload(start: start, end: end)
@@ -1049,6 +1079,7 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
       label: token.label,
       detail: token.detail,
       icon: icon,
+      swatch: token.type == "rgb-color" ? UIColor(composerHex: token.source) : nil,
       color: color,
       font: chipFont
     )
@@ -1070,6 +1101,7 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
     label: String,
     detail: String?,
     icon: UIImage?,
+    swatch: UIColor?,
     color: UIColor,
     font: UIFont
   ) -> UIImage {
@@ -1092,7 +1124,7 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
       )
     }
     let iconSide = font.pointSize
-    let iconSlot: CGFloat = icon == nil ? 0 : iconSide * 1.25
+    let iconSlot: CGFloat = swatch != nil ? iconSide : (icon == nil ? 0 : iconSide * 1.25)
     let padding: CGFloat = 5
     let height = ceil(font.ascender - font.descender)
     // A long path would otherwise draw a chip wider than the composer and clip. Cap the label
@@ -1111,7 +1143,20 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
     format.opaque = false
     let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format)
     return renderer.image { _ in
-      if let icon {
+      if let swatch {
+        let pill = UIBezierPath(
+          roundedRect: CGRect(x: 0.5, y: 0.5, width: width - 1, height: height - 1),
+          cornerRadius: 5
+        )
+        swatch.withAlphaComponent(0.12).setFill()
+        pill.fill()
+        swatch.withAlphaComponent(0.25).setStroke()
+        pill.lineWidth = 1
+        pill.stroke()
+        let side = iconSide * 0.72
+        swatch.setFill()
+        UIBezierPath(roundedRect: CGRect(x: padding, y: (height - side) / 2, width: side, height: side), cornerRadius: 2).fill()
+      } else if let icon {
         icon.draw(
           in: CGRect(x: padding, y: (height - iconSide) / 2, width: iconSide, height: iconSide)
         )

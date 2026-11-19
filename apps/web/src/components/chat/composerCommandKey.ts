@@ -82,7 +82,7 @@ export function composerCommandKeyHandler(input: {
   readonly setComposerHighlightedItemId: Dispatch<SetStateAction<string | null>>;
   readonly dismissComposerTrigger: (trigger: ComposerTrigger | null) => void;
   readonly nudgeComposerMenuHighlight: (key: "ArrowDown" | "ArrowUp") => void;
-  readonly onSelectComposerItem: (item: ComposerCommandItem) => void;
+  readonly onSelectComposerItem: (item: ComposerCommandItem, dive?: boolean) => void;
   readonly resolveActiveComposerTrigger: () => { trigger: ComposerTrigger | null };
   readonly readComposerSnapshot: () => { value: string };
   readonly applyPromptReplacement: (
@@ -260,8 +260,16 @@ export function composerCommandKeyHandler(input: {
         nudgeComposerMenuHighlight("ArrowUp");
         return true;
       }
-      if ((key === "Enter" || key === "Tab") && selectedItem) {
-        onSelectComposerItem(selectedItem);
+      if ((key === "Enter" || (key === "Tab" && !event.shiftKey)) && selectedItem) {
+        if (
+          key === "Tab" &&
+          selectedItem.type === "path" &&
+          selectedItem.pathKind === "directory"
+        ) {
+          onSelectComposerItem(selectedItem, true);
+        } else {
+          onSelectComposerItem(selectedItem);
+        }
         return true;
       }
     }

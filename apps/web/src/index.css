@@ -2067,6 +2067,25 @@ code {
   vertical-align: -0.125em;
 }
 
+.rgb-hex-chip {
+  padding-inline: 0.3em;
+  border-radius: 0.4em;
+  background: color-mix(in srgb, var(--rgb-hex-chip-color) 12%, var(--background));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rgb-hex-chip-color) 25%, var(--border));
+  white-space: nowrap;
+}
+
+.rgb-hex-chip::before {
+  display: inline-block;
+  width: 0.72em;
+  height: 0.72em;
+  margin-inline-end: 0.3em;
+  border-radius: 0.18em;
+  background: var(--rgb-hex-chip-color);
+  vertical-align: 0.03em;
+  content: "";
+}
+
 .chat-markdown-file-link > [data-slot="context-chip-label"] {
   display: inline;
 }
@@ -2350,6 +2369,16 @@ code {
 :root[data-diff-color-scheme="blue-orange"] {
   --diff-addition: light-dark(var(--color-blue-600), var(--color-blue-400));
   --diff-deletion: light-dark(var(--color-orange-600), var(--color-orange-400));
+}
+
+:root[data-diff-color-scheme="lime-rust"] {
+  --diff-addition: #5bed2b;
+  --diff-deletion: #ad3c1f;
+  --diff-added-icon: var(--diff-addition);
+}
+
+:root[data-diff-color-scheme="blue-orange"],
+:root[data-diff-color-scheme="lime-rust"] {
   --diff-addition-foreground: var(--diff-addition);
   --diff-deletion-foreground: var(--diff-deletion);
   --diffs-addition-color-override: var(--diff-addition);

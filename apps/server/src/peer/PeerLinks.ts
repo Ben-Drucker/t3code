@@ -97,6 +97,7 @@ export class PeerLinks extends Context.Service<
     readonly enabled: Effect.Effect<boolean>;
     readonly link: (input: PeerLinkCreateInput) => Effect.Effect<PeerLink, PeerLinkError>;
     readonly list: Effect.Effect<ReadonlyArray<PeerLinkSummary>, PeerLinkError>;
+    readonly unexpiredIds: Effect.Effect<ReadonlyArray<EnvironmentId>, PeerLinkError>;
     /** The stored link, without asking the peer whether it answers. */
     readonly get: (
       environmentId: EnvironmentId,
@@ -294,6 +295,16 @@ const make = Effect.gen(function* () {
   const readRows = sql<PeerLinkRow>`
     SELECT * FROM peer_environment_links ORDER BY label, environment_id
   `.pipe(NodeSqliteClient.readOnly, Effect.catch(failStorage));
+
+  const unexpiredIds = Effect.gen(function* () {
+    const now = DateTime.formatIso(yield* DateTime.now);
+    const rows = yield* sql<{ environment_id: string }>`
+      SELECT environment_id FROM peer_environment_links
+      WHERE fenced = 1 AND expires_at > ${now}
+      ORDER BY environment_id
+    `.pipe(NodeSqliteClient.readOnly, Effect.catch(failStorage));
+    return rows.map((row) => EnvironmentId.make(row.environment_id));
+  });
 
   const readRow = (environmentId: EnvironmentId) =>
     sql<PeerLinkRow>`
@@ -716,6 +727,7 @@ const make = Effect.gen(function* () {
     enabled,
     link,
     list,
+    unexpiredIds,
     get,
     unlink,
     resolve,

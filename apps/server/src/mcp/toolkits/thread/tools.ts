@@ -1,4 +1,5 @@
 import {
+  EnvironmentId,
   OrchestratorMcpEnvironmentTarget,
   ScheduledTaskId,
   ScheduledTask,
@@ -29,6 +30,7 @@ import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import * as PeerForwarding from "../../../peer/PeerForwarding.ts";
 
 const ThreadOrganizeTool = Tool.make("t3_thread_organize", {
   description:
@@ -123,6 +125,7 @@ const question = Schema.Struct({
   ),
   multiSelect: Schema.optional(Schema.Boolean),
   allowCustomAnswer: Schema.optional(Schema.Boolean),
+  customAnswerId: Schema.optional(Schema.String),
   initialAnswer: Schema.optional(Schema.String),
   required: Schema.optional(Schema.Boolean),
 });
@@ -241,7 +244,88 @@ const ScheduledTaskRunTool = Tool.make("run_scheduled_task_now", {
   .annotate(Tool.Destructive, true)
   .annotate(Tool.OpenWorld, true);
 
+const ConversationSearchParameters = Schema.Struct({
+  pattern: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2048)),
+  start: Schema.optional(IsoDateTime).annotate({
+    description: "Inclusive ISO date or timestamp.",
+  }),
+  end: Schema.optional(IsoDateTime).annotate({ description: "Inclusive ISO date or timestamp." }),
+  provider: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(256))).annotate({
+    description: "Exact provider instance ID, such as codex.",
+  }),
+  includeToolCalls: Schema.optional(Schema.Boolean),
+  includeToolResults: Schema.optional(Schema.Boolean),
+  includeReasoning: Schema.optional(Schema.Boolean),
+  limit: Schema.optional(clampedPositiveInt(50)),
+  order: Schema.optional(Schema.Literals(["newest", "oldest"])),
+  timeoutMs: Schema.optional(clampedPositiveInt(15_000)).annotate({
+    description:
+      "Overall time budget across environments in milliseconds. Default 3000, maximum 15000.",
+  }),
+  description: TrimmedNonEmptyString.check(Schema.isMaxLength(256)).annotate({
+    description: "Short description of what you are looking for, displayed in the timeline.",
+  }),
+});
+const ConversationSearchMatch = Schema.Struct({
+  threadId: ThreadId,
+  itemId: Schema.String,
+  updatedAt: IsoDateTime,
+  type: Schema.String,
+  provider: Schema.String,
+  excerpt: Schema.String,
+  link: Schema.String,
+});
+const ConversationSearchStatus = {
+  timedOut: Schema.Boolean,
+  truncated: Schema.Boolean,
+};
+
+// Decode the common fields so a peer that still has local-only search can answer.
+export const SearchConversationsPeerTool = Tool.make("t3_search_convos", {
+  parameters: ConversationSearchParameters,
+  success: Schema.Struct({
+    matches: Schema.Array(ConversationSearchMatch),
+    ...ConversationSearchStatus,
+  }),
+});
+
+export const SearchConversationsTool = Tool.make("t3_search_convos", {
+  ...commandTool,
+  description:
+    "Regex-search persisted transcripts here and in accessible linked T3 environments. Defaults to messages only and newest matches first. Filter by environmentId or environmentIds from t3_environment_links. Results include source thread links. For an exact item, pass its environmentId, threadId and itemId to t3_thread_read. Check partial, timedOut and truncated before treating results as exhaustive.",
+  parameters: Schema.Struct({
+    ...ConversationSearchParameters.fields,
+    environmentId: Schema.optional(EnvironmentId).annotate({
+      description: "Search only this T3 environment ID.",
+    }),
+    environmentIds: Schema.optional(
+      Schema.Array(EnvironmentId).check(Schema.isMinLength(1)),
+    ).annotate({ description: "Search only these T3 environment IDs. Omit environmentId." }),
+  }),
+  success: Schema.Struct({
+    matches: Schema.Array(
+      Schema.Struct({ ...ConversationSearchMatch.fields, environmentId: EnvironmentId }),
+    ),
+    ...ConversationSearchStatus,
+    partial: Schema.Boolean,
+    incompleteEnvironments: Schema.Array(
+      Schema.Struct({
+        environmentId: EnvironmentId,
+        reason: Schema.Literals(["unavailable", "timed_out", "unsupported", "discovery_failed"]),
+      }),
+    ),
+  }),
+  dependencies: [
+    ...commandTool.dependencies,
+    ThreadSearch.ThreadSearch,
+    PeerForwarding.PeerForwarding,
+  ],
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+
 export const ThreadToolkit = Toolkit.make(
+  SearchConversationsTool,
   ScheduledTaskRunTool,
   ThreadSearchTool,
   ThreadConfigureTool,

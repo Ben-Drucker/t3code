@@ -40,6 +40,7 @@ import {
   nonPlaceholderMessageCondition,
 } from "./messageSearchIndex.ts";
 import { loadOlderSettledThreadsPage } from "./ShellStream.ts";
+import { makeTranscriptRegexSearch } from "./TranscriptRegexSearch.ts";
 
 // When the user last wrote in the thread aliased `threads`, as the clients
 // rank recency; agent notices in the user role do not count.
@@ -344,6 +345,17 @@ export class ThreadSearch extends Context.Service<
     readonly search: (
       input: OrchestrationSearchThreadsInput,
     ) => Effect.Effect<OrchestrationSearchThreadsResult, ThreadSearchError>;
+    readonly searchConversations: (
+      input: import("./TranscriptRegexSearch.ts").TranscriptRegexInput,
+    ) => Effect.Effect<
+      {
+        readonly matches: ReadonlyArray<import("./TranscriptRegexSearch.ts").TranscriptRegexHit>;
+        readonly invalidPattern: boolean;
+        readonly timedOut: boolean;
+        readonly truncated: boolean;
+      },
+      ThreadSearchError
+    >;
     /**
      * Title, branch, pull request, and project matches ranked as the command
      * palette ranks them, then message matches for the remaining threads.
@@ -718,7 +730,17 @@ export const make = Effect.gen(function* () {
     ];
   });
 
-  return ThreadSearch.of({ search, searchThreads, searchOlderSettled });
+  const searchTranscripts = yield* makeTranscriptRegexSearch(sql);
+  return ThreadSearch.of({
+    search,
+    searchThreads,
+    searchOlderSettled,
+    searchConversations: Effect.fn("ThreadSearch.searchConversations")((input) =>
+      searchTranscripts(input).pipe(
+        Effect.mapError((cause) => new ThreadSearchError({ operation: "query", cause })),
+      ),
+    ),
+  });
 });
 
 export const layer = Layer.effect(ThreadSearch, make);

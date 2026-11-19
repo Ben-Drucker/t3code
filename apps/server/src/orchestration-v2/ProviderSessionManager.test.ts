@@ -445,6 +445,7 @@ const makeProviderAdapter = Effect.fnUntraced(function* (
   state: Ref.Ref<TestProviderRuntimeState>,
   options: {
     readonly failEventStream?: boolean;
+    readonly driver?: ProviderDriverKind;
     readonly normalizeThreadLoadModelSelection?: (selection: ModelSelection) => ModelSelection;
     readonly capabilities?: OrchestrationV2ProviderCapabilities;
     readonly extensionStatuses?: OrchestrationV2ProviderSession["extensionStatuses"];
@@ -488,7 +489,7 @@ const makeProviderAdapter = Effect.fnUntraced(function* (
   );
   return ProviderAdapter.ProviderAdapterV2.of({
     instanceId: ProviderInstanceId.make("codex"),
-    driver: CODEX_DRIVER,
+    driver: options.driver ?? CODEX_DRIVER,
     getCapabilities: () => Effect.succeed(options.capabilities ?? CodexCapabilities),
     planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" }),
     openSession: (input) =>
@@ -618,6 +619,7 @@ function layerTest(input: {
   readonly idleTimeoutMs: number;
   readonly maxIdlePinMs?: number;
   readonly failEventStream?: boolean;
+  readonly driver?: ProviderDriverKind;
   readonly normalizeThreadLoadModelSelection?: (selection: ModelSelection) => ModelSelection;
   readonly capabilities?: OrchestrationV2ProviderCapabilities;
   readonly extensionStatuses?: OrchestrationV2ProviderSession["extensionStatuses"];
@@ -668,6 +670,7 @@ function layerTest(input: {
   const layerRegistry = Layer.unwrap(
     makeProviderAdapter(input.state, {
       failEventStream: input.failEventStream ?? false,
+      ...(input.driver === undefined ? {} : { driver: input.driver }),
       ...(input.normalizeThreadLoadModelSelection === undefined
         ? {}
         : { normalizeThreadLoadModelSelection: input.normalizeThreadLoadModelSelection }),
@@ -2507,9 +2510,20 @@ it("ProviderSessionManagerV2 counts a delegated task as a wake only while its re
   );
 });
 
-it.effect(
-  "ProviderSessionManagerV2 issues MCP credentials before opening and revokes them on close",
-  () =>
+it.effect.each([
+  { driver: "pi", policy: runtimePolicy, terminal: true },
+  { driver: "acp-registry", policy: runtimePolicy, terminal: true },
+  { driver: "codex", policy: runtimePolicy, terminal: false },
+  { driver: "cursor", policy: runtimePolicy, terminal: false },
+  {
+    driver: "pi",
+    policy: { ...runtimePolicy, runtimeMode: "approval-required" as const },
+    terminal: false,
+  },
+  { driver: "pi", policy: { ...runtimePolicy, interactionMode: "plan" as const }, terminal: false },
+])(
+  "ProviderSessionManagerV2 issues MCP credentials for $driver in $policy.runtimeMode/$policy.interactionMode and revokes them on close",
+  ({ driver, policy, terminal }) =>
     Effect.gen(function* () {
       const state = yield* Ref.make(emptyState);
       const mcpConfigs = yield* Ref.make<
@@ -2535,7 +2549,7 @@ it.effect(
           threadId,
           providerSessionId,
           modelSelection,
-          runtimePolicy,
+          runtimePolicy: policy,
         });
 
         const captured = (yield* Ref.get(mcpConfigs))[0];
@@ -2549,8 +2563,17 @@ it.effect(
         assert.equal(resolved?.thread.threadId, threadId);
         assert.deepEqual(
           resolved?.capabilities,
-          new Set(["preview", "orchestration", "worktree", "pull-requests", "issues"]),
+          new Set([
+            "preview",
+            "orchestration",
+            "worktree",
+            "pull-requests",
+            "issues",
+            ...(terminal ? (["terminal", "terminal-unrestricted"] as const) : []),
+          ]),
         );
+        assert.equal(captured?.terminalAccess !== undefined, terminal);
+        assert.isUndefined(captured?.terminalAccess?.turn);
 
         assert.isFalse(yield* captured!.hasPendingWake!);
 
@@ -2563,6 +2586,7 @@ it.effect(
         Effect.provide(
           layerTest({
             state,
+            driver: ProviderDriverKind.make(driver),
             idleTimeoutMs: 1_000,
             mcpConfigs,
           }),

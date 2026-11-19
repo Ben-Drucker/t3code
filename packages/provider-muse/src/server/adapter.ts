@@ -27,6 +27,7 @@ import {
 import type { MuseSettings } from "../settings.ts";
 import { AgentScope } from "@t3tools/shared/AgentScope";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
+import * as Result from "effect/Result";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
@@ -1772,7 +1773,8 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
         ),
         Effect.forkIn(scope),
       );
-      const launchHost = Effect.fnUntraced(function* () {
+      let hostReplacesShell = false;
+      const launchHost = Effect.fnUntraced(function* (disableShell = false) {
         const epoch = ++hostEpoch;
         const mcpSession = yield* mcpSessions.read(input.threadId);
         const environment = McpProviderSession.withAgentDeviceEnvironment(
@@ -1802,6 +1804,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
               cwd,
               environment,
               runtimeMode: input.runtimePolicy.runtimeMode,
+              disableShell,
               onProcessExit: (exit) => {
                 Deferred.doneUnsafe(processExited, Effect.succeed(exit));
               },
@@ -1838,6 +1841,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
           { interruptible: true },
         ).pipe(Effect.provideService(Scope.Scope, scope));
         host = created;
+        hostReplacesShell = disableShell;
         created.connection.onNotification((notification) => {
           Queue.offerUnsafe(inbox, {
             type: "notification",
@@ -1893,7 +1897,27 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
           yield* Queue.shutdown(events);
         }).pipe(eventPermit.withPermits(1)),
       );
-      yield* launchHost();
+      const closeHostForTerminalFallback = Effect.fnUntraced(function* () {
+        hostEpoch++;
+        yield* Effect.tryPromise({
+          try: () => host.close(),
+          catch: (cause) => new MuseSdkError({ operation: "close", cause }),
+        }).pipe(Effect.timeoutOption("13 seconds"), Effect.ignore);
+      });
+      const launchWithTerminalFallback = Effect.fnUntraced(function* () {
+        const session = yield* mcpSessions.read(input.threadId);
+        const advertise =
+          McpProviderSession.permitsHostTerminal(input.runtimePolicy) &&
+          (yield* session?.terminalAccess?.isAdvertised ?? Effect.succeed(false));
+        if (!advertise) return yield* launchHost();
+        const launched = yield* launchHost(true).pipe(Effect.result);
+        if (Result.isSuccess(launched)) {
+          if (host.initializeResult.grantedCapabilities.includes("sessionMcp")) return;
+          yield* closeHostForTerminalFallback();
+        }
+        yield* launchHost();
+      });
+      yield* launchWithTerminalFallback();
 
       const register = Effect.fnUntraced(function* (
         args: ProviderAdapter.ProviderAdapterV2EnsureThreadInput,
@@ -1902,7 +1926,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
           return yield* protocolError("Muse host is unavailable; reopen the session");
         if (broken) {
           yield* Effect.logWarning("Relaunching the Muse host after a failure");
-          yield* launchHost();
+          yield* launchWithTerminalFallback();
           broken = false;
           relaunchable = false;
           thread = undefined;
@@ -1931,41 +1955,65 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
         return yield* Effect.gen(function* () {
           nativeSessionId = requestedId ?? host.connection.mintCommandId();
           const mcpSession = yield* mcpSessions.read(args.threadId);
-          if (mcpSession && !host.initializeResult.grantedCapabilities.includes("sessionMcp"))
-            return yield* protocolError(
-              "Update Muse Code to a version that supports session MCP servers",
-            );
-          const config = mcpSession
-            ? {
-                mcpServers: {
-                  // Muse's required default fails runs if T3 tools are unreachable; make them optional.
-                  "t3-code": {
-                    transport: "streamableHttp",
-                    mode: "optional",
-                    url: mcpSession.endpoint,
-                    headers: { Authorization: mcpSession.authorizationHeader },
+          if (
+            mcpSession &&
+            mcpSession.terminalAccess === undefined &&
+            !host.initializeResult.grantedCapabilities.includes("sessionMcp")
+          ) {
+            return yield* protocolError("Muse host does not support session MCP");
+          }
+          const config =
+            mcpSession && host.initializeResult.grantedCapabilities.includes("sessionMcp")
+              ? {
+                  mcpServers: {
+                    // Muse's required default fails runs if T3 tools are unreachable; make them optional.
+                    "t3-code": {
+                      transport: "streamableHttp",
+                      mode: hostReplacesShell ? "required" : "optional",
+                      url: mcpSession.endpoint,
+                      headers: { Authorization: mcpSession.authorizationHeader },
+                    },
                   },
-                },
-              }
-            : undefined;
+                }
+              : undefined;
           const startModel = yield* resolveModel(args.modelSelection);
           const permissionProfile = musePermissionProfile(args.runtimePolicy.runtimeMode);
-          const result = yield* request(
-            requestedId ? "session/resume" : "session/start",
-            requestedId
-              ? { excludeItems: true, ...(config ? { config } : {}), permissionProfile }
-              : {
-                  workspaceRoot: cwd,
-                  ...(config ? { config } : {}),
-                  ...(startModel ? { modelId: startModel } : {}),
-                  providerId: "meta",
-                  approvalMode: museApprovalMode(args.runtimePolicy.runtimeMode),
-                  permissionProfile,
-                },
-          ).pipe(
+          const open = (sessionConfig: typeof config) =>
+            request(
+              requestedId ? "session/resume" : "session/start",
+              requestedId
+                ? {
+                    excludeItems: true,
+                    ...(sessionConfig ? { config: sessionConfig } : {}),
+                    permissionProfile,
+                  }
+                : {
+                    workspaceRoot: cwd,
+                    ...(sessionConfig ? { config: sessionConfig } : {}),
+                    ...(startModel ? { modelId: startModel } : {}),
+                    providerId: "meta",
+                    approvalMode: museApprovalMode(args.runtimePolicy.runtimeMode),
+                    permissionProfile,
+                  },
+            );
+          const result = yield* open(config).pipe(
+            Effect.catchIf(
+              (error) =>
+                hostReplacesShell &&
+                error.payload instanceof MspError &&
+                error.payload.kind === "mcpLinkError",
+              () =>
+                Effect.gen(function* () {
+                  yield* closeHostForTerminalFallback();
+                  yield* launchHost();
+                  nativeSessionId = requestedId ?? host.connection.mintCommandId();
+                  return yield* open(undefined);
+                }),
+            ),
             Effect.catch((error) => {
               missingNativeSession =
                 requestedId !== undefined &&
+                error._tag === "ProviderAdapterProtocolError" &&
                 error.payload instanceof MspError &&
                 (error.payload.kind === "sessionNotFound" || error.payload.kind === "notFound");
               return Effect.fail(error);

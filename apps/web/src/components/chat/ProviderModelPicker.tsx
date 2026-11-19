@@ -4,7 +4,11 @@ import {
   type EnvironmentId,
   type ProviderDriverKind,
   type ResolvedKeybindingsConfig,
+  type ModelSelection,
+  type ProviderOptionSelection,
 } from "@t3tools/contracts";
+import { createModelSelection, materializeModelConfiguration } from "@t3tools/shared/model";
+import { recordModelRecent } from "../../modelRecents";
 import { RegistryContext } from "@effect/atom-react";
 import {
   createContext,
@@ -107,6 +111,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   disabled?: boolean;
   terminalOpen?: boolean;
   open?: boolean;
+  initialSearchQuery?: string;
   popupAlign?: "start" | "end";
   triggerClassName?: string;
   triggerLabel?: string;
@@ -114,7 +119,13 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   onOpenChange?: (open: boolean) => void;
   onOpenProviderSetup?: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason?: (instanceId: ProviderInstanceId, model: string) => string | null;
-  onInstanceModelChange: (instanceId: ProviderInstanceId, model: string) => void;
+  activeModelOptions?: ReadonlyArray<ProviderOptionSelection> | undefined;
+  lockStartedOptions?: boolean | undefined;
+  onInstanceModelChange: (
+    instanceId: ProviderInstanceId,
+    model: string,
+    options?: ReadonlyArray<ProviderOptionSelection>,
+  ) => ModelSelection | void;
   /** Shown after the model name inside the same trigger, such as the effort level. */
   triggerSuffix?: ReactNode;
   /** Names the suffix for the tooltip and screen readers. */
@@ -218,9 +229,29 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       ?.click();
   };
 
-  const handleInstanceModelChange = (instanceId: ProviderInstanceId, model: string) => {
+  const handleInstanceModelChange = (
+    instanceId: ProviderInstanceId,
+    model: string,
+    options?: ReadonlyArray<ProviderOptionSelection>,
+  ) => {
     if (props.disabled) return;
-    props.onInstanceModelChange(instanceId, model);
+    const selection = props.onInstanceModelChange(instanceId, model, options);
+    const catalogModel = props.instanceEntries
+      .find((entry) => entry.instanceId === instanceId)
+      ?.models.find((entry) => entry.slug === model);
+    if (props.environmentId) {
+      const currentOptions =
+        instanceId === props.activeInstanceId && model === props.model
+          ? props.activeModelOptions
+          : undefined;
+      recordModelRecent(
+        props.environmentId,
+        materializeModelConfiguration(
+          selection ?? createModelSelection(instanceId, model, options ?? currentOptions),
+          catalogModel?.capabilities ?? undefined,
+        ),
+      );
+    }
     if (!docked) {
       setIsMenuOpen(false);
       return;
@@ -283,6 +314,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const picker = (
     <ModelPickerContent
       searchInputRef={searchInputRef}
+      initialSearchQuery={props.initialSearchQuery ?? ""}
       environmentId={props.environmentId}
       workspaceCwd={props.workspaceCwd ?? null}
       activeInstanceId={activeInstanceId}
@@ -308,6 +340,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
           ? "Model picker is disabled"
           : (props.getModelDisabledReason?.(instanceId, model) ?? null)
       }
+      activeModelOptions={props.activeModelOptions}
+      lockStartedOptions={props.lockStartedOptions}
       onInstanceModelChange={handleInstanceModelChange}
       {...(docked
         ? {

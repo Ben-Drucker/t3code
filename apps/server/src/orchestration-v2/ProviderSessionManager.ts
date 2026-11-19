@@ -1,4 +1,6 @@
 import { AgentScope } from "@t3tools/shared/AgentScope";
+import { permitsHostTerminal } from "@t3tools/provider-core/server/mcpSession";
+import { makeAcpMcpOverAcpBridge } from "@t3tools/provider-acp/server/mcpOverAcpBridge";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
@@ -293,6 +295,7 @@ export class ProviderSessionManagerV2 extends Context.Service<
 >()("t3/orchestration-v2/ProviderSessionManager/ProviderSessionManagerV2") {}
 
 interface LiveSessionEntry {
+  readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
   readonly attachedThreadIds: ReadonlySet<ThreadId>;
   readonly loadedProviderThreadKeyByThread: ReadonlyMap<ThreadId, string>;
   /** null marks an unknown catalog; undefined means MCP refresh is not configured. */
@@ -556,6 +559,7 @@ export const layerWithOptions = (
       const prepareMcpSession = (
         threadId: ThreadId,
         providerInstanceId: ProviderInstanceId,
+        runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy | undefined,
       ): Effect.Effect<PreparedMcpCredential> =>
         options.configureMcp === false
           ? mcpSessions
@@ -567,16 +571,27 @@ export const layerWithOptions = (
                 // Live providers build MCP clients once; reuse credentials across workspace handoffs.
                 const { browser: browserToolsAvailable, device: deviceToolsAvailable } =
                   yield* agentAccessSettings(threadId);
-                const terminalToolsAvailable = yield* registry.get(providerInstanceId).pipe(
-                  Effect.map((adapter) => adapter.driver === "antigravity"),
-                  Effect.orElseSucceed(() => false),
+                const driver = yield* registry.get(providerInstanceId).pipe(
+                  Effect.map((adapter) => adapter.driver),
+                  Effect.orElseSucceed(() => undefined),
                 );
+                const unrestrictedTerminal =
+                  driver !== undefined &&
+                  driver !== "antigravity" &&
+                  // These providers can enforce command rules independently of T3's runtime mode.
+                  driver !== "codex" &&
+                  driver !== "cursor" &&
+                  driver !== "claude" &&
+                  runtimePolicy !== undefined &&
+                  permitsHostTerminal(runtimePolicy);
+                const terminalToolsAvailable = driver === "antigravity" || unrestrictedTerminal;
                 const capabilities = new Set<
                   import("../mcp/McpInvocationContext.ts").McpCapability
                 >(["orchestration", "worktree", "pull-requests", "issues"]);
                 if (browserToolsAvailable) capabilities.add("preview");
                 if (deviceToolsAvailable) capabilities.add("device");
                 if (terminalToolsAvailable) capabilities.add("terminal");
+                if (unrestrictedTerminal) capabilities.add("terminal-unrestricted");
                 const subagent = yield* projectionStore.getThread(threadId).pipe(
                   Effect.map((thread) => thread.lineage.relationshipToParent === "subagent"),
                   Effect.orElseSucceed(() => false),
@@ -603,6 +618,7 @@ export const layerWithOptions = (
                     resolved.capabilities.has("preview") === browserToolsAvailable &&
                     resolved.capabilities.has("device") === deviceToolsAvailable &&
                     resolved.capabilities.has("terminal") === terminalToolsAvailable &&
+                    resolved.capabilities.has("terminal-unrestricted") === unrestrictedTerminal &&
                     // A credential issued while the lineage read failed is replaced once it works.
                     (resolved.thread.subagent === true) === subagent
                   ) {
@@ -620,6 +636,60 @@ export const layerWithOptions = (
                 });
                 yield* mcpSessions.set({
                   ...credential.config,
+                  ...(unrestrictedTerminal
+                    ? {
+                        terminalAccess: {
+                          turn: undefined,
+                          isAdvertised: Effect.gen(function* () {
+                            const bridge = yield* makeAcpMcpOverAcpBridge({
+                              endpoint: credential.config.endpoint,
+                              authorization: credential.config.authorizationHeader,
+                              allocateConnectionId: Effect.succeed("terminal-discovery"),
+                            });
+                            return yield* Effect.gen(function* () {
+                              const { connectionId } = yield* bridge.connect({
+                                serverId: "t3-code",
+                              });
+                              yield* bridge.message({
+                                connectionId,
+                                method: "initialize",
+                                params: {
+                                  protocolVersion: "2025-06-18",
+                                  capabilities: {},
+                                  clientInfo: { name: "T3 Code terminal discovery", version: "1" },
+                                },
+                              });
+                              yield* bridge.notification({
+                                connectionId,
+                                method: "notifications/initialized",
+                              });
+                              const result = yield* bridge.message({
+                                connectionId,
+                                method: "tools/list",
+                              });
+                              const tools =
+                                typeof result === "object" && result !== null && "tools" in result
+                                  ? result.tools
+                                  : undefined;
+                              return (
+                                Array.isArray(tools) &&
+                                tools.some(
+                                  (tool: unknown) =>
+                                    typeof tool === "object" &&
+                                    tool !== null &&
+                                    "name" in tool &&
+                                    tool.name === "t3_terminal_run",
+                                )
+                              );
+                            }).pipe(Effect.ensuring(bridge.dispose));
+                          }).pipe(
+                            Effect.timeoutOption("3 seconds"),
+                            Effect.map(Option.getOrElse(() => false)),
+                            Effect.orElseSucceed(() => false),
+                          ),
+                        },
+                      }
+                    : {}),
                   hasPendingWake: projectionStore
                     .getThreadRecords(threadId, ["runs", "subagents"])
                     .pipe(
@@ -1771,7 +1841,14 @@ export const layerWithOptions = (
               Effect.uninterruptible,
             );
             if (attached !== undefined) {
-              const prepared = yield* prepareMcpSession(input.threadId, input.providerInstanceId);
+              const policy = (yield* Ref.get(sessions)).get(
+                sessionKey(input.providerSessionId),
+              )?.runtimePolicy;
+              const prepared = yield* prepareMcpSession(
+                input.threadId,
+                input.providerInstanceId,
+                policy,
+              );
               preparedForCleanup = prepared;
               if (prepared.mcpCredentialId !== undefined) {
                 const mcpCredentialId = prepared.mcpCredentialId;
@@ -2515,7 +2592,29 @@ export const layerWithOptions = (
                     ),
                   ),
                   () =>
-                    runtime.startTurn(input).pipe(turnMetrics("send", input.modelSelection.model)),
+                    Effect.gen(function* () {
+                      const config = yield* mcpSessions.read(input.threadId);
+                      const entry = (yield* Ref.get(sessions)).get(sessionKey(providerSessionId));
+                      const access = config?.terminalAccess;
+                      if (
+                        access &&
+                        config &&
+                        entry?.mcpCredentialIdByThread.get(input.threadId) ===
+                          config.providerSessionId
+                      ) {
+                        access.turn = permitsHostTerminal(input.runtimePolicy)
+                          ? { runId: input.runId, cwd: input.runtimePolicy.cwd }
+                          : undefined;
+                      }
+                      yield* runtime.startTurn(input).pipe(
+                        turnMetrics("send", input.modelSelection.model),
+                        Effect.onError(() =>
+                          Effect.sync(() => {
+                            if (access?.turn?.runId === input.runId) access.turn = undefined;
+                          }),
+                        ),
+                      );
+                    }),
                   (_, exit) =>
                     Exit.isFailure(exit)
                       ? observeActivity(
@@ -3047,6 +3146,7 @@ export const layerWithOptions = (
               const prepared = yield* prepareMcpSession(
                 input.threadId,
                 input.modelSelection.instanceId,
+                input.runtimePolicy,
               );
               const mcpCredentialId = prepared.mcpCredentialId;
               let reservationDropped = mcpCredentialId === undefined;
@@ -3117,6 +3217,7 @@ export const layerWithOptions = (
               >(new Map());
               const exposedRuntime = decorateRuntime(runtime, eventSubscribers);
               const entry: LiveSessionEntry = {
+                runtimePolicy: input.runtimePolicy,
                 attachedThreadIds: new Set([input.threadId]),
                 loadedProviderThreadKeyByThread: new Map(),
                 openedWithLinkedEnvironments,
