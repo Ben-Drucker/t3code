@@ -323,15 +323,28 @@ describe("orchestration V2 wire projection", () => {
     "logs/app.log:12: Error: ENOENT: no such file or directory",
     "fixtures/ci.txt:3: Process exited with exit code 2",
   ])("trusts a zero exit code over failure text in the output: %s", (output) => {
-    const projected = projectTurnItemForWire({
+    const item = {
       ...base,
       type: "command_execution" as const,
       input: "rg -n error logs fixtures",
+      commandSummary: "Find error messages in logs",
       output,
       exitCode: 0,
-    });
+    };
+    const saved = decodeTurnItemJson(encodeTurnItemJson(item));
+    const projected = projectTurnItemForWire(saved);
     expect(projected).not.toHaveProperty("outputIndicatesFailure");
-    expect(projected).toMatchObject({ exitCode: 0, outputOmitted: true });
+    expect(projected).not.toHaveProperty("output");
+    expect(projected).toMatchObject({
+      exitCode: 0,
+      outputOmitted: true,
+      commandSummary: item.commandSummary,
+    });
+    expect(projectTurnItemForDetail(saved)).toMatchObject({
+      id: projected.id,
+      input: item.input,
+      output,
+    });
   });
 
   it("omits inline file bodies but preserves file identity and change counts", () => {

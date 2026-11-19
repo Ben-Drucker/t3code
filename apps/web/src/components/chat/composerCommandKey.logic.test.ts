@@ -6,7 +6,7 @@ import { composerCommandKeyHandler } from "./composerCommandKey";
 import type { ComposerCommandItem } from "./ComposerCommandMenu";
 
 it.each(["file", "directory"] as const)(
-  "selects a highlighted %s with Enter or Tab and sends when the menu closes",
+  "handles Enter and Tab on a highlighted %s and sends when the menu closes",
   (kind) => {
     const item: ComposerCommandItem = {
       id: "path:selected",
@@ -73,7 +73,9 @@ it.each(["file", "directory"] as const)(
 
     for (const key of ["Enter", "Tab"]) {
       expect(handler(key, { key } as KeyboardEvent)).toBe(true);
-      expect(onSelectComposerItem).toHaveBeenLastCalledWith(item);
+      expect(onSelectComposerItem).toHaveBeenLastCalledWith(
+        ...(key === "Tab" && kind === "directory" ? [item, true] : [item]),
+      );
       expect(submitComposer).not.toHaveBeenCalled();
     }
     menuOpen.current = false;

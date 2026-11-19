@@ -54,12 +54,17 @@ import * as Schema from "effect/Schema";
 import { formatComposerModelMention } from "@t3tools/client-runtime/composer-model-mentions";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
+import { composerDirectoryQuery, serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
+import { matchesAgentModelRow } from "@t3tools/client-runtime/agent-tool-menu";
 import { formatAgentConfigChip, formatAgentToolChip } from "@t3tools/shared/composerInlineTokens";
 import { isProviderSkillUserInvocable } from "@t3tools/client-runtime/providerSkills";
 import { type FolderDropTarget, folderDropTarget, resolveDroppedFolderPath } from "./folderDrop";
 import { splitTransferredFiles } from "./workspaceFileDrop";
-import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
+import {
+  createModelSelection,
+  materializeModelConfiguration,
+  normalizeModelSlug,
+} from "@t3tools/shared/model";
 import { USAGE_LIMITS_COMMAND } from "@t3tools/shared/usageLimits";
 import {
   memo,
@@ -275,6 +280,7 @@ import { assistantCitationNavigation } from "../../lib/assistantCitationNavigati
 import { Button } from "../ui/button";
 import { useManagedPolicy } from "../../state/managedPolicy";
 import { hasProviderSetup } from "./ProviderStatusBanner";
+import { recordModelRecent } from "../../modelRecents";
 import { type AppModelOption, getAppModelOptionsForInstance } from "../../modelSelection";
 import type { UnifiedSettings } from "@t3tools/contracts/settings";
 import { isVideoAttachment, type SessionPhase, type Thread, type ThreadShell } from "../../types";
@@ -515,8 +521,8 @@ export interface ChatComposerProps {
   onProviderModelSelect: (
     instanceId: ProviderInstanceId,
     model: string,
-    options?: { focusComposer?: boolean },
-  ) => void;
+    options?: { focusComposer?: boolean; exactOptions?: ReadonlyArray<ProviderOptionSelection> },
+  ) => ModelSelection | void;
   onOpenProviderSetup: (instanceId: ProviderInstanceId) => void;
   getModelDisabledReason: (instanceId: ProviderInstanceId, model: string) => string | null;
   handleRuntimeModeChange: (mode: RuntimeMode) => void;
@@ -544,6 +550,7 @@ interface AgentConfigPick {
   readonly instanceId: ProviderInstanceId;
   readonly model: string;
   readonly options: ReadonlyArray<ProviderOptionSelection>;
+  readonly searchQuery?: string;
 }
 
 const NO_PROVIDER_SKILLS: ServerProvider["skills"] = [];
@@ -1279,6 +1286,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const agentConfigTraits: TraitsSelectionInput | null =
     agentConfigDraft && agentConfigEntry
       ? {
+          environmentId,
           provider: agentConfigEntry.driverKind,
           instanceId: agentConfigDraft.instanceId,
           models: agentConfigEntry.snapshot.models,
@@ -2089,8 +2097,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     };
   };
 
+  const escapeAgentConfigTrigger = (rangeStart: number) => {
+    setAgentConfigMenuState(null);
+    setComposerHighlightedItemId(null);
+    applyPromptReplacement(rangeStart, rangeStart, "%");
+  };
+
   const onOpenAgentConfigMenu = (): boolean => {
     if (isLiteralPendingAnswer) return false;
+    if (activeAgentConfigMenu?.query === "") {
+      escapeAgentConfigTrigger(activeAgentConfigMenu.rangeStart);
+      return true;
+    }
     const snapshot = readComposerSnapshot();
     if (!canOpenAgentConfigTrigger(snapshot.value, snapshot.expandedCursor)) {
       return false;
@@ -2158,7 +2176,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     });
   };
 
-  const onSelectComposerItem = (item: ComposerCommandItem) => {
+  const onSelectComposerItem = (item: ComposerCommandItem, dive = false) => {
     if (composerSelectLockRef.current) return;
     composerSelectLockRef.current = true;
     window.requestAnimationFrame(() => {
@@ -2187,6 +2205,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         instanceId: selectedInstanceId,
         model: selectedModel,
         options: composerModelOptions?.[selectedInstanceId] ?? [],
+        searchQuery: matchesAgentModelRow(trigger.query) ? "" : trigger.query,
       });
       setAgentConfigMenuState(null);
       setComposerHighlightedItemId(null);
@@ -2211,7 +2230,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     if (item.type === "path") {
       if (!isPathSuggestionCurrent(item.searchTarget, trigger, environmentId, gitCwd)) return;
-      const replacement = `${serializeComposerFileLink(item.path, item.pathKind)} `;
+      const replacement =
+        dive && item.pathKind === "directory"
+          ? `@${composerDirectoryQuery(item.path)}`
+          : `${serializeComposerFileLink(item.path, item.pathKind)} `;
       const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
         snapshot.value,
         trigger.rangeEnd,
@@ -2412,6 +2434,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   };
 
   const onAgentToolQueryChange = (query: string) => {
+    if (query === "%" && activeAgentConfigMenu?.query === "") {
+      escapeAgentConfigTrigger(activeAgentConfigMenu.rangeStart);
+      return;
+    }
     setComposerHighlightedItemId(null);
     setAgentConfigMenuState((prev) =>
       prev && prev.targetKey === composerDraftTargetKey ? { ...prev, query } : prev,
@@ -3509,6 +3535,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             model: selectedModel,
             persistSticky: true,
           });
+        const capabilities = selectedProviderModels.find(
+          ({ slug }) => slug === selectedModel,
+        )?.capabilities;
+        recordModelRecent(
+          environmentId,
+          materializeModelConfiguration(
+            createModelSelection(selectedInstanceId, selectedModel, change.modelOptions),
+            capabilities ?? undefined,
+          ),
+        );
         applyThreadModelPick(composerDraftTarget);
         if (change.prompt !== promptRef.current) {
           applyPromptReplacementStable(0, promptRef.current.length, change.prompt, {
@@ -3970,24 +4006,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       environmentId={environmentId}
                       activeInstanceId={agentConfigDraft.instanceId}
                       model={agentConfigDraft.model}
+                      activeModelOptions={agentConfigDraft.options}
                       lockedProvider={null}
                       instanceEntries={providerInstanceEntries}
                       keybindings={keybindings}
                       modelOptionsByInstance={modelOptionsByInstance}
                       open
                       triggerClassName="sr-only"
+                      initialSearchQuery={agentConfigDraft.searchQuery ?? ""}
                       triggerLabel="Agent configuration"
                       onOpenChange={(open) => {
                         if (!open) dismissAgentConfigPicker();
                       }}
-                      onInstanceModelChange={(instanceId, model) =>
+                      onInstanceModelChange={(instanceId, model, options) =>
                         setAgentConfigPickState({
                           targetKey: agentConfigDraft.targetKey,
                           rangeStart: agentConfigDraft.rangeStart,
                           collapsedCursor: agentConfigDraft.collapsedCursor,
                           instanceId,
                           model,
-                          options: [],
+                          options: options ?? [],
                         })
                       }
                       effortColumn={<ComposerEffortColumn traits={agentConfigTraits} />}

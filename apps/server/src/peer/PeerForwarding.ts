@@ -76,6 +76,9 @@ export class PeerForwarding extends Context.Service<
     readonly links: (
       scope: Scope,
     ) => Effect.Effect<OrchestratorMcpEnvironmentLinksResult, OrchestratorMcpFailure>;
+    readonly searchTargets: (
+      scope: Scope,
+    ) => Effect.Effect<ReadonlyArray<EnvironmentId>, OrchestratorMcpFailure>;
   }
 >()("t3/peer/PeerForwarding") {}
 
@@ -284,6 +287,11 @@ const make = Effect.gen(function* () {
     interruptThread,
     waitForThread,
     links: listLinks,
+    searchTargets: Effect.fn("PeerForwarding.searchTargets")(function* (scope) {
+      yield* forwardingCaller(scope);
+      if (!(yield* links.enabled)) return [];
+      return yield* links.unexpiredIds.pipe(Effect.mapError(linkStorageFailure));
+    }),
   });
 });
 

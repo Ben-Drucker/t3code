@@ -29,10 +29,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Fragment, memo, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useGT } from "gt-react";
 
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
 import { Command, CommandGroup, CommandGroupLabel, CommandItem, CommandList } from "../ui/command";
 import { Collapsible, CollapsiblePanel } from "../ui/collapsible";
 import { Input } from "../ui/input";
@@ -51,7 +53,6 @@ export type ComposerCommandItem =
       path: string;
       pathKind: ProjectEntry["kind"];
       searchTarget: ComposerPathSearchTarget;
-      /** Set for folders found by typing a disk path: picking one keeps browsing inside it. */
       label: string;
       description: string;
     }
@@ -189,7 +190,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
   onDismissAgentToolMenu?: (options: { readonly restoreFocus: boolean }) => void;
   activeItemId: string | null;
   onHighlightedItemChange: (itemId: string | null) => void;
-  onSelect: (item: ComposerCommandItem) => void;
+  onSelect: (item: ComposerCommandItem, dive?: boolean) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -344,8 +345,10 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
   resolvedTheme: "light" | "dark";
   isActive: boolean;
   onHighlight: (itemId: string | null) => void;
-  onSelect: (item: ComposerCommandItem) => void;
+  onSelect: (item: ComposerCommandItem, dive?: boolean) => void;
 }) {
+  const gt = useGT();
+  const isDirectory = props.item.type === "path" && props.item.pathKind === "directory";
   const skillSourceKind =
     props.item.type === "skill" ? resolveProviderSkillSourceKind(props.item.skill) : null;
   const isSlashSkill =
@@ -362,13 +365,14 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
     );
   }, [props.isActive]);
 
-  return (
+  const row = (
     <CommandItem
       render={<div id={props.optionId} />}
       aria-selected={props.isActive}
       value={props.item.id}
       data-composer-item-id={props.item.id}
       active={props.isActive}
+      className={isDirectory ? "pe-8" : undefined}
       onMouseMove={() => {
         if (!props.isActive) props.onHighlight(props.item.id);
       }}
@@ -488,6 +492,25 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
         ) : null}
       </span>
     </CommandItem>
+  );
+  if (!isDirectory) return row;
+  return (
+    <div className="relative">
+      {row}
+      <Button
+        type="button"
+        variant="ghost-muted"
+        size="icon-micro"
+        tabIndex={-1}
+        className="absolute end-1 top-1/2 -translate-y-1/2"
+        aria-label={gt("Browse folder")}
+        title={gt("Browse folder (Tab)")}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={() => props.onSelect(props.item, true)}
+      >
+        <ChevronRightIcon aria-hidden="true" />
+      </Button>
+    </div>
   );
 });
 

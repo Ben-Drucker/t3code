@@ -23,6 +23,7 @@ import {
   uploadedComposerContext,
   serializeComposerMessageForServer,
   pullRequestComposerContext,
+  withComposerRgbChips,
 } from "./composerContext";
 
 const terminal = {
@@ -61,6 +62,15 @@ const annotation = {
 };
 
 describe("mobile composer context", () => {
+  it("keeps the exact source and ranges for RGB chips outside code and issue references", () => {
+    const text = "Use #5bed2b, `#abcdef`, or #AD3C1F. Fixes #123456";
+    const chips = withComposerRgbChips(text, []);
+    expect(chips.map((chip) => [chip.type, chip.label, text.slice(chip.start, chip.end)])).toEqual([
+      ["rgb-color", "#5bed2b", "#5bed2b"],
+      ["rgb-color", "#AD3C1F", "#AD3C1F"],
+    ]);
+  });
+
   it("rejects a malformed record instead of allowing the wire decoder to drop its payload", () => {
     expect(
       composerContextSendBlockReason({

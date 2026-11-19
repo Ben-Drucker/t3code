@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { ProviderInstanceId, type ModelCapabilities } from "@t3tools/contracts";
+import { EnvironmentId, ProviderInstanceId, type ModelCapabilities } from "@t3tools/contracts";
 
 import {
   applyClaudePromptEffortPrefix,
@@ -7,11 +7,16 @@ import {
   buildProviderOptionSelectionsFromDescriptors,
   createModelCapabilities,
   createModelSelection,
+  describeRecentModelConfiguration,
+  materializeModelConfiguration,
+  readRecentModelConfigurations,
+  rememberRecentModelConfiguration,
   getProviderOptionCurrentLabel,
   getProviderOptionDescriptors,
   readCustomModelEntries,
   modelSelectionsEqual,
   pickModelSelection,
+  preservesLockedModelOptions,
   withImplicitFastModeDefault,
 } from "./model.ts";
 
@@ -291,4 +296,73 @@ describe("withImplicitFastModeDefault", () => {
       { id: "fastMode", value: true },
     ]);
   });
+});
+
+it("keeps ten distinct, valid recent configurations with exact settings and environment identity", () => {
+  const instance = ProviderInstanceId.make("codex");
+  const local = EnvironmentId.make("local");
+  const remote = EnvironmentId.make("remote");
+  const high = materializeModelConfiguration(createModelSelection(instance, "gpt"), codexCaps);
+  const fast = createModelSelection(instance, "gpt", [
+    { id: "fastMode", value: true },
+    { id: "reasoningEffort", value: "xhigh" },
+  ]);
+  const history = Array.from({ length: 10 }, (_, index) => ({
+    environmentId: local,
+    selection: createModelSelection(instance, `older-${index}`),
+  }));
+  const recent = rememberRecentModelConfiguration(history, {
+    environmentId: local,
+    selection: high,
+  });
+  const paired = rememberRecentModelConfiguration(recent, {
+    environmentId: remote,
+    selection: high,
+  });
+  const distinct = rememberRecentModelConfiguration(paired, {
+    environmentId: local,
+    selection: fast,
+  });
+  const reversed = createModelSelection(instance, "gpt", [...fast.options!].reverse());
+  const updated = rememberRecentModelConfiguration(distinct, {
+    environmentId: local,
+    selection: reversed,
+  });
+  expect(updated).toHaveLength(10);
+  expect(updated.slice(0, 3)).toEqual([
+    { environmentId: local, selection: reversed },
+    { environmentId: remote, selection: high },
+    { environmentId: local, selection: high },
+  ]);
+  expect(readRecentModelConfigurations(JSON.parse(JSON.stringify(updated)))).toEqual(updated);
+  expect(describeRecentModelConfiguration(fast, codexCaps, (on) => (on ? "On" : "Off"))).toBe(
+    "Fast Mode: On · Reasoning: Extra High",
+  );
+  expect(describeRecentModelConfiguration(fast, undefined, String)).toBeNull();
+});
+
+it("blocks restoring launch-only options after the same provider has started", () => {
+  const instance = ProviderInstanceId.make("codex");
+  const caps = createModelCapabilities({
+    optionDescriptors: (codexCaps.optionDescriptors ?? []).map((descriptor) =>
+      descriptor.id === "reasoningEffort" ? { ...descriptor, lockedOnceStarted: true } : descriptor,
+    ),
+  });
+  const current = createModelSelection(instance, "gpt");
+  expect(
+    preservesLockedModelOptions(
+      createModelSelection(instance, "gpt", [{ id: "reasoningEffort", value: "xhigh" }]),
+      caps,
+      current,
+      caps,
+    ),
+  ).toBe(false);
+  expect(
+    preservesLockedModelOptions(
+      createModelSelection(instance, "gpt", [{ id: "fastMode", value: true }]),
+      caps,
+      current,
+      caps,
+    ),
+  ).toBe(true);
 });

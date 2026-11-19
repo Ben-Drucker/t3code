@@ -26,6 +26,7 @@ import { resolveProvidersForCwd } from "@t3tools/client-runtime/providerSkills";
 
 export type ModelOption = {
   readonly key: string;
+  readonly recentKey?: string;
   readonly label: string;
   readonly shortName?: string;
   readonly subtitle: string;

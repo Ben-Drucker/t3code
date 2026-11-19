@@ -2032,6 +2032,26 @@ describe("compact reasoning math", () => {
   });
 });
 
+it("shows a command summary until the terminal row is expanded", async () => {
+  setup();
+  const row = makeStreamingTimelineFixture().visibleTurnItems[1]!;
+  if (row.item.type !== "command_execution") throw new Error("Expected a command");
+  const summary = "Check the workspace";
+  const entries = deriveTimelineEntriesFromVisibleTurnItems({
+    visibleTurnItems: [{ ...row, item: { ...row.item, commandSummary: summary } }],
+    optimisticMessages: [],
+  });
+  await using screen = await renderElement(
+    <MessagesTimeline {...baseProps()} timelineEntries={entries} />,
+  );
+  await userEvent.click(screen.getByRole("button", { name: /^Worked for/ }));
+  await expect.element(screen.getByText(summary, { exact: true })).toBeVisible();
+  await expect.element(screen.getByText(row.item.input, { exact: true })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByText(summary, { exact: true }));
+  await expect.element(screen.getByText(row.item.input, { exact: true })).toBeVisible();
+  await expect.element(screen.getByText(row.item.output!, { exact: true })).toBeVisible();
+});
+
 it("renders automatic compaction as one live divider that finishes with its reason and token delta", async () => {
   setup();
   const fixture = makeStreamingTimelineFixture();

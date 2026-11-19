@@ -1247,13 +1247,13 @@ describe("OpenCodeAdapterV2", () => {
           { status: "pending", input: { command: "pwd" }, raw: "" },
           {
             status: "running",
-            input: { command: "pwd" },
+            input: { command: "pwd", description: "Find the working directory" },
             title: "Working directory",
             time: { start: 1 },
           },
           {
             status: "completed",
-            input: { command: "pwd" },
+            input: { command: "pwd", description: "Find the working directory" },
             output: "/repo\n",
             title: "Working directory",
             metadata: {},
@@ -1434,6 +1434,9 @@ describe("OpenCodeAdapterV2", () => {
           ["pwd", "pwd", "pwd", "pwd", "sleep 60", "sleep 90", "vp test"],
         );
         assert.equal(commands[2]?.output, "/repo\n");
+        assert.equal(commands[1]?.commandSummary, "Find the working directory");
+        assert.equal(commands[2]?.commandSummary, "Find the working directory");
+        assert.isUndefined(commands[6]?.commandSummary);
         assert.equal(commands[3]?.output, "Command failed");
         assert.equal(commands[6]?.exitCode, 1);
         assert.equal(

@@ -525,6 +525,35 @@ it.each([
   expect(serializeEditorDoc(editor.state.doc).value).toBe(pasted);
 });
 
+it.each([true, false])(
+  "decorates pasted RGB prose and preserves its source (rich=%s)",
+  async (rich) => {
+    const pasted =
+      "Use #5bed2b or #AD3C1F. See issue #123456 and `#abcdef`.\n\n```txt\n#abcdef\n```";
+    await using screen = await mountEditor("", rich);
+    const { editor } = screen;
+    await act(async () => {
+      const clipboardData = new DataTransfer();
+      clipboardData.setData("text/plain", pasted);
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("paste", { clipboardData, cancelable: true }),
+      );
+    });
+    expect(
+      [...editor.view.dom.querySelectorAll(".rgb-hex-chip")].map((chip) => chip.textContent),
+    ).toEqual(["#5bed2b", "#AD3C1F"]);
+    expect(serializeEditorDoc(editor.state.doc).value).toBe(pasted);
+    await act(async () => {
+      editor.commands.selectAll();
+      const clipboardData = new DataTransfer();
+      editor.view.dom.dispatchEvent(
+        new ClipboardEvent("copy", { clipboardData, cancelable: true, bubbles: true }),
+      );
+      expect(clipboardData.getData("text/plain")).toBe(pasted);
+    });
+  },
+);
+
 it.each([
   { literalText: false, imports: 1 },
   { literalText: true, imports: 0 },

@@ -1,4 +1,5 @@
 {
+  "a6d2aa5196b7e23e": "Warnungen bei langsamen Anfragen",
   "0a75e464d833bca8": "Einstellungen",
   "6aa1c88c4fa5be28": "Diagnose",
   "fb29e435b1219373": "Open-Source-Lizenzen",
@@ -75,5 +76,15 @@
   "1d5052cbe70d0b28": "Archivieren bestätigen",
   "d5dd27a4eb853248": "Löschen bestätigen",
   "5503ef439beb8d42": "Bestätigung beim Schließen von Terminals",
-  "86b43caa9ff41ea2": "Tastenkürzel zum Beenden"
+  "86b43caa9ff41ea2": "Tastenkürzel zum Beenden",
+  "0a964bcc614472e2": "Ordner durchsuchen (Tab)",
+  "2e82f7f1d448fd92": "Limettengrün & Rostrot",
+  "2f019f0b4e55d916": "Blau & Orange",
+  "3f383e72dcd7d5a8": "Rot & Grün (Standard)",
+  "5ca2302ec416f499": "Rot & Grün",
+  "708991e5756229fe": "Zuletzt verwendet",
+  "82750bfcaef60d24": "An",
+  "90a258fff61fd77e": "Aus",
+  "bf385e881f6a2c65": "Keine kürzlich verwendeten Konfigurationen",
+  "e252476201125a90": "Ordner durchsuchen"
 }

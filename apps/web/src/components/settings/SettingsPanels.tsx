@@ -1489,8 +1489,14 @@ function ScreenReaderWindowTitleRow() {
 }
 
 function DiffColorsSettingsRow() {
+  const gt = useGT();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
+  const labels = {
+    "red-green": gt("Red & green"),
+    "blue-orange": gt("Blue & orange"),
+    "lime-rust": gt("Lime & rust"),
+  };
   return (
     <SettingsRow
       {...searchableSetting("diff-color-scheme")}
@@ -1510,7 +1516,7 @@ function DiffColorsSettingsRow() {
           <Select
             value={settings.diffColorScheme}
             onValueChange={(value) => {
-              if (value === "red-green" || value === "blue-orange")
+              if (value === "red-green" || value === "blue-orange" || value === "lime-rust")
                 updateSettings({ diffColorScheme: value });
             }}
           >
@@ -1526,13 +1532,12 @@ function DiffColorsSettingsRow() {
                 <span className="size-2 rounded-full bg-diff-deletion" />
                 <span className="size-2 rounded-full bg-diff-addition" />
               </span>
-              <SelectValue>
-                {settings.diffColorScheme === "blue-orange" ? "Blue & orange" : "Red & green"}
-              </SelectValue>
+              <SelectValue>{labels[settings.diffColorScheme]}</SelectValue>
             </SelectTrigger>
             <SelectPopup align="end" alignItemWithTrigger={false}>
-              <SelectItem value="red-green">Red & green (default)</SelectItem>
-              <SelectItem value="blue-orange">Blue & orange</SelectItem>
+              <SelectItem value="red-green">{gt("Red & green (default)")}</SelectItem>
+              <SelectItem value="blue-orange">{labels["blue-orange"]}</SelectItem>
+              <SelectItem value="lime-rust">{labels["lime-rust"]}</SelectItem>
             </SelectPopup>
           </Select>
         </div>
@@ -2046,6 +2051,7 @@ export function ThreadsSettingsPanel() {
                   environmentId={environmentId}
                   activeInstanceId={textGenInstanceId}
                   model={textGenModel}
+                  activeModelOptions={textGenModelOptions}
                   lockedProvider={null}
                   instanceEntries={textGenerationModelInstanceEntries}
                   modelOptionsByInstance={textGenerationModelOptionsByInstance}
@@ -2062,7 +2068,7 @@ export function ThreadsSettingsPanel() {
                         },
                       }
                     : {})}
-                  onInstanceModelChange={(instanceId, model) => {
+                  onInstanceModelChange={(instanceId, model, options) => {
                     const reason = textGenerationModelDisabledReason(instanceId, model);
                     if (reason) {
                       toastManager.add({
@@ -2080,6 +2086,7 @@ export function ThreadsSettingsPanel() {
                             textGenerationModelSelection,
                             instanceId,
                             model,
+                            options,
                           ),
                         },
                         textGenerationProviders,
@@ -2089,7 +2096,9 @@ export function ThreadsSettingsPanel() {
                 />
                 {textGenInstanceEntry ? (
                   <TraitsPicker
+                    environmentId={environmentId}
                     provider={textGenProvider}
+                    instanceId={textGenInstanceId}
                     models={textGenInstanceEntry?.models ?? []}
                     model={textGenModel}
                     modelOptions={textGenModelOptions}

@@ -417,8 +417,12 @@ export function usePendingThreadRequests(input: {
       });
       for (const { question, target, draft } of questionDrafts) {
         if ((useQuestionAttachmentPreparation.getState().counts[target] ?? 0) > 0) return;
-        providerAnswers[question.id] = projectPendingUserInputAnswer(
-          answers[question.id],
+        const answerId =
+          question.customAnswerId && Object.hasOwn(answers, question.customAnswerId)
+            ? question.customAnswerId
+            : question.id;
+        providerAnswers[answerId] = projectPendingUserInputAnswer(
+          answers[answerId],
           answerContextRecords(draft, threadDraft),
         );
         const attachments = draft ? [...draft.images, ...draft.files] : [];
@@ -448,7 +452,10 @@ export function usePendingThreadRequests(input: {
           );
           return;
         }
-        attachmentsByQuestionId.set(question.id, uploaded as UserInputAttachments[string]);
+        attachmentsByQuestionId.set(
+          question.customAnswerId ?? question.id,
+          uploaded as UserInputAttachments[string],
+        );
       }
       if (
         usePendingUserInputAnswers.getState()[answerDraftKey] !== answerDraftBeforePreparation ||
@@ -529,10 +536,14 @@ export function usePendingThreadRequests(input: {
     if (!activePendingUserInput) {
       return;
     }
+    const question = activePendingUserInput.questions.find((entry) => entry.id === questionId);
+    if (!question) return;
+    const keepsCustomAnswer = question.multiSelect && question.customAnswerId !== undefined;
     // The option replaces the custom answer. Anything typed there is the
     // user's text, so it goes back to the thread draft instead of vanishing.
-    const displacedAnswer =
-      readPendingUserInputDraft(draftScope).activePendingDraftAnswers[questionId]?.customAnswer;
+    const displacedAnswer = keepsCustomAnswer
+      ? undefined
+      : readPendingUserInputDraft(draftScope).activePendingDraftAnswers[questionId]?.customAnswer;
     const currentPrompt =
       useComposerDraftStore.getState().getComposerDraft(composerDraftTarget)?.prompt ?? "";
     const nextPrompt = carryDisplacedCustomAnswerIntoPrompt(currentPrompt, displacedAnswer);
@@ -567,26 +578,21 @@ export function usePendingThreadRequests(input: {
         );
       }
     }
-    setPendingUserInputAnswersByRequestId((existing) => {
-      const question = activePendingUserInput.questions.find((entry) => entry.id === questionId);
-      if (!question) {
-        return existing;
-      }
-
-      return {
-        ...existing,
-        [activePendingRequestKey]: {
-          ...existing[activePendingRequestKey],
-          [questionId]: togglePendingUserInputOptionSelection(
-            question,
-            existing[activePendingRequestKey]?.[questionId],
-            optionValue,
-          ),
-        },
-      };
-    });
-    promptRef.current = "";
-    composerRef.current?.resetCursorState({ cursor: 0 });
+    setPendingUserInputAnswersByRequestId((existing) => ({
+      ...existing,
+      [activePendingRequestKey]: {
+        ...existing[activePendingRequestKey],
+        [questionId]: togglePendingUserInputOptionSelection(
+          question,
+          existing[activePendingRequestKey]?.[questionId],
+          optionValue,
+        ),
+      },
+    }));
+    if (!keepsCustomAnswer) {
+      promptRef.current = "";
+      composerRef.current?.resetCursorState({ cursor: 0 });
+    }
   };
   const onSelectActivePendingUserInputOptionStable = useStableCallback(
     onSelectActivePendingUserInputOption,

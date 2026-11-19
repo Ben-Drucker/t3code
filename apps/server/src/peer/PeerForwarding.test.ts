@@ -226,7 +226,29 @@ const serveBox = (seen: Ref.Ref<Seen>, linkSession: Ref.Ref<string>) =>
       Layer.provide(DocumentText.layer.pipe(Layer.provideMerge(NodeServices.layer))),
       Layer.provide(NodeCrypto.layer),
       Layer.provide(boxThreads(seen, linkSession)),
-      Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
+      Layer.provide(
+        Layer.mock(ThreadSearch.ThreadSearch)({
+          searchConversations: ({ pattern }) =>
+            Effect.succeed({
+              matches:
+                pattern === "release checklist"
+                  ? [
+                      {
+                        itemId: "box-checklist-message",
+                        threadId: boxThread,
+                        updatedAt: "2026-10-21T00:00:00.000Z",
+                        type: "assistant_message",
+                        provider: "codex",
+                        excerpt: "The release checklist is ready.",
+                      },
+                    ]
+                  : [],
+              timedOut: false,
+              truncated: false,
+              invalidPattern: false,
+            }),
+        }),
+      ),
       Layer.provide(boxLaunches(seen)),
       Layer.provide(
         Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
@@ -616,6 +638,21 @@ it.effect("runs any tool that takes a linked environment there", () =>
         threadId: boxThread,
       });
       expect(there.structuredContent).toMatchObject({ threadId: boxThread, runtimeMode: "auto" });
+      const transcript = yield* a.call("thread:laptop-full", "t3_search_convos", {
+        environmentIds: [box.environmentId],
+        pattern: "release checklist",
+        description: "Find the release checklist",
+      });
+      expect(transcript.structuredContent).toMatchObject({
+        matches: [
+          {
+            environmentId: box.environmentId,
+            threadId: boxThread,
+            itemId: "box-checklist-message",
+          },
+        ],
+        partial: false,
+      });
       const archived = yield* a.call("thread:laptop-full", "t3_thread_organize", {
         environmentId: box.environmentId,
         threadId: boxThread,

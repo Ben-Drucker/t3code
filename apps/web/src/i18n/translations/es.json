@@ -1,4 +1,5 @@
 {
+  "a6d2aa5196b7e23e": "Avisos sobre solicitudes lentas",
   "0a75e464d833bca8": "Ajustes",
   "6aa1c88c4fa5be28": "Diagnóstico",
   "fb29e435b1219373": "Licencias de código abierto",
@@ -75,5 +76,15 @@
   "1d5052cbe70d0b28": "Confirmación al archivar",
   "d5dd27a4eb853248": "Confirmación al eliminar",
   "5503ef439beb8d42": "Confirmación al cerrar terminales",
-  "86b43caa9ff41ea2": "Atajo para salir"
+  "86b43caa9ff41ea2": "Atajo para salir",
+  "0a964bcc614472e2": "Explorar carpeta (Tab)",
+  "2e82f7f1d448fd92": "Verde lima y óxido",
+  "2f019f0b4e55d916": "Azul y naranja",
+  "3f383e72dcd7d5a8": "Rojo y verde (predeterminado)",
+  "5ca2302ec416f499": "Rojo y verde",
+  "708991e5756229fe": "Recientes",
+  "82750bfcaef60d24": "Activado",
+  "90a258fff61fd77e": "Desactivado",
+  "bf385e881f6a2c65": "No hay configuraciones recientes",
+  "e252476201125a90": "Explorar carpeta"
 }

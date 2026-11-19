@@ -91,7 +91,10 @@ import {
   newTaskFilteredProject,
   resolveNewTaskScratchOption,
 } from "../threads/new-task-project-selection";
-import { toggleComposerQuickQuestion } from "@t3tools/shared/composerInlineTokens";
+import {
+  QUICK_QUESTION_DOUBLE_PRESS_MS,
+  toggleComposerQuickQuestion,
+} from "@t3tools/shared/composerInlineTokens";
 import { createNewTaskDraft, setComposerDraftText } from "../../state/use-composer-drafts";
 import { environmentServerConfigsAtom } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -677,7 +680,7 @@ function AdaptiveWorkspaceLayoutContent(
       composePressTimer.current = setTimeout(() => {
         composePressTimer.current = null;
         handleStartNewTask();
-      }, 275);
+      }, QUICK_QUESTION_DOUBLE_PRESS_MS);
       return;
     }
     clearTimeout(composePressTimer.current);

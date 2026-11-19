@@ -100,6 +100,9 @@ public class T3ComposerEditorModule: Module {
       Prop("alternateSubmitTitle") { (view: T3ComposerEditorView, title: String) in
         view.setAlternateSubmitTitle(title)
       }
+      Prop("pickerKeysEnabled") { (view: T3ComposerEditorView, enabled: Bool) in
+        view.setPickerKeysEnabled(enabled)
+      }
       Prop("enterBehavior") { (view: T3ComposerEditorView, behavior: String) in
         view.setEnterBehavior(behavior)
       }
@@ -116,6 +119,7 @@ public class T3ComposerEditorModule: Module {
         "onComposerFocus",
         "onComposerBlur",
         "onComposerSubmit",
+        "onComposerPickerKey",
         "onComposerPasteImages",
         "onComposerContextPress",
         "onComposerPasteContext",

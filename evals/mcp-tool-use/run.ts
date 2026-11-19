@@ -59,6 +59,7 @@ import { EnvironmentToolkit } from "../../apps/server/src/mcp/toolkits/environme
 import { HtmlToolkit } from "../../apps/server/src/mcp/toolkits/html/tools.ts";
 import { MessageToolkit } from "../../apps/server/src/mcp/toolkits/message/tools.ts";
 import { OrchestratorToolkit } from "../../apps/server/src/mcp/toolkits/orchestrator/tools.ts";
+import { TerminalToolkit } from "../../apps/server/src/mcp/toolkits/terminal/tools.ts";
 import { PreviewToolkit } from "../../apps/server/src/mcp/toolkits/preview/tools.ts";
 import { PreviewControlsToolkit } from "../../apps/server/src/mcp/toolkits/previewControls/tools.ts";
 import { ProjectToolkit } from "../../apps/server/src/mcp/toolkits/project/tools.ts";
@@ -449,6 +450,7 @@ export const normalizeToolInput = (name: string, input: unknown) => {
 // description, and schema through unchanged.
 const t3SourceTools: ReadonlyArray<Tool.Any> = [
   OrchestratorToolkit,
+  TerminalToolkit,
   ThreadToolkit,
   AttachmentToolkit,
   ProjectToolkit,
@@ -1381,7 +1383,13 @@ const withProductFields = (name: string, value: unknown, child: boolean): unknow
       ? {
           ...thread,
           link: formatThreadLink(
-            { environmentId: EVAL_ENVIRONMENT_ID, threadId: ThreadId.make(id) },
+            {
+              environmentId:
+                name === "t3_search_convos" && typeof thread.environmentId === "string"
+                  ? EnvironmentId.make(thread.environmentId)
+                  : EVAL_ENVIRONMENT_ID,
+              threadId: ThreadId.make(id),
+            },
             typeof thread.title === "string" ? thread.title : undefined,
           ),
         }
@@ -1410,6 +1418,7 @@ const withProductFields = (name: string, value: unknown, child: boolean): unknow
     case "create_threads":
       return listed("threads");
     case "t3_thread_search":
+    case "t3_search_convos":
       return listed("matches");
     case "link_pull_request":
     case "link_pull_requests":

@@ -1,4 +1,5 @@
 {
+  "a6d2aa5196b7e23e": "Avertissements sur les requêtes lentes",
   "0a75e464d833bca8": "Paramètres",
   "6aa1c88c4fa5be28": "Diagnostics",
   "fb29e435b1219373": "Licences open source",
@@ -75,5 +76,15 @@
   "1d5052cbe70d0b28": "Confirmation de l'archivage",
   "d5dd27a4eb853248": "Confirmation de la suppression",
   "5503ef439beb8d42": "Confirmation de la fermeture des terminaux",
-  "86b43caa9ff41ea2": "Raccourci Quitter"
+  "86b43caa9ff41ea2": "Raccourci Quitter",
+  "0a964bcc614472e2": "Parcourir le dossier (Tab)",
+  "2e82f7f1d448fd92": "Vert lime et rouille",
+  "2f019f0b4e55d916": "Bleu et orange",
+  "3f383e72dcd7d5a8": "Rouge et vert (par défaut)",
+  "5ca2302ec416f499": "Rouge et vert",
+  "708991e5756229fe": "Récents",
+  "82750bfcaef60d24": "Activé",
+  "90a258fff61fd77e": "Désactivé",
+  "bf385e881f6a2c65": "Aucune configuration récente",
+  "e252476201125a90": "Parcourir le dossier"
 }

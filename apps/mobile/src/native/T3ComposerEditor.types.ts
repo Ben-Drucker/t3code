@@ -27,6 +27,8 @@ export interface ComposerEditorHandle {
   flushPendingInput: () => Promise<void>;
 }
 
+export type ComposerPickerKey = "previous" | "next" | "select" | "browse" | "dismiss";
+
 export interface ComposerEditorProps {
   readonly ref?: Ref<ComposerEditorHandle>;
   readonly value: string;
@@ -61,7 +63,9 @@ export interface ComposerEditorProps {
   readonly singleLineCentered?: boolean;
   readonly style?: StyleProp<ViewStyle>;
   readonly textStyle?: StyleProp<TextStyle>;
-  readonly onChangeText: (value: string) => void;
+  readonly onPickerKey?: ((key: ComposerPickerKey) => void) | undefined;
+  /** Return "restore" to keep the controlled value and caret after a handled edit. */
+  readonly onChangeText: (value: string) => void | "restore";
   /**
    * iOS: the owner's reset generation, raised synchronously when it replaces the text outright
    * (send, discard). Native edits the editor made before applying that reset are dropped.

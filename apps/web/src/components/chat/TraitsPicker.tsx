@@ -7,6 +7,7 @@ import {
   isReasoningSelect,
 } from "@t3tools/client-runtime/model-traits";
 import {
+  type EnvironmentId,
   type ModelSelection,
   type ProviderDriverKind,
   type ProviderInstanceId,
@@ -17,11 +18,14 @@ import {
 } from "@t3tools/contracts";
 import {
   buildProviderOptionSelectionsFromDescriptors,
+  createModelSelection,
+  materializeModelConfiguration,
   getProviderOptionCurrentLabel,
   getProviderOptionDescriptors,
   isClaudeUltrathinkPrompt,
   normalizeModelSlug,
 } from "@t3tools/shared/model";
+import { recordModelRecent } from "../../modelRecents";
 import { memo } from "react";
 import {
   chosenContextLimit,
@@ -289,6 +293,7 @@ export function getReasoningTraitStep(input: {
 }
 
 export interface TraitsMenuContentProps {
+  environmentId?: EnvironmentId | null | undefined;
   provider: ProviderDriverKind;
   instanceId?: ProviderInstanceId;
   models: ReadonlyArray<ServerProviderModel>;
@@ -307,6 +312,7 @@ export type TraitsSelectionInput = TraitsMenuContentProps & TraitsPersistence;
 
 /** The model's traits with their shown values, and writers that persist a change. */
 export function useTraitsSelection({
+  environmentId,
   provider,
   instanceId,
   models,
@@ -324,6 +330,16 @@ export function useTraitsSelection({
     instanceId && model ? { instanceId, model, options: modelOptions ?? [] } : null;
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
   const updateModelOptions = (nextOptions: ProviderOptions | undefined) => {
+    if (environmentId && instanceId && model) {
+      const capabilities = models.find(({ slug }) => slug === model)?.capabilities;
+      recordModelRecent(
+        environmentId,
+        materializeModelConfiguration(
+          createModelSelection(instanceId, model, nextOptions),
+          capabilities ?? undefined,
+        ),
+      );
+    }
     if ("onModelOptionsChange" in persistence) {
       persistence.onModelOptionsChange(nextOptions);
       return;

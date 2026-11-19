@@ -11,6 +11,7 @@ import {
   withAssistantCitationComment,
 } from "@t3tools/shared/assistantCitations";
 import {
+  detectComposerMentionTrigger,
   detectComposerPullRequestTrigger,
   isCurrencyAmountQuery,
   isPathWord,
@@ -365,6 +366,8 @@ export function canOpenAgentConfigTrigger(text: string, cursorInput: number): bo
 
 export function detectComposerTrigger(text: string, cursorInput: number): ComposerTrigger | null {
   const cursor = clampCursor(text, cursorInput);
+  const mention = detectComposerMentionTrigger(text, cursor);
+  if (mention !== null) return mention;
   const tokenStart = tokenStartForCursor(text, cursor);
   const token = text.slice(tokenStart, cursor);
   if (token.startsWith("/")) {
@@ -397,16 +400,7 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
       rangeEnd: cursor,
     };
   }
-  if (!token.startsWith("@")) {
-    return null;
-  }
-
-  return {
-    kind: "path",
-    query: token.slice(1),
-    rangeStart: tokenStart,
-    rangeEnd: cursor,
-  };
+  return null;
 }
 
 export function pastedPathQueryLength(

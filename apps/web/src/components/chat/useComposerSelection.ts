@@ -7,6 +7,7 @@ import { useApplyThreadModelPick } from "./useApplyThreadModelPick";
 import {
   type EnvironmentId,
   type ModelSelection,
+  type ProviderOptionSelection,
   ProviderInstanceId,
   type ServerProvider,
   type ThreadId,
@@ -129,7 +130,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
   const onProviderModelSelect = (
     instanceId: ProviderInstanceId,
     model: string,
-    options?: { focusComposer?: boolean },
+    options?: { focusComposer?: boolean; exactOptions?: ReadonlyArray<ProviderOptionSelection> },
   ) => {
     if (!activeThread) return;
     const entry = providerStatuses.find((snapshot) => snapshot.instanceId === instanceId);
@@ -181,21 +182,23 @@ export function useComposerSelection(input: ComposerSelectionInput) {
       draft?.modelSelectionByProvider[shownInstanceId] ?? activeThread.modelSelection;
     if (
       !resolvedModel ||
-      (instanceId === shownInstanceId &&
+      (options?.exactOptions === undefined &&
+        instanceId === shownInstanceId &&
         shownSelection.instanceId === instanceId &&
         shownSelection.model === resolvedModel)
     ) {
       // Re-picking the shown model keeps its options and saves it again if that save failed.
       if (resolvedModel && !isLocalDraftThread) applyThreadModelPick(threadRef);
       if (options?.focusComposer !== false) scheduleComposerFocus();
-      return;
+      return resolvedModel ? shownSelection : undefined;
     }
     const rememberedOptions =
       useComposerDraftStore.getState().stickyOptionsByModelByProvider[instanceId]?.[resolvedModel];
     const threadSelection = activeThread.modelSelection;
     // This pick replaces the stored options, so the thread's own model carries them over.
     const pickOptions =
-      rememberedOptions !== undefined && rememberedOptions.length > 0
+      options?.exactOptions ??
+      (rememberedOptions !== undefined && rememberedOptions.length > 0
         ? rememberedOptions
         : threadSelection.instanceId === instanceId &&
             entry !== undefined &&
@@ -205,7 +208,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
               { instanceId, model: resolvedModel },
             )
           ? threadSelection.options
-          : undefined;
+          : undefined);
     const nextModelSelection: ModelSelection =
       pickOptions !== undefined && pickOptions.length > 0
         ? { instanceId, model: resolvedModel, options: [...pickOptions] }
@@ -233,6 +236,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
     setStickyComposerModelSelection(nextModelSelection);
     if (!isLocalDraftThread) applyThreadModelPick(threadRef);
     if (options?.focusComposer !== false) scheduleComposerFocus();
+    return nextModelSelection;
   };
   const onProviderModelSelectStable = useStableCallback(onProviderModelSelect);
   const onEnvModeChange = (mode: DraftThreadEnvMode) => {

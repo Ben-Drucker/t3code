@@ -14,6 +14,7 @@ import {
   PreviewTabId,
   ProviderInstanceId,
   ProviderInteractionMode,
+  RunId,
   RuntimeMode,
   ThreadId,
 } from "@t3tools/contracts";
@@ -45,6 +46,7 @@ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
 import * as TerminalCommandService from "../terminal/TerminalCommandService.ts";
+import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as PreviewManager from "../preview/Manager.ts";
 
 import * as DeviceService from "../device/DeviceService.ts";
@@ -2079,7 +2081,10 @@ it.effect("lists and permits t3_terminal_run only for callers with the terminal 
     expect(yield* listFor(["orchestration"])).toEqual([]);
 
     const allowed = yield* server
-      .callTool({ name: "t3_terminal_run", arguments: { command: "echo hi" } })
+      .callTool({
+        name: "t3_terminal_run",
+        arguments: { command: "echo hi", toolSummary: "Check greeting output" },
+      })
       .pipe(
         Effect.provideService(McpInvocationContext.McpInvocationContext, {
           ...invocation,
@@ -2094,6 +2099,42 @@ it.effect("lists and permits t3_terminal_run only for callers with the terminal 
       exitCode: 0,
       output: "hi\n",
     });
+
+    const unrestricted = {
+      ...invocation,
+      capabilities: new Set<McpInvocationContext.McpCapability>([
+        "orchestration",
+        "terminal",
+        "terminal-unrestricted",
+      ]),
+    };
+    const callReplacement = server
+      .callTool({
+        name: "t3_terminal_run",
+        arguments: { command: "echo hi", description: "Check greeting output" },
+      })
+      .pipe(
+        Effect.provideService(McpInvocationContext.McpInvocationContext, unrestricted),
+        Effect.provideService(McpSchema.McpServerClient, client),
+      );
+    const missingTurn = yield* callReplacement.pipe(Effect.result);
+    expect(Result.isFailure(missingTurn) || missingTurn.success.isError).toBe(true);
+
+    const sessions = yield* McpProviderSessions.McpProviderSessions;
+    const turn = { runId: RunId.make("test-terminal-run"), cwd: "/fixture/workspace" };
+    yield* sessions.set({
+      environmentId: invocation.environmentId,
+      threadId: invocation.thread!.threadId,
+      providerSessionId: invocation.thread!.providerSessionId,
+      providerInstanceId: invocation.thread!.providerInstanceId,
+      endpoint: "http://fixture.invalid/mcp",
+      authorizationHeader: "Bearer fixture-token",
+      browserToolsAvailable: false,
+      terminalAccess: { turn, isAdvertised: Effect.succeed(true) },
+    });
+    const replacement = yield* callReplacement;
+    expect(replacement.isError).not.toBe(true);
+    expect(replacement.structuredContent).toMatchObject({ status: "completed", output: "hi\n" });
 
     const denied = yield* server
       .callTool({ name: "t3_terminal_run", arguments: { command: "echo hi" } })
@@ -2114,14 +2155,24 @@ it.effect("lists and permits t3_terminal_run only for callers with the terminal 
       McpHttpServer.layerTerminalToolkit.pipe(
         Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
         Layer.provide(McpToolAccessTestkit.liveThreadsLayer),
+        Layer.provideMerge(McpProviderSessions.layer),
         Layer.provide(
           Layer.mock(TerminalCommandService.TerminalCommandService)({
-            run: () =>
-              Effect.succeed({
-                mode: "foreground" as const,
-                status: "completed" as const,
-                exitCode: 0,
-                output: "hi\n",
+            run: (input) =>
+              Effect.sync(() => {
+                expect(input.description).toBe("Check greeting output");
+                if (input.authorizedTurn) {
+                  expect(input.authorizedTurn).toEqual({
+                    runId: "test-terminal-run",
+                    cwd: "/fixture/workspace",
+                  });
+                }
+                return {
+                  mode: "foreground" as const,
+                  status: "completed" as const,
+                  exitCode: 0,
+                  output: "hi\n",
+                };
               }),
             interruptThread: () => Effect.void,
           }),

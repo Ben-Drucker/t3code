@@ -5,7 +5,11 @@ import {
   parseAgentConfigChip,
   parseAgentToolChip,
 } from "@t3tools/shared/composerInlineTokens";
-import { composerContextEditorTokens, composerSkillLabels } from "../lib/composerContext";
+import {
+  composerContextEditorTokens,
+  composerSkillLabels,
+  withComposerRgbChips,
+} from "../lib/composerContext";
 import { useComposerModelTokens } from "./useComposerModelTokens";
 import { requireNativeView } from "expo";
 import {
@@ -41,7 +45,11 @@ import {
   type ComposerNativeEventSnapshot,
 } from "./composerEditorRevision";
 import { DEFAULT_COMPOSER_ENTER_BEHAVIOR } from "../lib/composerEnterBehavior";
-import type { ComposerEditorProps, ComposerEditorSelection } from "./T3ComposerEditor.types";
+import type {
+  ComposerEditorProps,
+  ComposerEditorSelection,
+  ComposerPickerKey,
+} from "./T3ComposerEditor.types";
 
 const NATIVE_MODULE_NAME = "T3ComposerEditor";
 const EMPTY_SKILLS: NonNullable<ComposerEditorProps["skills"]> = [];
@@ -120,6 +128,10 @@ interface NativeComposerEditorProps extends ViewProps {
   readonly onComposerPasteText?: (event: NativePasteTextEvent) => void;
   readonly onComposerFocus?: () => void;
   readonly onComposerBlur?: () => void;
+  readonly pickerKeysEnabled?: boolean;
+  readonly onComposerPickerKey?:
+    | ((event: NativeSyntheticEvent<{ key: ComposerPickerKey }>) => void)
+    | undefined;
   readonly onComposerSubmit?: (event: NativeSyntheticEvent<{ alternate: boolean }>) => void;
   readonly onComposerContentSizeChange?: (
     event: NativeSyntheticEvent<{ readonly width: number; readonly height: number }>,
@@ -189,8 +201,8 @@ export function ComposerEditor({
   const { modelsBySource, modelTokens } = useComposerModelTokens(props.value, models);
   const chipTextColor = createNativeComposerTheme(theme).text;
   const tokensJson = useMemo(() => {
-    return JSON.stringify(
-      composerContextEditorTokens(props.value, tokens, skillLabels, modelTokens).map((token) => {
+    const chips = composerContextEditorTokens(props.value, tokens, skillLabels, modelTokens).map(
+      (token) => {
         const model = token.type === "model" ? modelsBySource.get(token.source) : undefined;
         const config = token.type === "agent-config" ? parseAgentConfigChip(token.value) : null;
         const tool = token.type === "agent-config" ? parseAgentToolChip(token.value) : null;
@@ -230,8 +242,9 @@ export function ComposerEditor({
           tintsIcon: model ? modelChipIcon(model).tintsIcon : icon.kind === "chip",
           monospaced: token.type === "skill",
         };
-      }),
+      },
     );
+    return JSON.stringify(withComposerRgbChips(props.value, chips));
   }, [
     props.value,
     tokens,
@@ -327,8 +340,11 @@ export function ComposerEditor({
   const applyNativeChange = (event: NativeEditorEvent["nativeEvent"]) => {
     const acknowledgedEventCount = acceptNativeEvent(event);
     if (acknowledgedEventCount === false) return;
-    onChangeText(event.value);
-    onSelectionChange?.(event.selection);
+    if (onChangeText(event.value) === "restore") {
+      nativeEventSnapshotsRef.current = [];
+    } else {
+      onSelectionChange?.(event.selection);
+    }
     setMostRecentEventCount(acknowledgedEventCount);
     forceNativeEventRender((sequence) => sequence + 1);
   };
@@ -389,10 +405,14 @@ export function ComposerEditor({
         const acknowledgedEventCount = acceptNativeEvent(event.nativeEvent);
         if (acknowledgedEventCount === false) return;
         // Selection events may carry post-edit text; publish it with its revision or stale drafts can overwrite native text.
-        if (event.nativeEvent.value !== props.value) {
-          onChangeText(event.nativeEvent.value);
+        if (
+          event.nativeEvent.value !== props.value &&
+          onChangeText(event.nativeEvent.value) === "restore"
+        ) {
+          nativeEventSnapshotsRef.current = [];
+        } else {
+          onSelectionChange?.(event.nativeEvent.selection);
         }
-        onSelectionChange?.(event.nativeEvent.selection);
         setMostRecentEventCount(acknowledgedEventCount);
         forceNativeEventRender((sequence) => sequence + 1);
       }}
@@ -426,6 +446,10 @@ export function ComposerEditor({
           ? undefined
           : (event) => onContentSizeChange(event.nativeEvent)
       }
+      pickerKeysEnabled={props.onPickerKey !== undefined}
+      onComposerPickerKey={
+        props.onPickerKey && ((event) => props.onPickerKey?.(event.nativeEvent.key))
+      }
       onComposerSubmit={
         onSubmit === undefined
           ? undefined
@@ -438,6 +462,7 @@ export function ComposerEditor({
 export type {
   ComposerEditorHandle,
   ComposerEditorProps,
+  ComposerPickerKey,
   ComposerEditorSelection,
   ComposerTextPaste,
 } from "./T3ComposerEditor.types";

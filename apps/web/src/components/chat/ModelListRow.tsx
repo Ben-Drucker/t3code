@@ -13,6 +13,8 @@ import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
 
 export const ModelListRow = memo(function ModelListRow(props: {
   index: number;
+  itemKey?: string | undefined;
+  configurationLabel?: string | undefined;
   slug: string;
   name: string;
   subProvider?: string | undefined;
@@ -46,7 +48,7 @@ export const ModelListRow = memo(function ModelListRow(props: {
       hideIndicator
       selectedFill={false}
       index={props.index}
-      value={modelPickerModelKey(props.instanceId, props.slug)}
+      value={props.itemKey ?? modelPickerModelKey(props.instanceId, props.slug)}
       disabled={Boolean(props.disabledReason)}
       className={cn(
         "group relative w-full !min-w-0 max-w-full cursor-pointer",
@@ -68,37 +70,45 @@ export const ModelListRow = memo(function ModelListRow(props: {
         indicatorBackground="var(--popover)"
         badgeClassName="right-[-0.125rem] bottom-[-0.125rem] h-3 min-w-3 px-0.5 text-5xs"
       />
-      <div className="flex min-w-0 flex-1 items-center gap-2 text-left">
-        <div
-          className="min-w-0 truncate text-sm font-normal leading-snug"
-          // Names the row in full on hover only when it is cut off.
-          onPointerEnter={(event) => {
-            const name = event.currentTarget;
-            name.title = name.scrollWidth > name.clientWidth ? getDisplayModelName(model) : "";
-          }}
-        >
-          {getDisplayModelName(model)}
-          {/* The logo is decorative, so name the provider for screen readers. */}
-          <span className="sr-only">, {props.providerDisplayName}</span>
-        </div>
-        {props.isSelected ? <CheckIcon className="size-3.5 shrink-0" aria-hidden="true" /> : null}
-        {props.subProvider ? (
-          <span className="min-w-0 shrink truncate text-xs text-muted-foreground/70">
-            {props.subProvider}
-          </span>
-        ) : null}
-        {props.showNewBadge ? (
-          <span
-            className="shrink-0 rounded border border-update/35 bg-update/15 px-0.5 py-px text-3xs font-bold uppercase leading-none tracking-wide text-update-foreground"
-            aria-label="New model"
+      <div className="min-w-0 flex-1 text-left">
+        <div className="flex min-w-0 items-center gap-2">
+          <div
+            className="min-w-0 truncate text-sm font-normal leading-snug"
+            // Names the row in full on hover only when it is cut off.
+            onPointerEnter={(event) => {
+              const name = event.currentTarget;
+              name.title = name.scrollWidth > name.clientWidth ? getDisplayModelName(model) : "";
+            }}
           >
-            New
-          </span>
-        ) : null}
-        {props.unavailable ? (
-          <Badge variant="outline" size="sm">
-            Unavailable
-          </Badge>
+            {getDisplayModelName(model)}
+            {/* The logo is decorative, so name the provider for screen readers. */}
+            <span className="sr-only">, {props.providerDisplayName}</span>
+          </div>
+          {props.isSelected ? <CheckIcon className="size-3.5 shrink-0" aria-hidden="true" /> : null}
+          {props.subProvider && !props.configurationLabel ? (
+            <span className="min-w-0 shrink truncate text-xs text-muted-foreground/70">
+              {props.subProvider}
+            </span>
+          ) : null}
+          {props.showNewBadge ? (
+            <span
+              className="shrink-0 rounded border border-update/35 bg-update/15 px-0.5 py-px text-3xs font-bold uppercase leading-none tracking-wide text-update-foreground"
+              aria-label="New model"
+            >
+              New
+            </span>
+          ) : null}
+          {props.unavailable ? (
+            <Badge variant="outline" size="sm">
+              Unavailable
+            </Badge>
+          ) : null}
+        </div>
+
+        {props.configurationLabel ? (
+          <div className="wrap-anywhere text-2xs text-muted-foreground">
+            {props.configurationLabel}
+          </div>
         ) : null}
       </div>
 

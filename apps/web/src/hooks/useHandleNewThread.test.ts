@@ -357,6 +357,21 @@ describe("useNewThreadHandler", () => {
     );
   });
 
+  it("creates a fresh draft even when an empty draft for the same project is open", async () => {
+    testState.reset(null);
+    testState.openEmptyDraft("draft-open");
+    const opened = await useNewThreadHandler()(
+      { environmentId: "environment-ssh", projectId: "project-remote" } as never,
+      { fresh: true, envMode: "local", prompt: "Quick Question" },
+    );
+
+    expect(opened?.draftId).toBe("draft-delayed");
+    expect(testState.draftStore.setPrompt).toHaveBeenCalledExactlyOnceWith(
+      "draft-delayed",
+      "Quick Question",
+    );
+  });
+
   it("opens the draft without waiting on a project file from an offline machine", async () => {
     testState.reset(null, { envMode: null, startFromOrigin: false });
     testState.disconnect("environment-ssh");

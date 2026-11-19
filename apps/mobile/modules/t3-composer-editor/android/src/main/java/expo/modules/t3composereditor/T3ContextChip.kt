@@ -26,7 +26,8 @@ class T3ContextChip(
     val detail: String = "",
     val iconUri: String = "",
     val tintsIcon: Boolean = false,
-    val monospaced: Boolean = false
+    val monospaced: Boolean = false,
+    val swatch: Int? = null
   )
 
   private val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -52,7 +53,13 @@ class T3ContextChip(
     }
   }
   private val padding = density * 5
-  private val iconSlot = if (iconUri.isEmpty()) 0f else em * 1.25f
+  private val swatch = content.swatch
+  private val swatchPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+  private val iconSlot = when {
+    content.swatch != null -> em
+    iconUri.isNotEmpty() -> em * 1.25f
+    else -> 0f
+  }
   val width = ceil(
     min(
       maximumWidth.coerceAtLeast(em * 3),
@@ -70,6 +77,21 @@ class T3ContextChip(
   fun draw(canvas: Canvas, x: Float, y: Float) {
     canvas.save()
     canvas.translate(x, y)
+    swatch?.let { exactColor ->
+      swatchPaint.color = exactColor
+      swatchPaint.alpha = 31
+      canvas.drawRoundRect(0f, 0f, width, height, padding, padding, swatchPaint)
+      val inset = padding / 10
+      swatchPaint.alpha = 64
+      swatchPaint.style = Paint.Style.STROKE
+      swatchPaint.strokeWidth = inset * 2
+      canvas.drawRoundRect(inset, inset, width - inset, height - inset, padding, padding, swatchPaint)
+      swatchPaint.style = Paint.Style.FILL
+      val side = em * 0.72f
+      val top = (height - side) / 2
+      swatchPaint.color = exactColor
+      canvas.drawRoundRect(padding, top, padding + side, top + side, padding * 0.4f, padding * 0.4f, swatchPaint)
+    }
     T3ChipIcons.cached(iconUri)?.let {
       val top = (height - em) / 2
       canvas.drawBitmap(it, null, RectF(padding, top, padding + em, top + em), iconPaint)

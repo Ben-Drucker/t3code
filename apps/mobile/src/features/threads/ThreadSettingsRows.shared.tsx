@@ -90,7 +90,7 @@ export function ModelRowContent(
           {props.option.subtitle ? (
             <Text
               className="text-xs text-foreground-muted"
-              numberOfLines={props.labelNumberOfLines}
+              numberOfLines={props.option.recentKey ? undefined : props.labelNumberOfLines}
             >
               {props.option.subtitle}
             </Text>

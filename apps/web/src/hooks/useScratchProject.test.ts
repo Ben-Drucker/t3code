@@ -40,6 +40,13 @@ describe("scratchEnvironmentId", () => {
     expect(actions(local, "/local/scratch").scratchEnvironmentId(null)).toBe(local);
   });
 
+  it("chooses the first available environment with permission for Quick Question", () => {
+    const scratch = actions(other, "/local/scratch");
+    expect(scratch.quickQuestionEnvironmentId(() => true)).toBe(local);
+    expect(scratch.quickQuestionEnvironmentId((id) => id !== local)).toBe(remote);
+    expect(actions(local, null).quickQuestionEnvironmentId((id) => id === local)).toBeNull();
+  });
+
   it("falls back when the primary environment offers no scratch root", () => {
     expect(actions(local, null).scratchEnvironmentId(remote)).toBe(remote);
     expect(actions(null, null).scratchEnvironmentId(remote)).toBe(remote);

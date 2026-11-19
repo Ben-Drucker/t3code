@@ -5,6 +5,7 @@ import {
 import { isProviderSkillUserInvocable } from "@t3tools/client-runtime/providerSkills";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { filePreviewKind } from "@t3tools/shared/filePreview";
+import { findComposerRgbHexColors } from "@t3tools/shared/rgbHexColors";
 import { videoMimeType } from "@t3tools/shared/video";
 import {
   COMPOSER_CONTEXT_MAX_RECORDS,
@@ -217,6 +218,20 @@ export function composerContextEditorTokens(
       ...mention,
     })),
   ].sort((a, b) => a.start - b.start);
+}
+
+export function withComposerRgbChips<Chip extends { start: number; end: number }>(
+  text: string,
+  chips: Chip[],
+) {
+  const colors = findComposerRgbHexColors(text).filter(
+    (color) => !chips.some((chip) => chip.start < color.end && color.start < chip.end),
+  );
+  if (colors.length === 0) return chips;
+  return [
+    ...chips,
+    ...colors.map((color) => ({ ...color, type: "rgb-color", label: color.source })),
+  ].sort((left, right) => left.start - right.start);
 }
 
 export function referencedComposerContext(text: string, context?: OrchestrationMessageContext) {

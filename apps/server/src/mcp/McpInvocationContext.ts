@@ -22,6 +22,7 @@ const ALL_MCP_CAPABILITIES = [
   "device",
   "pull-requests",
   "terminal",
+  "terminal-unrestricted",
   "issues",
 ] as const;
 export type McpCapability = (typeof ALL_MCP_CAPABILITIES)[number];
@@ -200,7 +201,7 @@ export const hiddenWhileLinksOff = (): boolean => {
   return scope?.linkedEnvironments !== false;
 };
 
-/** `McpSchema.EnabledWhen` for Antigravity-only terminal tools, hidden from all other providers. */
+/** `McpSchema.EnabledWhen` for a provider thread credential with terminal access. */
 export const hiddenWithoutTerminalCapability = (): boolean => {
   const fiber = Fiber.getCurrent();
   const scope = fiber && Context.getOrUndefined(fiber.context, McpInvocationContext);

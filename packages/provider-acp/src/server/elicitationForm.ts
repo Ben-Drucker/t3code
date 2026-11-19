@@ -188,12 +188,13 @@ export function parseElicitationForm(
       : [],
   );
   const fields = new Map<string, Field>();
+  const properties = unknownRecord(schema?.properties);
   const parsedFields: Array<{
     readonly id: string;
     readonly property: Readonly<Record<string, unknown>>;
     readonly options: Option[];
   }> = [];
-  for (const [id, value] of Object.entries(unknownRecord(schema?.properties) ?? {})) {
+  for (const [id, value] of Object.entries(properties ?? {})) {
     const property = unknownRecord(value);
     const parsed = property === undefined ? undefined : parseField(property);
     // Question ids must survive the contract's trim to round-trip answers.
@@ -201,16 +202,30 @@ export function parseElicitationForm(
     fields.set(id, parsed.field);
     parsedFields.push({ id, property, options: parsed.options });
   }
-  // An optional `<id>__other` text field (OMP's ask dialog) is the free-text answer to
-  // optional single choice `<id>`: ask them as one question and send custom text to the
-  // companion. Multi-select keeps both fields, since it can answer with options and text.
+  // Antigravity uses qN_other for each choice's write-in. OMP uses qN__other for single choice.
   const companions = new Map<string, string>();
-  for (const [id, field] of fields) {
+  const writeInIds = new Map<string, string>();
+  for (const { id, property } of parsedFields) {
+    const kind = fields.get(id)?.kind;
+    if (required.has(id) || (kind !== "choice" && kind !== "multiChoice")) continue;
+    const writeInId = `${id}_other`;
+    const writeIn = unknownRecord(properties?.[writeInId]);
+    if (
+      /^q[1-9]\d*$/.test(id) &&
+      fields.get(writeInId)?.kind === "text" &&
+      !required.has(writeInId) &&
+      writeIn?.title === "Other" &&
+      typeof property.title === "string" &&
+      writeIn.description === `Optional free-form answer to: ${property.title}`
+    ) {
+      companions.set(id, writeInId);
+      writeInIds.set(id, writeInId);
+      continue;
+    }
     const companionId = `${id}__other`;
     if (
-      field.kind === "choice" &&
+      kind === "choice" &&
       fields.get(companionId)?.kind === "text" &&
-      !required.has(id) &&
       !required.has(companionId)
     ) {
       companions.set(id, companionId);
@@ -221,14 +236,19 @@ export function parseElicitationForm(
   for (const { id, property, options } of parsedFields) {
     if (folded.has(id)) continue;
     const kind = fields.get(id)?.kind;
+    const customAnswerId = writeInIds.get(id);
+    const title = text(property.title);
+    const description = text(property.description);
     questions.push({
       id,
-      header: text(property.title) ?? `Question ${questions.length + 1}`,
-      question: text(property.description) ?? message,
+      header:
+        (customAnswerId === undefined ? title : description) ?? `Question ${questions.length + 1}`,
+      question: (customAnswerId === undefined ? description : title) ?? message,
       options,
       ...(kind === "text" || kind === "number" || companions.has(id)
         ? {}
         : { allowCustomAnswer: false }),
+      ...(customAnswerId === undefined ? {} : { customAnswerId }),
       ...(kind === "multiChoice" ? { multiSelect: true } : {}),
       ...(kind === "text" && !required.has(id) ? { required: false } : {}),
     });
@@ -242,10 +262,15 @@ export function parseElicitationForm(
         const answer = Object.hasOwn(answers, id) ? answers[id] : undefined;
         const typed = answer === undefined ? undefined : typedAnswer(field, answer);
         const companionId = companions.get(id);
+        const writeInId = writeInIds.get(id);
         if (typed !== undefined) entries.push([id, typed]);
-        else if (companionId !== undefined && typeof answer === "string") {
+        else if (required.has(id)) return undefined;
+        if (writeInId !== undefined && Object.hasOwn(answers, writeInId)) {
+          const writeIn = answers[writeInId];
+          if (typeof writeIn === "string") entries.push([writeInId, writeIn]);
+        } else if (typed === undefined && companionId !== undefined && typeof answer === "string") {
           entries.push([companionId, answer]);
-        } else if (required.has(id)) return undefined;
+        }
       }
       // Own properties for every field, `__proto__` included; assigning to
       // `{}` would hit its inherited setter instead.

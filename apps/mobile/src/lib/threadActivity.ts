@@ -294,6 +294,7 @@ export function workEntryRowLabel(entry: WorkLogPresentationEntry, expanded = fa
     return entry.toolLifecycleStatus === "inProgress" ? "Thinking" : "Thought";
   const presentation = resolveWorkEntryToolPresentation(entry);
   if (presentation) return presentation.displayName;
+  if (entry.commandSummary) return compactWorkEntryText(entry.commandSummary);
   if (entry.command?.trim()) return compactWorkEntryText(commandDisplayText(entry.command));
   const action = toolGroupAction(entry);
   const isToolRead = action === "read" && entry.itemType === "dynamic_tool";
@@ -762,6 +763,7 @@ function toWorkLogEntry(
       return {
         ...common,
         command: item.input,
+        ...(item.commandSummary ? { commandSummary: item.commandSummary } : {}),
         rawCommand: item.input,
         toolTitle: title ?? "Command",
         toolData: item,
@@ -896,6 +898,8 @@ function singleToolCallLabel(activity: ThreadFeedActivity, expanded: boolean): s
       : compactWorkEntryText(activity.workEntry.detail ?? "") || "Thought";
   const presentation = resolveWorkEntryToolPresentation(activity.workEntry, "completed");
   if (presentation) return presentation.displayName;
+  if (activity.workEntry.commandSummary)
+    return compactWorkEntryText(activity.workEntry.commandSummary);
   const command = activity.workEntry.command?.trim();
   return command ? truncate(command, WORK_LOG_LABEL_MAX_LENGTH) : activity.summary;
 }
@@ -2322,6 +2326,8 @@ function liveToolActivitySummary(activity: ThreadFeedActivity, presentTense: boo
     toolLifecycleStatus: status,
   });
   if (presentation) return presentation.displayName;
+  if (activity.workEntry.commandSummary)
+    return compactWorkEntryText(activity.workEntry.commandSummary);
   const command = activity.workEntry.command?.trim();
   if (command) {
     const program = commandProgramName(command);

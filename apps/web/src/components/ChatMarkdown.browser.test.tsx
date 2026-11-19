@@ -574,6 +574,34 @@ describe("ChatMarkdown skill chips", () => {
     expect(screen.container.textContent).toBe("Ask (GPT-6.1), not model:openai/gpt-4o.");
   });
 
+  it("renders RGB chips in prose and keeps code and issue references literal", async () => {
+    setup();
+    await using screen = await render(
+      <ChatMarkdown
+        cwd={undefined}
+        text={"Use #5bed2b and **#AD3C1F**, issue #123456, or `#abcdef`.\n\n```txt\n#abcdef\n```"}
+      />,
+    );
+    const chips = [...screen.container.querySelectorAll(".rgb-hex-chip")];
+    expect(chips.map((chip) => chip.textContent)).toEqual(["#5bed2b", "#AD3C1F"]);
+    expect((chips[0] as HTMLElement).style.getPropertyValue("--rgb-hex-chip-color")).toBe(
+      "#5bed2b",
+    );
+    expect(getComputedStyle(chips[0]!, "::before").backgroundColor).toBe("rgb(91, 237, 43)");
+    expect(getComputedStyle(chips[1]!, "::before").backgroundColor).toBe("rgb(173, 60, 31)");
+    expect(getComputedStyle(chips[0]!).backgroundColor).not.toBe(
+      getComputedStyle(chips[1]!).backgroundColor,
+    );
+    expect(screen.container.textContent).toContain("issue #123456");
+    const selection = window.getSelection()!;
+    const range = document.createRange();
+    range.selectNodeContents(chips[1]!);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    expect(chatMarkdownClipboardPayload(selection)?.text).toBe("#AD3C1F");
+    selection.removeAllRanges();
+  });
+
   it("renders %[...] model and tool chips in assistant prose and tables while leaving code untouched", async () => {
     setup();
     const envId = EnvironmentId.make("models");

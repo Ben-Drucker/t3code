@@ -53,6 +53,10 @@ describe("antigravityBreakdownFromGeneration", () => {
         { category: "system", tokens: 8_000 },
       ],
     });
+    const totalOnly = bytes(1, bytes(9, bytes(10, int(1, 400))));
+    expect(antigravityBreakdownFromGeneration(Uint8Array.from(totalOnly))).toEqual({
+      usedTokens: 400,
+    });
   });
 
   it.effect(
@@ -119,6 +123,10 @@ describe("antigravityBreakdownFromGeneration", () => {
             update.close();
           }
           const revised = yield* readAntigravityContextUsage(root, "session", appDataDirectory, 4);
+          expect(revised).toMatchObject({
+            usedTokens: 500,
+            breakdown: expect.arrayContaining([{ category: "messages", tokens: 500 }]),
+          });
           expect(revised?.generationUsage.generations).toMatchObject([
             { id: 4, usage: { outputTokens: 35 } },
           ]);

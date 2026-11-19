@@ -4,6 +4,7 @@ export interface PendingUserInputQuestion {
   readonly options: ReadonlyArray<{ readonly label: string; readonly value?: string | undefined }>;
   readonly multiSelect?: boolean | undefined;
   readonly allowCustomAnswer?: boolean | undefined;
+  readonly customAnswerId?: string | undefined;
   readonly initialAnswer?: string | undefined;
   readonly required?: boolean | undefined;
 }
@@ -100,7 +101,8 @@ export function setPendingUserInputCustomAnswer(
   }
 
   const selectedOptionValues =
-    question.initialAnswer !== undefined || customAnswer.trim().length > 0
+    question.initialAnswer !== undefined ||
+    (customAnswer.trim().length > 0 && !(question.multiSelect && question.customAnswerId))
       ? undefined
       : normalizeSelectedOptionValues(question, draft?.selectedOptionValues);
   return {
@@ -114,7 +116,11 @@ export function isPendingUserInputOptionSelected(
   draft: PendingUserInputDraftAnswer | undefined,
   optionValue: string,
 ): boolean {
-  if (question.allowCustomAnswer !== false && normalizeDraftAnswer(draft?.customAnswer)) {
+  if (
+    !(question.multiSelect && question.customAnswerId) &&
+    question.allowCustomAnswer !== false &&
+    normalizeDraftAnswer(draft?.customAnswer)
+  ) {
     return false;
   }
 
@@ -148,7 +154,7 @@ export function togglePendingUserInputOptionSelection(
       : [...selectedOptionValues, resolvedOptionValue];
 
     return {
-      customAnswer: "",
+      customAnswer: question.customAnswerId ? (draft?.customAnswer ?? "") : "",
       ...(nextSelectedOptionValues.length > 0
         ? { selectedOptionValues: nextSelectedOptionValues }
         : {}),
@@ -169,9 +175,24 @@ export function buildPendingUserInputAnswers(
   const entries: Array<[string, PendingUserInputAnswer]> = [];
 
   for (const question of questions) {
-    const answer = resolvePendingUserInputAnswer(question, draftAnswers[question.id]);
+    const draft = draftAnswers[question.id];
+    const answer = resolvePendingUserInputAnswer(question, draft);
     if (answer === null) {
       return null;
+    }
+    if (
+      question.allowCustomAnswer !== false &&
+      question.customAnswerId !== undefined &&
+      typeof answer === "string"
+    ) {
+      const selectedOptions = normalizeSelectedOptionValues(question, draft?.selectedOptionValues);
+      if (normalizeDraftAnswer(draft?.customAnswer) !== null || selectedOptions.length === 0) {
+        if (question.multiSelect && selectedOptions.length > 0) {
+          entries.push([question.id, selectedOptions]);
+        }
+        entries.push([question.customAnswerId, answer]);
+        continue;
+      }
     }
     entries.push([question.id, answer]);
   }

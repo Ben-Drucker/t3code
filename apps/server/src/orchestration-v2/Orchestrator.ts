@@ -10814,6 +10814,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const now = yield* DateTime.now;
       const nodeId = existing?.nodeId ?? command.nodeId;
       const providerThreadId = existing?.providerThreadId ?? run.providerThreadId;
+      const commandSummary = command.commandSummary ?? existing?.commandSummary;
       const turnItem: Extract<OrchestrationV2TurnItem, { readonly type: "command_execution" }> = {
         id: command.turnItemId,
         threadId: command.threadId,
@@ -10831,6 +10832,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         updatedAt: now,
         type: "command_execution",
         input: command.command,
+        ...(commandSummary === undefined ? {} : { commandSummary }),
         ...(command.output === undefined ? {} : { output: command.output }),
         ...(command.exitCode == null ? {} : { exitCode: command.exitCode }),
         ...(command.commandStatus === "failed" ? { outputIndicatesFailure: true } : {}),
@@ -11209,6 +11211,36 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }
 
       if (approvalTurnItem !== undefined) {
+        const questionAnswer =
+          approvalTurnItem.type === "user_input_request" && answers !== undefined
+            ? {
+                requestId: command.requestId,
+                answers: { ...answers },
+                attachmentsByQuestionId: { ...command.attachmentsByQuestionId },
+                questionTextById: Object.fromEntries(
+                  approvalTurnItem.questions.map((question) => [question.id, question.question]),
+                ),
+              }
+            : undefined;
+        if (questionAnswer !== undefined && approvalTurnItem.type === "user_input_request") {
+          for (const { id, customAnswerId } of approvalTurnItem.questions) {
+            if (customAnswerId === undefined) continue;
+            if (Object.hasOwn(questionAnswer.answers, customAnswerId)) {
+              const selected = questionAnswer.answers[id];
+              const custom = questionAnswer.answers[customAnswerId];
+              questionAnswer.answers[id] =
+                selected === undefined
+                  ? custom
+                  : [...(Array.isArray(selected) ? selected : [selected]), custom];
+              delete questionAnswer.answers[customAnswerId];
+            }
+            const attachments = questionAnswer.attachmentsByQuestionId[customAnswerId];
+            if (attachments !== undefined) {
+              questionAnswer.attachmentsByQuestionId[id] = attachments;
+              delete questionAnswer.attachmentsByQuestionId[customAnswerId];
+            }
+          }
+        }
         yield* emitEvent({
           type: "turn-item.updated",
           threadId: command.threadId,
@@ -11223,21 +11255,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           occurredAt: now,
           payload: {
             ...approvalTurnItem,
-            ...(approvalTurnItem.type === "user_input_request" && answers !== undefined
-              ? {
-                  questionAnswer: {
-                    requestId: command.requestId,
-                    answers,
-                    attachmentsByQuestionId: command.attachmentsByQuestionId ?? {},
-                    questionTextById: Object.fromEntries(
-                      approvalTurnItem.questions.map((question) => [
-                        question.id,
-                        question.question,
-                      ]),
-                    ),
-                  },
-                }
-              : {}),
+            ...(questionAnswer === undefined ? {} : { questionAnswer }),
             status: resolvedNodeStatus,
             completedAt: now,
             updatedAt: now,

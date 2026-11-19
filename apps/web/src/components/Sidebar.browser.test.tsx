@@ -12,6 +12,7 @@ import {
   ThreadId,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
+import { QUICK_QUESTION_DOUBLE_PRESS_MS } from "@t3tools/shared/composerInlineTokens";
 import { isMacPlatform } from "@t3tools/shared/keybindings";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
@@ -20,6 +21,7 @@ import { act, fakeTimers, render } from "../../test/render";
 import { openCommandPalette } from "../commandPaletteBus";
 import { makeThreadFixture } from "../test-fixtures";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useScratchProject } from "../hooks/useScratchProject";
 import { useNowMinute } from "../hooks/useNowMinute";
 import { __setClientSettingsForTests, getClientSettings } from "../hooks/useSettings";
 import { useThreadRouteTarget } from "../hooks/useThreadRouteTarget";
@@ -40,6 +42,7 @@ vi.mock(import("../state/olderSettledShelf"), async (original) => {
 });
 vi.mock("../state/entities", { spy: true });
 vi.mock("../hooks/useHandleNewThread", { spy: true });
+vi.mock("../hooks/useScratchProject", { spy: true });
 vi.mock("../hooks/useNowMinute", { spy: true });
 vi.mock("../hooks/useThreadRouteTarget", { spy: true });
 vi.mock("./sidebar/SidebarThreadRow", { spy: true });
@@ -116,10 +119,12 @@ describe("sidebar header new thread", () => {
       </SidebarProvider>,
     );
 
+    using _timers = fakeTimers();
     await userEvent.click(screen.getByRole("button", { name: "New thread", exact: true }), {
       modifiers: scenario.shift ? ["Shift"] : [],
     });
 
+    await act(() => vi.advanceTimersByTime(QUICK_QUESTION_DOUBLE_PRESS_MS));
     if (scenario.picker) {
       expect(openCommandPalette).toHaveBeenCalledExactlyOnceWith({ open: "new-thread-in" });
       expect(startThread).not.toHaveBeenCalled();
@@ -127,6 +132,36 @@ describe("sidebar header new thread", () => {
       expect(openCommandPalette).not.toHaveBeenCalled();
       expect(startThread).toHaveBeenCalledExactlyOnceWith(currentProjectRef);
     }
+  });
+  it("opens Quick Question on a double click without opening the picker first", async () => {
+    const quickQuestion = vi.fn().mockResolvedValue(true);
+    using restoreScratch = new DisposableStack();
+    restoreScratch.defer(() => vi.mocked(useScratchProject).mockRestore());
+    vi.mocked(useScratchProject).mockReturnValue({
+      scratchWorkspaceRootFor: () => "/scratch",
+      scratchEnvironmentId: () => null,
+      openScratchProject: async () => null,
+      startScratchThread: async () => {},
+      quickQuestionEnvironmentId: () => null,
+      startScratchQuickQuestion: quickQuestion,
+    });
+    vi.mocked(useProjects).mockReturnValue([project("active"), project("idle")]);
+    vi.mocked(openCommandPalette).mockClear();
+    await using screen = await render(
+      <SidebarProvider>
+        <Sidebar routeReveal={{ observedKey: null, pendingKey: null }} />
+      </SidebarProvider>,
+    );
+    using _timers = fakeTimers();
+    const button = screen.getByRole("button", { name: "New thread", exact: true });
+    await button.dblClick();
+    expect(quickQuestion).toHaveBeenCalledTimes(1);
+    await act(() => vi.advanceTimersByTime(QUICK_QUESTION_DOUBLE_PRESS_MS));
+    expect(openCommandPalette).not.toHaveBeenCalled();
+
+    await act(() => button.element().focus());
+    await userEvent.keyboard("{Enter}");
+    expect(openCommandPalette).toHaveBeenCalledExactlyOnceWith({ open: "new-thread-in" });
   });
 });
 

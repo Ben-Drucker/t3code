@@ -9,6 +9,7 @@ import {
   CommandId,
   EnvironmentId,
   NodeId,
+  OrchestratorMcpFailure,
   OrchestratorMcpThreadReadResult,
   ProjectId,
   ProviderDriverKind,
@@ -28,6 +29,9 @@ import * as DateTime from "effect/DateTime";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Queue from "effect/Queue";
+import * as Ref from "effect/Ref";
 import * as TestClock from "effect/testing/TestClock";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -68,6 +72,7 @@ import { ThreadToolkit } from "./thread/tools.ts";
 import * as PeerForwarding from "../../peer/PeerForwarding.ts";
 import * as PeerLinkRequests from "../../peer/PeerLinkRequests.ts";
 import * as PeerLinks from "../../peer/PeerLinks.ts";
+import * as PeerMcpClient from "../../peer/PeerMcpClient.ts";
 
 const layerOrchestratorToolkit = McpHttpServer.layerOrchestratorToolkit.pipe(
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
@@ -861,6 +866,40 @@ it.effect("search names the calling thread, so an agent can tell its own match a
     const fromClient = yield* search(clientScope("auto"));
     expect(fromClient.structuredContent).toMatchObject({ currentThreadId: null });
 
+    const conversations = (
+      invocation: McpInvocationContext.McpInvocationScope,
+      end = "2026-10-21",
+    ) =>
+      server
+        .callTool({
+          name: "t3_search_convos",
+          arguments: {
+            pattern: "release (notes|checklist)",
+            description: "Find release notes",
+            end,
+          },
+        })
+        .pipe(
+          Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+    const transcript = yield* conversations(scope);
+    expect(transcript.structuredContent).toMatchObject({
+      matches: [
+        {
+          itemId: "release-note",
+          link: "<t3-thread://v2/mcp-core-environment/earlier-thread>",
+          excerpt: "The release checklist is ready.",
+        },
+      ],
+      timedOut: false,
+      truncated: false,
+    });
+    const denied = yield* conversations({ ...scope, capabilities: new Set() }).pipe(Effect.result);
+    expect(denied._tag === "Failure" || denied.success.isError).toBe(true);
+    const invalid = yield* conversations(scope, "2026-02-31");
+    expect(invalid.isError).toBe(true);
+
     // A linked environment on an older version answers without the field.
     const fromOlderPeer = yield* decodeThreadSearchResult({ matches: [] });
     expect(fromOlderPeer).toEqual({ matches: [] });
@@ -872,6 +911,25 @@ it.effect("search names the calling thread, so an agent can tell its own match a
         Layer.provide(McpToolAccessTestkit.liveThreadsLayer),
         Layer.provide(
           Layer.mock(ThreadSearch.ThreadSearch)({
+            searchConversations: ({ pattern, end }) =>
+              Effect.succeed({
+                matches:
+                  pattern === "release (notes|checklist)" && end === "2026-10-21T23:59:59.999Z"
+                    ? [
+                        {
+                          threadId: "earlier-thread",
+                          itemId: "release-note",
+                          updatedAt: "2026-10-21T10:22:00.000Z",
+                          type: "assistant_message",
+                          provider: "codex",
+                          excerpt: "The release checklist is ready.",
+                        },
+                      ]
+                    : [],
+                invalidPattern: false,
+                timedOut: false,
+                truncated: false,
+              }),
             searchThreads: () =>
               Effect.succeed({
                 matches: [threadId, ThreadId.make("earlier-thread")].map((id) => ({
@@ -886,12 +944,203 @@ it.effect("search names the calling thread, so an agent can tell its own match a
           }),
         ),
         Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
-        Layer.provide(Layer.mock(PeerForwarding.PeerForwarding)({})),
+        Layer.provide(
+          Layer.mock(PeerForwarding.PeerForwarding)({
+            searchTargets: () => Effect.succeed([]),
+          }),
+        ),
         Layer.provide(Layer.mock(PeerLinkRequests.PeerLinkRequests)({})),
         Layer.provide(Layer.mock(PeerLinks.PeerLinks)({})),
       ),
     ),
   ),
+);
+
+it.effect("searches linked transcripts once with the caller's access and one deadline", () =>
+  Effect.gen(function* () {
+    const local = scope.environmentId;
+    const peer = EnvironmentId.make("peer-a");
+    const olderPeer = EnvironmentId.make("peer-old");
+    const unknown = EnvironmentId.make("unknown-environment");
+    const targets = yield* Ref.make<ReadonlyArray<EnvironmentId>>([peer, olderPeer]);
+    const started = yield* Queue.unbounded<EnvironmentId>();
+    const interrupted = yield* Deferred.make<void>();
+    const hit = (itemId: string, updatedAt: string) => ({
+      itemId,
+      threadId: "same-thread-id",
+      updatedAt,
+      type: "assistant_message",
+      provider: "codex",
+      excerpt: "Release checklist",
+    });
+    const first = "2026-10-20T00:00:00.000Z";
+    const tie = "2026-10-21T00:00:00.000Z";
+    const last = "2026-10-22T00:00:00.000Z";
+    const localMatches = [hit("local-tie", tie), hit("local-first", first)];
+    const peerMatches = [hit("peer-last", last), hit("peer-tie", tie)];
+    const page = (matches: typeof localMatches, order: unknown, limit: unknown) => ({
+      matches: (order === "oldest" ? matches.toReversed() : matches).slice(
+        0,
+        typeof limit === "number" ? limit : 20,
+      ),
+      timedOut: false,
+      truncated: typeof limit === "number" && matches.length > limit,
+    });
+    const testLayer = McpHttpServer.layerThreadToolkit.pipe(
+      Layer.provideMerge(McpHttpServer.layerInProcessMcpServer),
+      Layer.provide(
+        PeerForwarding.layer.pipe(
+          Layer.provide(
+            Layer.mock(PeerLinks.PeerLinks)({
+              enabled: Effect.succeed(true),
+              unexpiredIds: Ref.get(targets),
+            }),
+          ),
+          Layer.provide(
+            Layer.mock(PeerMcpClient.PeerMcpClient)({
+              call: (input) =>
+                Effect.gen(function* () {
+                  yield* Queue.offer(started, input.environmentId);
+                  expect(input.tool).toBe("t3_search_convos");
+                  expect(input.arguments).not.toHaveProperty("environmentId");
+                  expect(input.arguments).not.toHaveProperty("environmentIds");
+                  expect(input.arguments).toMatchObject({
+                    start: first,
+                    provider: "codex",
+                  });
+                  expect(input.sender?.threadId).toBe(threadId);
+                  if (input.environmentId === olderPeer)
+                    return yield* new OrchestratorMcpFailure({
+                      code: "invalid_request",
+                      message: "Tool 't3_search_convos' not found",
+                    });
+                  if (input.arguments.pattern === "Slow")
+                    return yield* Effect.never.pipe(
+                      Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined)),
+                    );
+                  const result = page(peerMatches, input.arguments.order, input.arguments.limit);
+                  // oxlint-disable-next-line t3code/no-inline-schema-compile -- The peer supplies its schema with the call.
+                  return yield* Schema.decodeEffect(input.success)({
+                    ...result,
+                    matches: result.matches.map((match) => ({
+                      ...match,
+                      link: "https://ignored.invalid/",
+                      environmentId: unknown,
+                    })),
+                  }).pipe(Effect.orDie);
+                }),
+            }),
+          ),
+        ),
+      ),
+      Layer.provide(NodeCrypto.layer),
+      Layer.provide(McpToolAccessTestkit.liveThreadsLayer),
+      Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
+      Layer.provide(
+        Layer.mock(ThreadSearch.ThreadSearch)({
+          searchConversations: ({ order, limit }) =>
+            Effect.succeed({
+              ...page(localMatches, order, limit),
+              invalidPattern: false,
+            }),
+        }),
+      ),
+    );
+    yield* Effect.gen(function* () {
+      const server = yield* McpServer.McpServer;
+      const search = (args: Record<string, unknown> = {}, invocation = scope) =>
+        server
+          .callTool({
+            name: "t3_search_convos",
+            arguments: {
+              pattern: "Release",
+              description: "Find the release checklist",
+              start: "2026-10-20",
+              provider: "codex",
+              ...args,
+            },
+          })
+          .pipe(
+            Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+            Effect.provideService(McpSchema.McpServerClient, client),
+          );
+      const defaults = yield* search({ limit: 3 });
+      expect(defaults.structuredContent).toMatchObject({
+        matches: [
+          {
+            itemId: "peer-last",
+            environmentId: peer,
+            link: "<t3-thread://v2/peer-a/same-thread-id>",
+          },
+          { itemId: "local-tie", environmentId: local },
+          { itemId: "peer-tie", environmentId: peer },
+        ],
+        partial: true,
+        timedOut: false,
+        truncated: true,
+        incompleteEnvironments: [{ environmentId: olderPeer, reason: "unsupported" }],
+      });
+      expect(new Set(yield* Queue.clear(started))).toEqual(new Set([peer, olderPeer]));
+
+      const subset = yield* search({
+        environmentIds: [peer, local, peer],
+        order: "oldest",
+        limit: 2,
+      });
+      expect(subset.structuredContent).toMatchObject({
+        matches: [{ itemId: "local-first" }, { itemId: "local-tie" }],
+        partial: false,
+        truncated: true,
+      });
+      expect(yield* Queue.clear(started)).toEqual([peer]);
+
+      expect((yield* search({ environmentId: peer, limit: 1 })).structuredContent).toMatchObject({
+        matches: [{ environmentId: peer }],
+        partial: false,
+      });
+      expect(yield* Queue.clear(started)).toEqual([peer]);
+      expect((yield* search({ environmentId: local, limit: 1 })).structuredContent).toMatchObject({
+        matches: [{ environmentId: local }],
+        partial: false,
+      });
+      expect((yield* search({ environmentId: unknown })).structuredContent).toMatchObject({
+        matches: [],
+        incompleteEnvironments: [{ environmentId: unknown, reason: "unavailable" }],
+      });
+
+      const linked = clientScope("full-access");
+      const inbound = { ...linked, client: { ...linked.client!, linked: true } };
+      expect((yield* search({}, inbound)).structuredContent).toMatchObject({
+        matches: [{ environmentId: local }, { environmentId: local }],
+        partial: false,
+      });
+      expect((yield* search({ environmentId: peer }, inbound)).structuredContent).toMatchObject({
+        matches: [],
+        incompleteEnvironments: [{ environmentId: peer, reason: "unavailable" }],
+      });
+      expect(yield* Queue.clear(started)).toEqual([]);
+
+      const slowPeers = ["peer-a", "peer-b", "peer-c", "peer-d"].map((id) =>
+        EnvironmentId.make(id),
+      );
+      yield* Ref.set(targets, slowPeers);
+      const slow = yield* search({
+        pattern: "Slow",
+        environmentIds: [...slowPeers, local],
+        timeoutMs: 100,
+      }).pipe(Effect.forkScoped);
+      expect(new Set(yield* Queue.takeN(started, 3))).toEqual(new Set(slowPeers.slice(0, 3)));
+      yield* TestClock.adjust("100 millis");
+      expect((yield* Fiber.join(slow)).structuredContent).toMatchObject({
+        matches: [{ environmentId: local }, { environmentId: local }],
+        timedOut: true,
+        partial: true,
+        incompleteEnvironments: slowPeers.map((id) => ({ environmentId: id, reason: "timed_out" })),
+      });
+      yield* Deferred.await(interrupted);
+      expect(yield* Queue.clear(started)).toEqual([]);
+    }).pipe(Effect.provide(testLayer), Effect.scoped);
+  }),
 );
 
 it.effect("a read-only client reads threads and is refused every write before it runs", () =>

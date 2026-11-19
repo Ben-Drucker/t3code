@@ -8,7 +8,9 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  RunId,
   ThreadId,
+  type RuntimeMode,
 } from "@t3tools/contracts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as Effect from "effect/Effect";
@@ -78,7 +80,10 @@ const makeTestLayer = (workspaceRoot: string, foregroundTimeoutMs = 50) => {
   ).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 };
 
-const seedRunningThread = Effect.fn("seedRunningThread")(function* (suffix: string) {
+const seedRunningThread = Effect.fn("seedRunningThread")(function* (
+  suffix: string,
+  runtimeMode: RuntimeMode = "auto",
+) {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const projectId = ProjectId.make(`project-terminal-${suffix}`);
   const threadId = ThreadId.make(`thread-terminal-${suffix}`);
@@ -91,7 +96,7 @@ const seedRunningThread = Effect.fn("seedRunningThread")(function* (suffix: stri
     projectId,
     title: `Terminal ${suffix}`,
     modelSelection: { instanceId, model: "gemini-2.5-pro" },
-    runtimeMode: "auto",
+    runtimeMode,
     interactionMode: "default",
     branch: null,
     worktreePath: null,
@@ -119,25 +124,61 @@ it.live("runs fast foreground commands synchronously without holding background 
     yield* Effect.gen(function* () {
       const terminal = yield* TerminalCommandService.TerminalCommandService;
       const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const { threadId } = yield* seedRunningThread("fg-fast");
+      const { threadId } = yield* seedRunningThread("fg-fast", "full-access");
+      const { runs } = yield* orchestrator.getThreadRecords(threadId, ["runs"]);
+      const runId = runs.at(-1)!.id;
+      const rejected = yield* terminal
+        .run({
+          threadId,
+          command: "printf 'wrong run'",
+          mode: "foreground",
+          authorizedTurn: { runId: RunId.make("stale-run"), cwd: workspaceRoot },
+        })
+        .pipe(Effect.result);
+      assert.strictEqual(rejected._tag, "Failure");
 
-      const result = yield* terminal.run({
-        threadId,
-        command: "printf 'hello foreground'",
-        mode: "foreground",
-      });
+      const [result, failed] = yield* Effect.all(
+        [
+          terminal.run({
+            threadId,
+            command: "printf 'hello foreground'",
+            description: "Check foreground output",
+            mode: "foreground",
+            authorizedTurn: { runId, cwd: workspaceRoot },
+          }),
+          terminal.run({
+            threadId,
+            command: "printf 'other result' >&2; exit 7",
+            description: "Check failure output",
+            mode: "foreground",
+          }),
+        ],
+        { concurrency: 2 },
+      );
 
       assert.equal(result.mode, "foreground");
       assert.equal(result.status, "completed");
       assert.equal(result.exitCode, 0);
       assert.equal(result.output, "hello foreground");
+      assert.equal(failed.status, "failed");
 
       const projection = yield* orchestrator.getThreadRecords(threadId, [
         "providerThreads",
         "turnItems",
       ]);
       assert.isEmpty(projection.providerThreads[0]?.pendingBackgroundTasks ?? []);
-      assert.isEmpty(projection.turnItems.filter((item) => item.type === "command_execution"));
+      const commands = projection.turnItems.filter((item) => item.type === "command_execution");
+      assert.lengthOf(commands, 2);
+      const first = commands.find((item) => item.input === "printf 'hello foreground'");
+      const second = commands.find((item) => item.input === "printf 'other result' >&2; exit 7");
+      assert.deepEqual(
+        [first?.commandSummary, first?.output, first?.exitCode, first?.status],
+        ["Check foreground output", "hello foreground", 0, "completed"],
+      );
+      assert.deepEqual(
+        [second?.commandSummary, second?.output, second?.exitCode, second?.status],
+        ["Check failure output", "other result", 7, "failed"],
+      );
     }).pipe(Effect.provide(makeTestLayer(workspaceRoot, 2_000)));
   }).pipe(Effect.provide(NodeServices.layer)),
 );

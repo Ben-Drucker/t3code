@@ -122,7 +122,10 @@ import {
 } from "../voice-input/ComposerDictationControl";
 import { useVoiceInputController } from "../voice-input/useVoiceInputController";
 import { resolveVoiceComposerPresentation } from "../voice-input/voiceInputPresentation";
-import type { ExistingThreadSettingsRouteParams } from "./ThreadSettingsSheet";
+import type {
+  AgentConfigPickerTarget,
+  ExistingThreadSettingsRouteParams,
+} from "./ThreadSettingsSheet";
 import {
   useThreadSettingsSheetPresentation,
   type NavigationWithFinishTransitioning,
@@ -299,20 +302,27 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
   const [pendingPastedTextAttachmentCount, setPendingPastedTextAttachmentCount] = useState(0);
   const settingsRoutePresentedRef = useRef(false);
   const pickModelRef = useRef(false);
+  const agentConfigRef = useRef<AgentConfigPickerTarget | null>(null);
   const settingsSheetPresentation = useThreadSettingsSheetPresentation({
     editorRef: inputRef,
     onPresent: () => {
       if (settingsRoutePresentedRef.current) return;
       settingsRoutePresentedRef.current = true;
+      const agentConfig = agentConfigRef.current;
+      agentConfigRef.current = null;
       // The draft composer edits the new-task flow, which owns its own settings route.
       navigation.dispatch(
         props.isDraft
-          ? StackActions.push("NewTaskThreadSettings", { pickModel: pickModelRef.current })
+          ? StackActions.push("NewTaskThreadSettings", {
+              pickModel: pickModelRef.current,
+              agentConfig,
+            })
           : StackActions.push("ThreadSettingsSheet", {
               environmentId: props.environmentId,
               threadId: props.selectedThread.id,
               draftKey: composerDraftKey,
               pickModel: pickModelRef.current,
+              agentConfig,
             } satisfies ExistingThreadSettingsRouteParams),
       );
     },
@@ -473,6 +483,17 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     onUsageLimits:
       usageLimitsOffered && draftAttachments.length === 0 ? openUsageLimits : undefined,
     onOpenModelPicker: openModelPicker,
+    onConfigureAgentModel: (trigger, option) => {
+      agentConfigRef.current = {
+        draftKey: composerDraftKey,
+        rangeStart: trigger.rangeStart,
+        expectedText: draftMessage.slice(trigger.rangeStart, trigger.rangeEnd),
+        query: trigger.query,
+        selection: option.selection,
+      };
+      pickModelRef.current = false;
+      settingsSheetPresentation.open();
+    },
     modelOptions: mentionModelOptions,
     modelProviders: props.serverConfig?.providers,
     ...(props.onFreshSession === undefined ? {} : { onFreshSession: props.onFreshSession }),
@@ -633,10 +654,12 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
         option.selection.model === currentModelSelection.model,
     ) ?? null;
   function openSettings() {
+    agentConfigRef.current = null;
     pickModelRef.current = false;
     settingsSheetPresentation.open();
   }
   function openModelPicker() {
+    agentConfigRef.current = null;
     pickModelRef.current = Platform.OS === "ios";
     settingsSheetPresentation.open();
   }
@@ -780,6 +803,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
           <ComposerPopoverAnchor>
             <ComposerCommandPopover
               items={composerMenu.items}
+              highlightedItemId={composerMenu.highlightedItemId}
               triggerKind={composerMenu.trigger.kind}
               isLoading={composerMenu.isLoading}
               error={composerMenu.error}
@@ -902,9 +926,10 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                   skills={composerMenu.skills}
                   selection={composerMenu.selection}
                   onChangeText={(text) => {
-                    if (!isSubmissionLocked) props.onChangeDraftMessage(text);
+                    if (!isSubmissionLocked) return composerMenu.onDraftChange(text);
                   }}
                   onSelectionChange={composerMenu.onSelectionChange}
+                  onPickerKey={composerMenu.onPickerKey}
                   onPasteImages={(uris) => {
                     if (isSubmissionLocked) return;
                     pendingNativeImagePasteCountRef.current += 1;

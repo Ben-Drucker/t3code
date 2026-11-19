@@ -9,6 +9,7 @@ import {
   markdownWithFileEmbeds,
   markdownForNativeParsing,
   markdownWithInlineFileLinks,
+  markdownWithRgbHexChips,
   markdownWithTableBreaks,
 } from "../lib/markdownDocument";
 import { isValidElement, useMemo, useState, type ReactElement, type ReactNode } from "react";
@@ -226,10 +227,12 @@ function codeBlockElement(
 export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
   const { renderImage, resolveImageSource, fileEmbedLabel } = props;
   const { themeAppearance, mathRenderingEnabled } = useAppearancePreferences();
-  const { markdown, fileHrefs } = useMemo(() => {
+  const { markdown, fileHrefs, rgbChips } = useMemo(() => {
     if (!fileEmbedLabel) {
       return {
-        markdown: markdownForNativeRendering(props.markdown, ENRICHED_INLINE_FILE_LINK_REGEX),
+        ...markdownWithRgbHexChips(
+          markdownForNativeRendering(props.markdown, ENRICHED_INLINE_FILE_LINK_REGEX),
+        ),
         fileHrefs: new Set<string>(),
       };
     }
@@ -238,7 +241,7 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
       ENRICHED_INLINE_FILE_LINK_REGEX,
     );
     const files = markdownWithFileEmbeds(content, fileEmbedLabel);
-    return { ...files, markdown: markdownWithTableBreaks(files.markdown) };
+    return { ...files, ...markdownWithRgbHexChips(markdownWithTableBreaks(files.markdown)) };
   }, [props.markdown, fileEmbedLabel]);
   const [parsedLinkUrls, setParsedLinkUrls] = useState<ReadonlyArray<string>>([]);
   const onLinksChange = (links: MarkdownLinkOccurrence[]) => {
@@ -265,7 +268,12 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
   const linkUrls = textLinkKey
     ? [...new Set([...parsedLinkUrls, ...textLinkKey.split("\n")])]
     : parsedLinkUrls;
-  const { linkVariants, linkPillContent } = useEnrichedLinkVariants(linkUrls, props, fileHrefs);
+  const { linkVariants, linkPillContent } = useEnrichedLinkVariants(
+    linkUrls,
+    props,
+    fileHrefs,
+    rgbChips,
+  );
   const linkRecognition = useMemo(() => ({ text: textLinkRegex ?? undefined }), [textLinkRegex]);
   const [activeMenu, setActiveMenu] = useState<{
     url: string;
@@ -273,6 +281,7 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
   } | null>(null);
   const { fileContextMenu, onFileContextMenuAction } = props;
   const onLinkPress = (url: string) => {
+    if (rgbChips.has(url)) return;
     const model = enrichedModelReference(url, props.models);
     if (model) {
       Dialog.alert(model.label, enrichedModelDetails(model));
@@ -301,30 +310,34 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
   const linkContextMenuItems =
     Platform.OS === "ios" && (fileContextMenu || props.onLinkPress || props.onImagePress)
       ? Object.fromEntries(
-          linkUrls.map((url) => {
-            const menu = modelContextMenu(url) ??
-              fileContextMenu?.(url) ?? {
-                title: url,
-                actions: [
-                  { id: "enriched-open-link", title: "Open link" },
-                  { id: "enriched-copy-link", title: "Copy link" },
-                  { id: "enriched-share-link", title: "Share link" },
-                ],
-              };
-            return [
-              enrichedLinkVariantPattern(url),
-              menu.actions.map((action) => ({
-                text: action.title,
-                disabled: "disabled" in action && action.disabled,
-                onPress: () => performMenuAction(url, action.id),
-              })),
-            ];
-          }),
+          linkUrls
+            .filter((url) => !rgbChips.has(url))
+            .map((url) => {
+              const menu = modelContextMenu(url) ??
+                fileContextMenu?.(url) ?? {
+                  title: url,
+                  actions: [
+                    { id: "enriched-open-link", title: "Open link" },
+                    { id: "enriched-copy-link", title: "Copy link" },
+                    { id: "enriched-share-link", title: "Share link" },
+                  ],
+                };
+              return [
+                enrichedLinkVariantPattern(url),
+                menu.actions.map((action) => ({
+                  text: action.title,
+                  disabled: "disabled" in action && action.disabled,
+                  onPress: () => performMenuAction(url, action.id),
+                })),
+              ];
+            }),
         )
       : undefined;
   const selectionClipboard = useMemo(() => {
     const fragment = decodeComposerContextFragment(props.contextClipboardFragment);
-    if (!fragment) return undefined;
+    if (!fragment) {
+      return rgbChips.size > 0 ? { linkTextByUrl: Object.fromEntries(rgbChips) } : undefined;
+    }
     const references = collectComposerContextReferences(props.markdown);
     const linkTextByUrl = Object.fromEntries(
       references.flatMap((reference) => {
@@ -340,13 +353,13 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
       }),
     );
     return {
-      linkTextByUrl,
+      linkTextByUrl: { ...Object.fromEntries(rgbChips), ...linkTextByUrl },
       htmlAttributes: {
         "data-t3-context-fragment": encodeURIComponent(props.contextClipboardFragment!),
       },
       mimeTypes: { "app.t3.context-fragment": props.contextClipboardFragment! },
     };
-  }, [props.contextClipboardFragment, props.markdown]);
+  }, [props.contextClipboardFragment, props.markdown, rgbChips]);
   const { fontScale } = useWindowDimensions();
   const baseMarkdownStyle = useMemo(() => {
     const style = enrichedStyle(props.textStyle, themeAppearance === "dark", fontScale);
@@ -389,6 +402,7 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
     const onLinkLongPress =
       Platform.OS === "android" && props.fileContextMenu
         ? ({ url }: { url: string }) => {
+            if (rgbChips.has(url)) return;
             const menu = modelContextMenu(url) ??
               props.fileContextMenu?.(url) ?? {
                 title: url,

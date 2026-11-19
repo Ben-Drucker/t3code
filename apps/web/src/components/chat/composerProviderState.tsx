@@ -46,6 +46,7 @@ type ComposerProviderState = {
 };
 
 type ComposerTraitsTarget = {
+  environmentId?: TraitsSelectionInput["environmentId"];
   provider: ProviderDriverKind;
   instanceId: ProviderInstanceId;
   threadRef?: ScopedThreadRef | undefined;

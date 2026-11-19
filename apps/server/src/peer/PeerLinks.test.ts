@@ -574,6 +574,7 @@ it.effect("reads one stored link without asking the peer", () =>
       const stored = yield* a.links.get(box.environmentId);
       expect(Option.map(stored, (link) => link.label)).toEqual(Option.some("Box"));
       expect(Option.isNone(yield* a.links.get(laptop.environmentId))).toBe(true);
+      expect(yield* a.links.unexpiredIds).toEqual([box.environmentId]);
       expect(yield* Ref.get(b.probes)).toBe(0);
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
@@ -666,6 +667,7 @@ it.effect("tells the agent to link again once the peer revokes the link or it ex
       yield* a.sql`UPDATE peer_environment_links SET fenced = 0`;
       // Linking again is its only way back, as for an expired link.
       expect((yield* a.links.list).map((link) => link.status)).toEqual(["expired"]);
+      expect(yield* a.links.unexpiredIds).toEqual([]);
       const legacy = yield* probe(a).pipe(Effect.flip);
       expect(legacy.code).toBe("capability_denied");
       expect(legacy.message).toContain("Link it again");
@@ -679,6 +681,7 @@ it.effect("tells the agent to link again once the peer revokes the link or it ex
 
       yield* TestClock.adjust(Duration.days(31));
       expect((yield* a.links.list).map((link) => link.status)).toEqual(["expired"]);
+      expect(yield* a.links.unexpiredIds).toEqual([]);
       yield* Ref.set(b.bearers, []);
       const expired = yield* probe(a).pipe(Effect.flip);
       expect(expired.code).toBe("capability_denied");

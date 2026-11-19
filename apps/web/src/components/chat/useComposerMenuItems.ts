@@ -91,17 +91,19 @@ function agentConfigMenuItems(
   groups: ReadonlyArray<ComposerToolGroup>,
   query: string,
   overrides: ReadonlyMap<string, boolean>,
+  hasModelMatches: boolean,
 ): ComposerCommandItem[] {
-  const items: ComposerCommandItem[] = matchesAgentModelRow(query)
-    ? [
-        {
-          id: "agent-model",
-          type: "agent-model",
-          label: "Model",
-          description: "Choose a model and its options",
-        },
-      ]
-    : [];
+  const items: ComposerCommandItem[] =
+    matchesAgentModelRow(query) || hasModelMatches
+      ? [
+          {
+            id: "agent-model",
+            type: "agent-model",
+            label: "Model",
+            description: "Choose a model and its options",
+          },
+        ]
+      : [];
   for (const section of buildAgentToolSections(groups, query, overrides)) {
     const { group } = section;
     items.push({
@@ -364,6 +366,12 @@ export function useComposerMenuItems({
         composerToolsQuery.data?.groups ?? [],
         composerTrigger.query,
         agentSectionOverrides,
+        composerTrigger.query.trim() !== "" &&
+          matchComposerModelItems({
+            instanceEntries: modelMentions.instanceEntries,
+            modelOptionsByInstance: modelMentions.modelOptionsByInstance,
+            query: composerTrigger.query,
+          }).length > 0,
       );
     }
     if (composerTrigger.kind === "path" && diskPathQuery) return diskPathItems;

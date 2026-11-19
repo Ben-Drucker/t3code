@@ -574,7 +574,7 @@ describe("expandCollapsedComposerCursor", () => {
   });
 
   it("allows path trigger detection to close after selecting a mention", () => {
-    const text = "what's in my @AGENTS.md ";
+    const text = "what's in my [AGENTS.md](AGENTS.md) ";
     const collapsedCursorAfterMention = "what's in my ".length + 2;
     const expandedCursor = expandCollapsedComposerCursor(text, collapsedCursorAfterMention);
 

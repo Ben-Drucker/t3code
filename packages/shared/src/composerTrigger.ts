@@ -84,6 +84,28 @@ export function detectComposerPullRequestTrigger(token: string, cursor: number) 
   };
 }
 
+export function detectComposerMentionTrigger(text: string, cursor: number): ComposerTrigger | null {
+  for (let index = cursor - 1; index >= 0; index -= 1) {
+    const character = text[index];
+    if (character === "\n" || character === "\r" || character === "\t" || character === "\uFFFC")
+      return null;
+    if (character === "@" && (index === 0 || isWhitespace(text[index - 1] ?? ""))) {
+      return {
+        kind: "path",
+        query: text.slice(index + 1, cursor),
+        rangeStart: index,
+        rangeEnd: cursor,
+      };
+    }
+  }
+  return null;
+}
+
+export function composerDirectoryQuery(path: string): string {
+  const prefixed = isFilesystemPathQuery(path) ? path : `./${path}`;
+  return /[/\\]$/u.test(prefixed) ? prefixed : `${prefixed}/`;
+}
+
 export function detectComposerTrigger(
   text: string,
   cursorInput: number,
@@ -91,6 +113,8 @@ export function detectComposerTrigger(
   agentConfigs = false,
 ): ComposerTrigger | null {
   const cursor = clampCursor(text, cursorInput);
+  const mention = detectComposerMentionTrigger(text, cursor);
+  if (mention !== null) return mention;
   const wsCheck = isWhitespaceChar ?? isWhitespace;
   let tokenIdx = cursor - 1;
   while (tokenIdx >= 0 && !wsCheck(text[tokenIdx] ?? "")) {
@@ -128,16 +152,7 @@ export function detectComposerTrigger(
       rangeEnd: cursor,
     };
   }
-  if (!token.startsWith("@")) {
-    return null;
-  }
-
-  return {
-    kind: "path",
-    query: token.slice(1),
-    rangeStart: tokenStart,
-    rangeEnd: cursor,
-  };
+  return null;
 }
 
 export function replaceTextRange(

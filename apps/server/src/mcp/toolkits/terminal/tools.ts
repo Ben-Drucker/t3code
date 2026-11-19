@@ -5,6 +5,7 @@ import {
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { McpSchema, Tool, Toolkit } from "effect/ai";
+import { McpProviderSessions } from "@t3tools/provider-core/server/McpProviderSessions";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -14,6 +15,7 @@ const dependencies = [
   McpInvocationContext.McpInvocationContext,
   ThreadManagementService.ThreadManagementService,
   TerminalCommandService.TerminalCommandService,
+  McpProviderSessions,
 ];
 
 const TerminalRunModeSchema = Schema.Literals([
@@ -43,6 +45,7 @@ const TerminalRunInput = Schema.Struct({
   description: Schema.optional(TrimmedNonEmptyString).annotate({
     description: "Short label shown in T3 Code's timeline and background wait indicator.",
   }),
+  toolSummary: Schema.optional(TrimmedNonEmptyString),
 });
 
 const TerminalRunResult = Schema.Struct({
@@ -60,7 +63,7 @@ const TerminalRunResult = Schema.Struct({
 
 const TerminalRunTool = Tool.make("t3_terminal_run", {
   description:
-    "Run a shell command through T3 Code (Antigravity replacement for run_command). Modes: 'foreground' (default; 60s limit then moves to background), 'background' (returns taskId, marks thread waiting, wakes thread on completion), or 'background_with_timeout' (same as background with timeoutSeconds).",
+    "Run a shell command in the T3 Code workspace. Supply a short description of what the command does. Modes: 'foreground' (default; 60s limit then moves to background), 'background' (returns taskId and wakes this thread on exit), or 'background_with_timeout' (background with timeoutSeconds).",
   parameters: TerminalRunInput,
   success: TerminalRunResult,
   failure: Schema.Union([McpCapabilityUnavailableError, OrchestratorMcpFailure]),

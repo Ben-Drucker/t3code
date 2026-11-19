@@ -7698,6 +7698,12 @@ describe("AcpAdapterV2", () => {
             ratio: { type: "number" },
             limit: { type: "integer" },
             note: { type: "string", enum: null },
+            q1: { type: "string", title: "Which result?", enum: ["one", "two"] },
+            q1_other: {
+              type: "string",
+              title: "Other",
+              description: "Optional free-form answer to: Which result?",
+            },
           },
           required: ["color", "tags", "confirm", "count"],
         },
@@ -7714,10 +7720,15 @@ describe("AcpAdapterV2", () => {
             // Not an integer: omitted, since the field is optional.
             limit: "3.7",
             note: "hi",
+            q1_other: "two",
             extra: "not in the form",
           };
         },
       });
+      assert.strictEqual(
+        questions?.find((question) => question.id === "q1")?.customAnswerId,
+        "q1_other",
+      );
       assert.deepStrictEqual(
         questions?.map((question) => ({
           id: question.id,
@@ -7769,6 +7780,13 @@ describe("AcpAdapterV2", () => {
             multiSelect: undefined,
             allowCustomAnswer: undefined,
           })),
+          {
+            id: "q1",
+            labels: ["one", "two"],
+            values: ["one", "two"],
+            multiSelect: undefined,
+            allowCustomAnswer: undefined,
+          },
         ],
       );
       assert.deepStrictEqual(response, {
@@ -7782,6 +7800,7 @@ describe("AcpAdapterV2", () => {
           count: 3,
           ratio: 0.5,
           note: "hi",
+          q1_other: "two",
         },
       });
     }).pipe(Effect.provide(layerTest)),
@@ -10599,7 +10618,7 @@ describe("AcpAdapterV2", () => {
             title: `Run ${taskId}`,
             kind: "execute",
             status: "completed",
-            rawInput: { command: `echo ${taskId}` },
+            rawInput: { command: `echo ${taskId}`, description: `Check ${taskId} output` },
             rawOutput: { type: "BackgroundTaskStarted", task_id: taskId },
           });
         }
@@ -10642,6 +10661,7 @@ describe("AcpAdapterV2", () => {
           assert.equal(backgroundItem.turnItem.type, "command_execution");
           if (backgroundItem.turnItem.type === "command_execution") {
             assert.equal(backgroundItem.turnItem.output ?? "", output);
+            assert.equal(backgroundItem.turnItem.commandSummary, "Check early output");
           }
         });
         yield* Deferred.succeed(promptGate, { stopReason: "end_turn" });

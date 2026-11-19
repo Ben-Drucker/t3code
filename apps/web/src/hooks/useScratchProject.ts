@@ -8,6 +8,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId } from "@t3tools/contracts";
+import { toggleComposerQuickQuestion } from "@t3tools/shared/composerInlineTokens";
 import type { AtomRegistry } from "effect/reactivity";
 import { useContext } from "react";
 
@@ -88,7 +89,39 @@ export function createScratchProjectActions(input: {
     }
   };
 
-  return { scratchWorkspaceRootFor, scratchEnvironmentId, openScratchProject, startScratchThread };
+  const quickQuestionEnvironmentId = (canStart: (id: EnvironmentId) => boolean) =>
+    [...input.environments()].find(
+      ({ environmentId, connection, serverConfig }) =>
+        availableScratchWorkspaceRoot(connection.phase, serverConfig) !== null &&
+        canStart(environmentId),
+    )?.environmentId ?? null;
+
+  const startScratchQuickQuestion = async (canStart: (id: EnvironmentId) => boolean) => {
+    const environmentId = quickQuestionEnvironmentId(canStart);
+    if (!environmentId) return false;
+    const project = await openScratchProject(environmentId);
+    if (project) {
+      await input
+        .handleNewThread(scopeProjectRef(project.environmentId, project.id), {
+          fresh: true,
+          envMode: "local",
+          prompt: toggleComposerQuickQuestion(""),
+        })
+        .catch((error: unknown) =>
+          reportScratchFailure("Could not start without a project", error),
+        );
+    }
+    return true;
+  };
+
+  return {
+    scratchWorkspaceRootFor,
+    scratchEnvironmentId,
+    openScratchProject,
+    startScratchThread,
+    quickQuestionEnvironmentId,
+    startScratchQuickQuestion,
+  };
 }
 
 export function useScratchProject() {

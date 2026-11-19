@@ -131,6 +131,23 @@ describe("workEntryIndicatesToolFailure", () => {
 });
 
 describe("resolveWorkEntryToolPresentation", () => {
+  it("uses a conversation search description from the stored MCP arguments", () => {
+    const entry = {
+      label: "Tool call",
+      toolData: {
+        server: "t3-code",
+        tool: "t3_search_convos",
+        arguments: { pattern: "ABC-[0-9]+", description: "Find past issue references" },
+      },
+    };
+    expect(resolveWorkEntryToolPresentation(entry, "inProgress")?.displayName).toBe(
+      "Find past issue references",
+    );
+    expect(resolveWorkEntryToolPresentation(entry, "completed")?.displayName).toBe(
+      "Find past issue references",
+    );
+  });
+
   it("shows returned MCP errors as failures even in the live activity row", () => {
     const entry: WorkLogPresentationEntry = {
       id: "clone",

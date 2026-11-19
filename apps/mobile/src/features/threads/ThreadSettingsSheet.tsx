@@ -1,3 +1,5 @@
+import { formatAgentConfigChip } from "@t3tools/shared/composerInlineTokens";
+import { useGT } from "gt-react-native";
 import {
   getPromptControlledTraits,
   getTraitSelectChange,
@@ -24,10 +26,15 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import type { LegendListRenderItemProps } from "@legendapp/list/react-native";
-import { RegistryContext, useAtomMount, useAtomValue } from "@effect/atom-react";
+import { RegistryContext, useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
 import {
+  describeRecentModelConfiguration,
   getProviderOptionCurrentLabel,
+  materializeModelConfiguration,
+  modelConfigurationKey,
+  preservesLockedModelOptions,
+  rememberRecentModelConfiguration,
   getProviderOptionCurrentValue,
 } from "@t3tools/shared/model";
 import {
@@ -86,6 +93,8 @@ import { useEnvironmentQuery } from "../../state/query";
 import { scopedThreadKey } from "../../lib/scopedEntities";
 import { useThreadReportedModelSelection } from "../../state/entities";
 import {
+  getComposerDraftSnapshot,
+  insertComposerDraftText,
   setComposerDraftText,
   updateComposerDraftSettings,
   useComposerDraft,
@@ -99,7 +108,7 @@ import { useSelectedThreadWorktree } from "../../state/use-selected-thread-workt
 import { providerWorkspaceSnapshotRefresh } from "../../state/provider-workspace-snapshot-refresh";
 import { threadAllowsProviderSwitch } from "../../state/thread-provider-switching";
 import { environmentServerConfigsAtom, serverEnvironment } from "../../state/server";
-import { mobilePreferencesAtom } from "../../state/preferences";
+import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useNewTaskFlow } from "./new-task-flow-provider";
 import { ScreenContent } from "../../components/ui/ScreenContent";
@@ -149,6 +158,7 @@ const EMPTY_MODEL_FAVORITES: ReadonlyArray<{
   readonly model: string;
 }> = [];
 const FAVORITES_PROVIDER_FILTER = "@favorites";
+const RECENTS_PROVIDER_FILTER = "@recents";
 // Servers that predate `migrateModelPreferences` drop it and keep reporting null favorites.
 const attemptedMigrationGenerations = new Map<EnvironmentId, number>();
 function ProviderHeader(props: {
@@ -281,7 +291,18 @@ type ThreadSettingsSubmenuPage =
   | { readonly kind: "descriptor"; readonly id: string }
   | { readonly kind: "runtime" };
 
+export type AgentConfigPickerTarget = {
+  readonly draftKey: string;
+  readonly rangeStart: number;
+  readonly expectedText: string;
+  readonly query: string;
+  readonly selection: ModelSelection;
+};
+
 type ThreadSettingsSessionProps = {
+  readonly initialSearchQuery?: string;
+  readonly lockStartedOptions?: boolean;
+  readonly onInsertAgentConfig?: (selection: ModelSelection) => boolean;
   readonly onModelPicked?: () => void;
   readonly threadDetails?: ReactNode;
   readonly environmentId: EnvironmentId | null;
@@ -308,15 +329,18 @@ export type ExistingThreadSettingsRouteParams = {
   readonly threadId: ThreadId;
   readonly draftKey: string;
   readonly pickModel?: boolean;
+  readonly agentConfig?: AgentConfigPickerTarget | null;
 };
 
 type ThreadSettingsSessionValue = {
   readonly pickModel: boolean;
+  readonly configuresAgent: boolean;
   readonly threadDetails?: ReactNode;
   readonly environmentId: EnvironmentId | null;
   readonly providerInstanceId?: ProviderInstanceId;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
   readonly favoriteKeys: ReadonlySet<string>;
+  readonly recentModels: ReadonlyArray<ModelOption>;
   readonly favoritesLoaded: boolean;
   readonly toggleFavorite: (option: ModelOption) => void;
   readonly toggleHidden: (option: ModelOption) => void;
@@ -356,6 +380,8 @@ function ThreadSettingsSessionProvider(
 ) {
   const registry = use(RegistryContext);
   const preferences = useAtomValue(mobilePreferencesAtom);
+  const updatePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const gt = useGT();
   const configs = useAtomValue(environmentServerConfigsAtom);
   const config = props.environmentId ? configs.get(props.environmentId) : undefined;
   const settings = config?.settings;
@@ -384,6 +410,64 @@ function ThreadSettingsSessionProvider(
   const legacyFavorites = AsyncResult.isSuccess(preferences)
     ? (preferences.value.modelFavorites ?? EMPTY_MODEL_FAVORITES)
     : EMPTY_MODEL_FAVORITES;
+  const currentCapabilities = props.providerGroups
+    .flatMap((group) => group.models)
+    .find(
+      ({ selection }) =>
+        selection.instanceId === props.selectedModel?.instanceId &&
+        selection.model === props.selectedModel.model,
+    )?.capabilities;
+  const recentModels = (
+    AsyncResult.isSuccess(preferences) ? (preferences.value.recentModelConfigurations ?? []) : []
+  ).flatMap(({ environmentId, selection }): ModelOption[] => {
+    if (environmentId !== props.environmentId) return [];
+    const option = props.providerGroups
+      .flatMap((group) => group.models)
+      .find(
+        ({ selection: candidate }) =>
+          candidate.instanceId === selection.instanceId && candidate.model === selection.model,
+      );
+    if (!option || option.isUnavailable || option.isHidden) return [];
+    const description = describeRecentModelConfiguration(
+      selection,
+      option.capabilities ?? undefined,
+      (on) => (on ? gt("On") : gt("Off")),
+    );
+    if (
+      description === null ||
+      (props.lockStartedOptions &&
+        !preservesLockedModelOptions(
+          selection,
+          option.capabilities ?? undefined,
+          props.selectedModel,
+          currentCapabilities ?? undefined,
+        ))
+    )
+      return [];
+    return [
+      {
+        ...option,
+        selection,
+        recentKey: modelConfigurationKey(selection),
+        subtitle: [option.providerLabel, option.subtitle, description].filter(Boolean).join(" · "),
+      },
+    ];
+  });
+  const recordSelection = (selection: ModelSelection, option: ModelOption | null) => {
+    const environmentId = props.environmentId;
+    if (!environmentId) return;
+    updatePreferences({
+      transform: (current) => ({
+        recentModelConfigurations: rememberRecentModelConfiguration(
+          current.recentModelConfigurations ?? [],
+          {
+            environmentId,
+            selection: materializeModelConfiguration(selection, option?.capabilities ?? undefined),
+          },
+        ),
+      }),
+    });
+  };
   const favoritesLoaded =
     settings !== undefined && (settings.favorites !== null || AsyncResult.isSuccess(preferences));
   const modelFavorites = resolveModelPreferences(settings ?? DEFAULT_SERVER_SETTINGS, {
@@ -514,7 +598,7 @@ function ThreadSettingsSessionProvider(
       ? FAVORITES_PROVIDER_FILTER
       : (props.providerInstanceId ?? null);
   });
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(props.initialSearchQuery ?? "");
   const [providerExpansionOverrides, setProviderExpansionOverrides] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -524,9 +608,16 @@ function ThreadSettingsSessionProvider(
 
   const isApplied = (option: ModelOption) =>
     option.selection.instanceId === props.selectedModel?.instanceId &&
-    option.selection.model === props.selectedModel.model;
+    option.selection.model === props.selectedModel.model &&
+    (!option.recentKey ||
+      option.recentKey ===
+        modelConfigurationKey(
+          materializeModelConfiguration(props.selectedModel, option.capabilities ?? undefined),
+        ));
   const isDisplayed = (option: ModelOption) =>
-    pendingModel ? option.key === pendingModel.key : isApplied(option);
+    pendingModel
+      ? (option.recentKey ?? option.key) === (pendingModel.recentKey ?? pendingModel.key)
+      : isApplied(option);
 
   const displayedDescriptors = pendingModel
     ? resolveProviderOptionDescriptors({
@@ -552,6 +643,22 @@ function ThreadSettingsSessionProvider(
     group.models.some((model) => model.isLegacy),
   );
   const commitPendingModel = () => {
+    if (props.onInsertAgentConfig) {
+      const selection = pendingModel?.selection ?? props.selectedModel;
+      if (
+        !selection ||
+        !displayedModel ||
+        !canCommitPendingModel(displayedModel, props.providerGroups)
+      )
+        return false;
+      const exact = materializeModelConfiguration(
+        selection,
+        displayedModel.capabilities ?? undefined,
+      );
+      if (!props.onInsertAgentConfig(exact)) return false;
+      recordSelection(exact, displayedModel);
+      return true;
+    }
     if (pendingModel) {
       if (!canCommitPendingModel(pendingModel, props.providerGroups)) {
         Dialog.alert(
@@ -562,6 +669,7 @@ function ThreadSettingsSessionProvider(
       }
       void Haptics.selectionAsync();
       props.onSelectModel(pendingModel);
+      recordSelection(pendingModel.selection, pendingModel);
       if (pendingPrompt !== null && pendingPrompt !== props.prompt) {
         props.onPromptChange(pendingPrompt);
       }
@@ -597,13 +705,16 @@ function ThreadSettingsSessionProvider(
       return;
     }
     if (pendingModel) {
-      rememberModelOptions(pendingModel.selection.instanceId, pendingModel.selection.model, next);
+      if (!props.onInsertAgentConfig)
+        rememberModelOptions(pendingModel.selection.instanceId, pendingModel.selection.model, next);
       setPendingModel({
         ...pendingModel,
         selection: { ...pendingModel.selection, options: next },
       });
     } else {
       props.onUpdateOptionSelections(next);
+      if (props.selectedModel && !props.onInsertAgentConfig)
+        recordSelection({ ...props.selectedModel, options: next }, displayedModel);
     }
   };
 
@@ -621,12 +732,19 @@ function ThreadSettingsSessionProvider(
     if (props.onModelPicked && !manageHidden) {
       if (!canCommitPendingModel(option, props.providerGroups)) return;
       void Haptics.selectionAsync();
-      if (!isApplied(option)) props.onSelectModel(option);
+      const selection = option.recentKey
+        ? option.selection
+        : (props.restoreSelection?.(option.selection) ?? option.selection);
+      if (!isApplied(option)) props.onSelectModel({ ...option, selection });
+      recordSelection(isApplied(option) ? (props.selectedModel ?? selection) : selection, option);
       props.onModelPicked();
       return;
     }
     void Haptics.selectionAsync();
-    if (isApplied(option) || option.key !== pendingModel?.key) {
+    if (
+      isApplied(option) ||
+      (option.recentKey ?? option.key) !== (pendingModel?.recentKey ?? pendingModel?.key)
+    ) {
       setPendingPrompt(null);
     }
     setPendingModel((current) =>
@@ -634,7 +752,7 @@ function ThreadSettingsSessionProvider(
         current,
         pressed: option,
         pressedIsApplied: isApplied(option),
-        restoreSelection: props.restoreSelection,
+        restoreSelection: option.recentKey ? undefined : props.restoreSelection,
       }),
     );
   };
@@ -642,7 +760,9 @@ function ThreadSettingsSessionProvider(
   const environmentId = props.environmentId;
   // Like the web picker's open tab: scanning every provider would spawn a probe per provider.
   const scannedInstanceId =
-    providerFilter !== null && providerFilter !== FAVORITES_PROVIDER_FILTER
+    providerFilter !== null &&
+    providerFilter !== FAVORITES_PROVIDER_FILTER &&
+    providerFilter !== RECENTS_PROVIDER_FILTER
       ? ProviderInstanceId.make(providerFilter)
       : props.providerInstanceId;
   const workspaceScan =
@@ -665,6 +785,7 @@ function ThreadSettingsSessionProvider(
     displayedModelSelection: pendingModel?.selection ?? props.selectedModel,
     reportedModelSelection: pendingModel ? null : (props.reportedModelSelection ?? null),
     favoriteKeys,
+    recentModels,
     favoritesLoaded,
     providerExpansionOverrides,
     hasLegacyModels,
@@ -683,7 +804,8 @@ function ThreadSettingsSessionProvider(
     toggleProvider,
     toggleFavorite,
     workspaceScan,
-    pickModel: props.onModelPicked !== undefined,
+    pickModel: props.onModelPicked !== undefined || props.onInsertAgentConfig !== undefined,
+    configuresAgent: props.onInsertAgentConfig !== undefined,
   } satisfies ThreadSettingsSessionValue;
 
   return (
@@ -825,6 +947,15 @@ function buildThreadSettingsCatalogItems(
       isLast: index === ranked.length - 1,
     }));
   }
+  if (session.providerFilter === RECENTS_PROVIDER_FILTER) {
+    return session.recentModels.map((option, index) => ({
+      kind: "model",
+      key: `recent:${option.recentKey}`,
+      option,
+      isFirst: index === 0,
+      isLast: index === session.recentModels.length - 1,
+    }));
+  }
   return session.providerGroups.flatMap((group) => {
     if (
       session.providerFilter !== null &&
@@ -924,7 +1055,7 @@ function ThreadSettingsOptionsItem(props: {
 
   return (
     <View style={{ paddingBottom: insets.bottom + props.bottomInset + 12 }}>
-      <ChatGptSharingStatus provider={selectedProvider} />
+      {!session.configuresAgent ? <ChatGptSharingStatus provider={selectedProvider} /> : null}
       {session.threadDetails}
       <Text className="px-5 pb-2 pt-2 text-sm font-t3-medium text-foreground-muted">Options</Text>
       <Animated.View
@@ -976,17 +1107,19 @@ function ThreadSettingsOptionsItem(props: {
             </Animated.View>
           );
         })}
-        <Animated.View layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}>
-          <DisclosureRow
-            isLast
-            label="Runtime"
-            value={
-              session.runtimeModeChoices.find((choice) => choice.mode === session.runtimeMode)
-                ?.label
-            }
-            onPress={() => props.onOpenSubmenu({ kind: "runtime" })}
-          />
-        </Animated.View>
+        {!session.configuresAgent ? (
+          <Animated.View layout={THREAD_SETTINGS_OPTIONS_LAYOUT_TRANSITION}>
+            <DisclosureRow
+              isLast
+              label="Runtime"
+              value={
+                session.runtimeModeChoices.find((choice) => choice.mode === session.runtimeMode)
+                  ?.label
+              }
+              onPress={() => props.onOpenSubmenu({ kind: "runtime" })}
+            />
+          </Animated.View>
+        ) : null}
       </Animated.View>
 
       <Text className="px-5 pb-2 pt-7 text-sm font-t3-medium text-foreground-muted">Catalog</Text>
@@ -1007,6 +1140,7 @@ function ThreadSettingsMainContent(props: {
   readonly onOpenSubmenu: (submenu: ThreadSettingsSubmenuPage) => void;
 }) {
   const session = useThreadSettingsSession();
+  const gt = useGT();
   const refreshProvidersCommand = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
@@ -1083,9 +1217,11 @@ function ThreadSettingsMainContent(props: {
             {session.providerFilter === FAVORITES_PROVIDER_FILTER &&
             session.searchQuery.trim().length === 0
               ? "No favorite models"
-              : hasActiveCatalogFilter
-                ? "No matching models"
-                : "No available models"}
+              : session.providerFilter === RECENTS_PROVIDER_FILTER && !session.searchQuery.trim()
+                ? gt("No recent configurations")
+                : hasActiveCatalogFilter
+                  ? "No matching models"
+                  : "No available models"}
           </Text>
         </View>
       );
@@ -1282,9 +1418,11 @@ function ThreadSettingsModelsScreen() {
     compactToolbar: true,
   };
   const searchToolbarInset = useSearchToolbarInset(search);
+  const gt = useGT();
   const providerFilters = [
     { id: "all-providers", title: "All providers", value: null },
     { id: "favorites", title: "Favorites", value: FAVORITES_PROVIDER_FILTER },
+    { id: "recents", title: gt("Recents"), value: RECENTS_PROVIDER_FILTER },
     ...session.providerGroups.map((group) => ({
       id: `provider:${group.providerKey}`,
       title: group.providerLabel,
@@ -1313,7 +1451,10 @@ function ThreadSettingsModelsScreen() {
                   id: filter.id,
                   title: filter.title,
                   selected: session.providerFilter === filter.value,
-                  onPress: () => session.setProviderFilter(filter.value),
+                  onPress: () => {
+                    if (filter.value === RECENTS_PROVIDER_FILTER) session.setSearchQuery("");
+                    session.setProviderFilter(filter.value);
+                  },
                 })),
               },
               ...(session.hasLegacyModels
@@ -1336,7 +1477,11 @@ function ThreadSettingsModelsScreen() {
           session.hasLegacyModels,
         ]}
         confirm={{
-          label: session.pendingModel ? "Save" : "Done",
+          label: session.configuresAgent
+            ? gt("Insert configuration")
+            : session.pendingModel
+              ? "Save"
+              : "Done",
           onPress: commitAndClose,
         }}
         hideBottomBorder
@@ -1413,6 +1558,59 @@ export function ThreadSettingsPickerScreen(
   );
 }
 
+function AgentConfigThreadSettings(props: {
+  readonly target: AgentConfigPickerTarget;
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId | null;
+  readonly cwd: string | null;
+  readonly config: Parameters<typeof buildModelOptions>[0];
+  readonly runtimeMode: RuntimeMode;
+  readonly onClose: () => void;
+}) {
+  const { target } = props;
+  const [selection, setSelection] = useState(target.selection);
+  const models = buildModelOptions(props.config, selection, undefined, props.projectId);
+  const option = models.find(
+    ({ selection: candidate }) =>
+      candidate.instanceId === selection.instanceId && candidate.model === selection.model,
+  );
+  const insert = (next: ModelSelection) => {
+    const draft = getComposerDraftSnapshot(target.draftKey);
+    const end = target.rangeStart + target.expectedText.length;
+    if (draft.text.slice(target.rangeStart, end) !== target.expectedText) return false;
+    const chip = formatAgentConfigChip({ ...next, options: next.options ?? [] });
+    insertComposerDraftText(target.draftKey, `${chip} `, {
+      text: draft.text,
+      start: target.rangeStart,
+      end,
+    });
+    return true;
+  };
+  return (
+    <ThreadSettingsPickerScreen
+      environmentId={props.environmentId}
+      projectId={props.projectId}
+      cwd={props.cwd}
+      providerInstanceId={selection.instanceId}
+      providerGroups={groupByProvider(models)}
+      selectedModel={selection}
+      initialSearchQuery={target.query}
+      onInsertAgentConfig={insert}
+      prompt=""
+      onPromptChange={() => {}}
+      onSelectModel={() => {}}
+      optionDescriptors={resolveProviderOptionDescriptors({
+        capabilities: option?.capabilities,
+        selections: selection.options,
+      })}
+      onUpdateOptionSelections={(options) => setSelection({ ...selection, options })}
+      runtimeMode={props.runtimeMode}
+      onUpdateRuntimeMode={() => {}}
+      onClose={props.onClose}
+    />
+  );
+}
+
 export function ExistingThreadSettingsRouteScreen({
   route,
 }: StaticScreenProps<ExistingThreadSettingsRouteParams>) {
@@ -1461,6 +1659,20 @@ export function ExistingThreadSettingsRouteScreen({
   const updateModelSelection = (selection: ModelSelection) =>
     selectThreadModel(route.params, selection);
 
+  if (route.params.agentConfig && route.params.agentConfig.draftKey === draftKey) {
+    return (
+      <AgentConfigThreadSettings
+        target={route.params.agentConfig}
+        environmentId={selectedThread.environmentId}
+        projectId={selectedThread.projectId}
+        cwd={selectedThreadCwd}
+        config={serverConfig}
+        runtimeMode={draftSettings.runtimeMode ?? selectedThread.runtimeMode}
+        onClose={() => navigation.goBack()}
+      />
+    );
+  }
+
   return (
     <ThreadSettingsPickerScreen
       {...(route.params.pickModel ? { onModelPicked: () => navigation.goBack() } : {})}
@@ -1471,6 +1683,9 @@ export function ExistingThreadSettingsRouteScreen({
         </>
       }
       environmentId={selectedThread.environmentId}
+      lockStartedOptions={Boolean(
+        selectedThread.latestRun || selectedThread.latestUserMessageAt || selectedThread.runtime,
+      )}
       projectId={selectedThread.projectId}
       cwd={selectedThreadCwd}
       providerInstanceId={modelSelection.instanceId}
@@ -1480,15 +1695,13 @@ export function ExistingThreadSettingsRouteScreen({
       prompt={prompt}
       onPromptChange={(text) => setComposerDraftText(draftKey, text)}
       reportedModelSelection={reportedModelSelection}
-      onSelectModel={(option) =>
-        updateModelSelection(
-          withStoredThreadModelOptions(
-            withRememberedModelOptions(option.selection),
-            selectedThread.modelSelection,
-          ),
+      onSelectModel={(option) => updateModelSelection(option.selection)}
+      restoreSelection={(selection) =>
+        withStoredThreadModelOptions(
+          withRememberedModelOptions(selection),
+          selectedThread.modelSelection,
         )
       }
-      restoreSelection={withRememberedModelOptions}
       optionDescriptors={resolveProviderOptionDescriptors({
         capabilities: currentModelOption?.capabilities,
         selections: modelSelection.options,
@@ -1526,13 +1739,35 @@ function ThreadDetailsMetrics(props: { readonly threadRef: ScopedThreadRef | nul
 /** RNS owns nested sheet dismissal; Reasoning and Runtime remain ordinary pushes. */
 export function NewTaskThreadSettingsRouteScreen({
   route,
-}: StaticScreenProps<{ readonly pickModel?: boolean } | undefined>) {
+}: StaticScreenProps<
+  | { readonly pickModel?: boolean; readonly agentConfig?: AgentConfigPickerTarget | null }
+  | undefined
+>) {
   const flow = useNewTaskFlow();
+  const configs = useAtomValue(environmentServerConfigsAtom);
   const navigation = useNavigation<NativeStackNavigationProp<Record<string, object | undefined>>>();
   const optionDescriptors = resolveProviderOptionDescriptors({
     capabilities: flow.selectedModelOption?.capabilities,
     selections: flow.selectedModel?.options,
   });
+
+  if (
+    route.params?.agentConfig &&
+    flow.selectedEnvironmentId &&
+    route.params.agentConfig.draftKey === flow.draftKey
+  ) {
+    return (
+      <AgentConfigThreadSettings
+        target={route.params.agentConfig}
+        environmentId={flow.selectedEnvironmentId}
+        projectId={flow.selectedProject?.id ?? null}
+        cwd={flow.workspaceCwd}
+        config={serverConfigForCwd(configs.get(flow.selectedEnvironmentId), flow.workspaceCwd)}
+        runtimeMode={flow.runtimeMode}
+        onClose={() => navigation.goBack()}
+      />
+    );
+  }
 
   return (
     <ThreadSettingsPickerScreen
@@ -1545,7 +1780,9 @@ export function NewTaskThreadSettingsRouteScreen({
       selectedModel={flow.selectedModel}
       prompt={flow.prompt}
       onPromptChange={flow.setPrompt}
-      onSelectModel={(option) => flow.setSelectedModelKey(option.key, option.selection.options)}
+      onSelectModel={(option) =>
+        flow.setSelectedModelKey(option.key, option.selection.options ?? [])
+      }
       restoreSelection={withRememberedModelOptions}
       optionDescriptors={optionDescriptors}
       onUpdateOptionSelections={flow.setSelectedModelOptions}

@@ -1412,7 +1412,7 @@ export const layerToolSearch = Layer.mergeAll(
   layerDeferredListing,
 ).pipe(Layer.provide(layerToolExposure));
 
-/** Outside layerTools: only Antigravity sessions with the `terminal` capability see it. */
+/** Outside layerTools: only thread credentials with the `terminal` capability see it. */
 export const layerTerminalToolkit = toolkitRegistration(TerminalToolkit, TerminalHandlers.layer);
 
 export const layer = layerMcpTransport(
