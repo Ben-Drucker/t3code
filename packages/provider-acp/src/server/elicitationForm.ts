@@ -177,9 +177,11 @@ function typedAnswer(
 }
 
 // Decline unaskable forms; validate types and selection counts, leaving other constraints to the agent.
+// `allowOther` lets single choices take typed text, sent as the field's value.
 export function parseElicitationForm(
   requestedSchema: unknown,
   message: string,
+  { allowOther = false }: { readonly allowOther?: boolean } = {},
 ): ElicitationForm | undefined {
   const schema = unknownRecord(requestedSchema);
   const required = new Set(
@@ -245,7 +247,10 @@ export function parseElicitationForm(
         (customAnswerId === undefined ? title : description) ?? `Question ${questions.length + 1}`,
       question: (customAnswerId === undefined ? description : title) ?? message,
       options,
-      ...(kind === "text" || kind === "number" || companions.has(id)
+      ...(kind === "text" ||
+      kind === "number" ||
+      companions.has(id) ||
+      (allowOther && kind === "choice")
         ? {}
         : { allowCustomAnswer: false }),
       ...(customAnswerId === undefined ? {} : { customAnswerId }),
@@ -264,7 +269,16 @@ export function parseElicitationForm(
         const companionId = companions.get(id);
         const writeInId = writeInIds.get(id);
         if (typed !== undefined) entries.push([id, typed]);
-        else if (required.has(id)) return undefined;
+        else if (
+          allowOther &&
+          field.kind === "choice" &&
+          typeof answer === "string" &&
+          answer.trim() !== ""
+        ) {
+          entries.push([id, answer]);
+        } else if (required.has(id)) {
+          return undefined;
+        }
         if (writeInId !== undefined && Object.hasOwn(answers, writeInId)) {
           const writeIn = answers[writeInId];
           if (typeof writeIn === "string") entries.push([writeInId, writeIn]);

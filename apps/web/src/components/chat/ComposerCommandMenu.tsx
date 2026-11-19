@@ -28,8 +28,8 @@ import {
   WrenchIcon,
   type LucideIcon,
 } from "lucide-react";
+import { msg, useGT, useMessages } from "gt-react";
 import { Fragment, memo, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { useGT } from "gt-react";
 
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";
 import { cn } from "~/lib/utils";
@@ -192,6 +192,8 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
   onHighlightedItemChange: (itemId: string | null) => void;
   onSelect: (item: ComposerCommandItem, dive?: boolean) => void;
 }) {
+  const gt = useGT();
+  const m = useMessages();
   const listRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const onDismissRef = useRef(props.onDismissAgentToolMenu);
@@ -200,9 +202,15 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
   const firstSectionId = props.items.find((item) => item.type === "agent-section")?.id;
   const renderItem = (item: ComposerCommandItem) => (
     <Fragment key={item.id}>
-      {item.id === firstSectionId ? <CommandGroupLabel>Tools</CommandGroupLabel> : null}
+      {item.id === firstSectionId ? (
+        <CommandGroupLabel>
+          <T>Tools</T>
+        </CommandGroupLabel>
+      ) : null}
       {item.type === "agent-model" ? (
-        <CommandGroupLabel>Agent configuration</CommandGroupLabel>
+        <CommandGroupLabel>
+          <T>Agent configuration</T>
+        </CommandGroupLabel>
       ) : null}
       <ComposerCommandMenuItem
         optionId={composerSuggestionOptionId(props.listId, item.id)}
@@ -280,8 +288,8 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
               ref={searchInputRef}
               type="search"
               size="sm"
-              aria-label="Search tools"
-              placeholder="Search tools"
+              aria-label={gt("Search tools")}
+              placeholder={gt("Search tools")}
               autoComplete="off"
               spellCheck={false}
               value={props.agentToolQuery}
@@ -293,7 +301,9 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
         {props.items.length > 0 ? (
           <CommandList
             id={props.listId}
-            aria-label={props.triggerKind ? LISTBOX_LABEL_BY_TRIGGER[props.triggerKind] : undefined}
+            aria-label={
+              props.triggerKind ? m(LISTBOX_LABEL_BY_TRIGGER[props.triggerKind]) : undefined
+            }
             className={cn("min-h-0 scroll-pb-6", isEmojiMenu ? "max-h-56" : "max-h-72")}
           >
             <CommandGroup>
@@ -316,20 +326,20 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
             <p className="text-secondary-label text-xs">
               {props.isLoading
                 ? props.triggerKind === "emoji"
-                  ? "Loading emoji..."
+                  ? gt("Loading emoji...")
                   : props.triggerKind === "skill" || props.triggerKind === "slash-command"
-                    ? "Searching workspace skills..."
+                    ? gt("Searching workspace skills...")
                     : props.triggerKind === "pull-request"
-                      ? "Finding pull request..."
-                      : "Searching workspace files..."
+                      ? gt("Finding pull request...")
+                      : gt("Searching workspace files...")
                 : (props.emptyStateText ??
                   (props.triggerKind === "emoji"
-                    ? "No matching emoji."
+                    ? gt("No matching emoji.")
                     : props.triggerKind === "skill"
-                      ? "No skills found. Try / to browse provider commands."
+                      ? gt("No skills found. Try / to browse provider commands.")
                       : props.triggerKind === "path"
-                        ? "No matching files or folders."
-                        : "No matching command."))}
+                        ? gt("No matching files or folders.")
+                        : gt("No matching command.")))}
             </p>
           </div>
         )}
@@ -348,13 +358,14 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
   onSelect: (item: ComposerCommandItem, dive?: boolean) => void;
 }) {
   const gt = useGT();
+  const m = useMessages();
   const isDirectory = props.item.type === "path" && props.item.pathKind === "directory";
   const skillSourceKind =
     props.item.type === "skill" ? resolveProviderSkillSourceKind(props.item.skill) : null;
   const isSlashSkill =
     props.triggerKind === "slash-command" && props.item.type === "skill" ? props.item.skill : null;
   const pullRequestPresentation =
-    props.item.type === "pull-request" ? resolvePullRequestState(props.item.pullRequest) : null;
+    props.item.type === "pull-request" ? resolvePullRequestState(props.item.pullRequest, m) : null;
   const descriptionRef = useRef<HTMLSpanElement>(null);
   const [descriptionTruncated, setDescriptionTruncated] = useState(false);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures the rendered description so only cut-off text gets a tooltip
@@ -542,12 +553,12 @@ export function composerSuggestionOptionId(listId: string, itemId: string): stri
 }
 
 const LISTBOX_LABEL_BY_TRIGGER: Record<ComposerTriggerKind, string> = {
-  "agent-config": "Agent configuration",
-  emoji: "Emoji",
-  path: "Files and folders",
-  "pull-request": "Pull requests",
-  "slash-command": "Commands",
-  skill: "Skills",
+  "agent-config": msg("Agent configuration"),
+  emoji: msg("Emoji"),
+  path: msg("Files and folders"),
+  "pull-request": msg("Pull requests"),
+  "slash-command": msg("Commands"),
+  skill: msg("Skills"),
 };
 
 const SKILL_SOURCE_ICON_BY_KIND: Record<ProviderSkillSourceKind, LucideIcon> = {
@@ -559,22 +570,44 @@ const SKILL_SOURCE_ICON_BY_KIND: Record<ProviderSkillSourceKind, LucideIcon> = {
   other: PackageIcon,
 };
 
-const SKILL_SOURCE_LABEL_BY_KIND: Record<ProviderSkillSourceKind, string> = {
-  app: "App",
-  repo: "Repo",
-  project: "Project",
-  personal: "Personal",
-  system: "System",
-  other: "Provider",
+const SKILL_SOURCE_LABEL_BY_KIND: Record<
+  ProviderSkillSourceKind,
+  { readonly label: string; readonly skillLabel: string }
+> = {
+  app: {
+    label: msg("App", { $context: "skill source badge" }),
+    skillLabel: msg("App Skill"),
+  },
+  repo: {
+    label: msg("Repo", { $context: "skill source badge" }),
+    skillLabel: msg("Repo Skill"),
+  },
+  project: {
+    label: msg("Project", { $context: "skill source badge" }),
+    skillLabel: msg("Project Skill"),
+  },
+  personal: {
+    label: msg("Personal", { $context: "skill source badge" }),
+    skillLabel: msg("Personal Skill"),
+  },
+  system: {
+    label: msg("System", { $context: "skill source badge" }),
+    skillLabel: msg("System Skill"),
+  },
+  other: {
+    label: msg("Provider", { $context: "skill source badge" }),
+    skillLabel: msg("Provider Skill"),
+  },
 };
 
 function SkillSourceBadge(props: { kind: ProviderSkillSourceKind; showSkillSuffix: boolean }) {
+  const m = useMessages();
   const Icon = SKILL_SOURCE_ICON_BY_KIND[props.kind];
+  const labels = SKILL_SOURCE_LABEL_BY_KIND[props.kind];
   return (
     <Badge className="ms-auto" variant="secondary">
       <Icon aria-hidden="true" className="text-current" />
-      {SKILL_SOURCE_LABEL_BY_KIND[props.kind]}
-      {props.showSkillSuffix ? " Skill" : null}
+      {m(props.showSkillSuffix ? labels.skillLabel : labels.label)}
     </Badge>
   );
 }

@@ -19,6 +19,7 @@ import ProjectScriptsControl, {
   type NewProjectScriptInput,
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
+import { T, useGT } from "gt-react";
 import { memo, useState, type ComponentProps } from "react";
 import { ThreadDetailsCard } from "./ThreadDetailsCard";
 import { OpenInPicker } from "./OpenInPicker";
@@ -98,6 +99,7 @@ interface ThreadDetailsPanelProps extends Pick<
 
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   const visible = useClientSettings(resolveThreadDetailsVisibility);
+  const gt = useGT();
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const fileScripts = useT3ProjectFileScripts(
     props.environmentId,
@@ -186,7 +188,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               {show.environment || show.openIn || show.scripts ? (
                 <ThreadDetailsSection
                   headingId="thread-details-workspace-heading"
-                  title="Workspace"
+                  title={gt("Workspace")}
                   separated={false}
                   showHeading={false}
                 >
@@ -236,7 +238,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               {show.branch || show.pullRequests || show.git ? (
                 <ThreadDetailsSection
                   headingId="thread-details-version-control-heading"
-                  title="Version Control"
+                  title={gt("Version Control")}
                   showHeading={false}
                   separated={density === "full"}
                 >
@@ -291,19 +293,25 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               {visible.throughput ? (
                 <ThreadDetailsSection
                   headingId="thread-throughput-heading"
-                  title="Tokens per second"
+                  title={gt("Tokens per second")}
                   showHeading={false}
                 >
                   <div className="flex justify-between gap-3 text-xs">
                     <Tooltip>
-                      <TooltipTrigger render={<span />}>Tokens/s</TooltipTrigger>
+                      <TooltipTrigger render={<span />}>
+                        <T>Tokens/s</T>
+                      </TooltipTrigger>
                       <TooltipPopup>
-                        Main-agent output tokens divided by turn duration, including tool time
+                        <T>
+                          Main-agent output tokens divided by turn duration, including tool time
+                        </T>
                       </TooltipPopup>
                     </Tooltip>
                     <span>
-                      Chat {props.throughput.average?.toFixed(1) ?? "N/A"} · Last{" "}
-                      {props.throughput.last?.toFixed(1) ?? "N/A"}
+                      {gt("Chat {average} · Last {last}", {
+                        average: props.throughput.average?.toFixed(1) ?? gt("N/A"),
+                        last: props.throughput.last?.toFixed(1) ?? gt("N/A"),
+                      })}
                     </span>
                   </div>
                 </ThreadDetailsSection>
@@ -334,7 +342,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 >
                   <SlidersHorizontalIcon className={THREAD_DETAILS_PANEL_ICON_CLASS} aria-hidden />
                   <span className={cn("ml-0.5", THREAD_DETAILS_PANEL_LABEL_CLASS)}>
-                    Choose what to show
+                    <T>Choose what to show</T>
                   </span>
                 </ThreadDetailsControl>
               </div>

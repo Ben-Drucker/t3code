@@ -11,7 +11,7 @@ import type {
   ServerProviderSlashCommand,
 } from "@t3tools/contracts";
 import type { ComposerTriggerKind } from "@t3tools/shared/composerTrigger";
-import { useGT } from "gt-react-native";
+import { msg, useGT, useMessages } from "gt-react-native";
 import { memo } from "react";
 import { Pressable, ScrollView, StyleSheet, View, type ViewStyle } from "react-native";
 
@@ -21,6 +21,7 @@ import { ENVIRONMENT_MACHINE_SYMBOLS } from "../../components/EnvironmentMachine
 import { GlassSurface } from "../../components/ui/GlassSurface";
 import { PierreEntryIcon } from "../../components/PierreEntryIcon";
 import { ProviderIcon } from "../../components/ProviderIcon";
+import type { MessageResolver } from "../../i18n/messages";
 import { cn } from "../../lib/cn";
 import type { ModelOption } from "../../lib/modelOptions";
 import { pullRequestStatus } from "../pull-requests/pullRequestStatus";
@@ -152,38 +153,45 @@ function itemIcon(item: ComposerCommandItem): AppSymbolName | null {
 function groupLabel(
   triggerKind: ComposerTriggerKind | null,
   items: ReadonlyArray<ComposerCommandItem>,
+  resolve: MessageResolver,
 ): string | null {
   switch (triggerKind) {
     case "pull-request":
-      return "Pull requests";
+      return resolve(msg("Pull requests"));
     case "slash-command":
-      return "Commands";
+      return resolve(msg("Commands"));
     case "skill":
-      return "Skills";
+      return resolve(msg("Skills"));
     case "agent-config":
-      return "Models and tools";
+      return resolve(msg("Models and tools"));
     case "path":
-      return items.every((item) => item.type === "path") ? "Files" : "Mentions";
+      return items.every((item) => item.type === "path")
+        ? resolve(msg("Files"))
+        : resolve(msg("Mentions"));
     default:
       return null;
   }
 }
 
-function emptyText(triggerKind: ComposerTriggerKind | null, isLoading: boolean): string {
+function emptyText(
+  triggerKind: ComposerTriggerKind | null,
+  isLoading: boolean,
+  resolve: MessageResolver,
+): string {
   if (isLoading) {
-    return triggerKind === "path" ? "Searching files…" : "Loading…";
+    return triggerKind === "path" ? resolve(msg("Searching files…")) : resolve(msg("Loading…"));
   }
   switch (triggerKind) {
     case "pull-request":
-      return "No matching pull requests.";
+      return resolve(msg("No matching pull requests."));
     case "path":
-      return "No matching mentions.";
+      return resolve(msg("No matching mentions."));
     case "skill":
-      return "No skills found.";
+      return resolve(msg("No skills found."));
     case "slash-command":
-      return "No matching commands.";
+      return resolve(msg("No matching commands."));
     default:
-      return "No results.";
+      return resolve(msg("No results."));
   }
 }
 
@@ -256,7 +264,8 @@ export const ComposerCommandPopover = memo(function ComposerCommandPopover(
   props: ComposerCommandPopoverProps,
 ) {
   const gt = useGT();
-  const label = groupLabel(props.triggerKind, props.items);
+  const m = useMessages();
+  const label = groupLabel(props.triggerKind, props.items, m);
 
   return (
     <PopoverSurface>
@@ -308,7 +317,7 @@ export const ComposerCommandPopover = memo(function ComposerCommandPopover(
       ) : (
         <View className="px-3.5 py-2.5">
           <Text className="text-xs text-foreground-tertiary">
-            {props.error ?? emptyText(props.triggerKind, props.isLoading)}
+            {props.error ?? emptyText(props.triggerKind, props.isLoading, m)}
           </Text>
         </View>
       )}

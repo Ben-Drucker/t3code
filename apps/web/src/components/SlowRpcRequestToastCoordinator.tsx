@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from "react";
+import { msg, T, useGT, Var } from "gt-react";
 
+import { m } from "../i18n/messages";
 import { type SlowRpcAckRequest, subscribeSlowRpcAckRequests } from "../rpc/requestLatencyState";
 import {
   DEFAULT_SLOW_REQUEST_PAUSE_HOURS,
@@ -22,7 +24,12 @@ function describeSlowRequests(requests: ReadonlyArray<SlowRpcAckRequest>): strin
     Math.min(...requests.map((request) => request.thresholdMs)) / 1000,
   );
 
-  return `${count} request${count === 1 ? "" : "s"} waiting longer than ${thresholdSeconds}s.`;
+  return m(
+    msg(
+      "{count, plural, one {{count} request} other {{count} requests}} waiting longer than {thresholdSeconds}s.",
+      { count, thresholdSeconds },
+    ),
+  );
 }
 
 function SlowRequestDetails({ requests }: { requests: ReadonlyArray<SlowRpcAckRequest> }) {
@@ -35,7 +42,9 @@ function SlowRequestDetails({ requests }: { requests: ReadonlyArray<SlowRpcAckRe
         >
           <div className="wrap-break-word font-medium text-foreground">{request.tag}</div>
           <div className="mt-0.5 text-3xs opacity-75">
-            Started {new Date(request.startedAt).toLocaleTimeString()}
+            <T>
+              Started <Var>{new Date(request.startedAt).toLocaleTimeString()}</Var>
+            </T>
           </div>
         </li>
       ))}
@@ -44,6 +53,7 @@ function SlowRequestDetails({ requests }: { requests: ReadonlyArray<SlowRpcAckRe
 }
 
 function SlowRequestPauseControls() {
+  const gt = useGT();
   const [hoursInput, setHoursInput] = useState(String(DEFAULT_SLOW_REQUEST_PAUSE_HOURS));
   const parsedHours = parseSlowRequestPauseHoursInput(hoursInput);
   const isInvalid = parsedHours === null;
@@ -66,7 +76,7 @@ function SlowRequestPauseControls() {
       <div className="flex items-center gap-1">
         <Input
           aria-invalid={isInvalid || undefined}
-          aria-label="Pause hours"
+          aria-label={gt("Pause hours")}
           className="w-12 select-text"
           font="mono"
           inputMode="numeric"
@@ -84,10 +94,12 @@ function SlowRequestPauseControls() {
           type="number"
           value={hoursInput}
         />
-        <span className="text-xs text-muted-foreground">hr</span>
+        <span className="text-xs text-muted-foreground">
+          <T>hr</T>
+        </span>
       </div>
       <Button disabled={isInvalid} size="xs" type="submit" variant="outline">
-        Pause
+        <T>Pause</T>
       </Button>
       <Button
         onClick={() => pauseSlowRequestWarningsForever()}
@@ -95,7 +107,7 @@ function SlowRequestPauseControls() {
         type="button"
         variant="ghost-muted"
       >
-        Forever
+        <T>Forever</T>
       </Button>
     </form>
   );
@@ -126,12 +138,12 @@ export function startSlowRpcRequestToasts(): () => void {
       data: {
         expandableContent: <SlowRequestDetails requests={latestSlowRequests} />,
         expandableDescriptionTrigger: true,
-        expandableLabels: { collapse: "Hide requests", expand: "Show requests" },
+        expandableLabels: { collapse: m(msg("Hide requests")), expand: m(msg("Show requests")) },
         footerContent: <SlowRequestPauseControls />,
       },
       description: describeSlowRequests(latestSlowRequests),
       timeout: 0,
-      title: "Some requests are slow",
+      title: m(msg("Some requests are slow")),
       type: "warning" as const,
     };
 

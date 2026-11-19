@@ -338,6 +338,7 @@ firefoxTest(
           attached: Stream.empty,
           isAttached: () => Effect.succeed(false),
           isShown: () => false,
+          awaitShown: () => Effect.succeed(false),
           loadFailure: () => undefined,
           endpoint: () => Effect.die("unused"),
           pointer: () => Effect.void,

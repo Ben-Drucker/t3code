@@ -28,7 +28,7 @@ import * as CursorSdkCatalog from "./CursorSdkCatalog.ts";
 const CURSOR_PRESENTATION = {
   supportedRuntimeModes: ["approval-required", "auto-accept-edits", "auto", "full-access"],
   displayName: "Cursor",
-  supportsConversationRollback: false,
+  supportsConversationRollback: true,
   showInteractionModeToggle: true,
 } as const;
 const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({

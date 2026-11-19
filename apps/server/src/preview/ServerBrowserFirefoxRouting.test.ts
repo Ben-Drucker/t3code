@@ -141,6 +141,9 @@ const dependencies = Layer.mergeAll(
       fake.eventsReady = subscribed.promise;
       return Manager.PreviewManager.of({
         ...manager,
+        subscribeEvents: manager.subscribeEvents.pipe(
+          Effect.tap(() => Effect.sync(() => subscribed.resolve())),
+        ),
         events: Stream.unwrap(
           manager.subscribeEvents.pipe(
             Effect.tap(() => Effect.sync(() => subscribed.resolve())),
@@ -188,6 +191,7 @@ const dependencies = Layer.mergeAll(
         attached: Stream.empty,
         isAttached: () => Effect.succeed(false),
         isShown: () => false,
+        awaitShown: () => Effect.succeed(false),
         loadFailure: () => undefined,
         endpoint: () => Effect.die("no desktop tab in this test"),
         pointer: () => Effect.void,
