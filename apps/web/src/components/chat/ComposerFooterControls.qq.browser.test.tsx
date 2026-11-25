@@ -28,6 +28,7 @@ function baseProps(): ComponentProps<typeof ComposerFooterPrimaryActions> {
     canOperateThread: true,
     qqActive: false,
     qqDisabled: false,
+    compactionCount: 0,
     onToggleQq: vi.fn(),
     activeContextWindow: null,
     contextBreakdown: null,

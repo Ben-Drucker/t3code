@@ -193,6 +193,10 @@ export const ProviderAdapterV2Event = Schema.Union([
     threadId: ThreadId,
     itemId: TurnItemId,
     chunk: Schema.String,
+    /** Output of a shell that kept running after its call settled. */
+    background: Schema.optional(Schema.Literal(true)),
+    /** The background shell ended; no more output follows. */
+    final: Schema.optional(Schema.Literal(true)),
   }),
   /** Unpersisted predicted next prompt; arrives after the run's root terminal. */
   Schema.Struct({

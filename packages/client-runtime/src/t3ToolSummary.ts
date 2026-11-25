@@ -1406,6 +1406,23 @@ export function summarizeT3ToolCalls(
           );
       break;
     }
+    case "context-read": {
+      const count = selected.length;
+      label = done
+        ? resolve(
+            msg(
+              "{count, plural, one {Checked context window {count} time} other {Checked context window {count} times}}",
+              { count },
+            ),
+          )
+        : resolve(
+            msg(
+              "{count, plural, one {Tried to check context window {count} time} other {Tried to check context window {count} times}}",
+              { count },
+            ),
+          );
+      break;
+    }
     case "attachment-send": {
       const messages = new Map<string, (typeof selected)[number]>();
       selected.forEach((call, index) =>

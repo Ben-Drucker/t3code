@@ -2898,6 +2898,7 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__t3_environment_read",
   "mcp__t3-code__t3_usage_providers",
   "mcp__t3-code__t3_usage_read",
+  "mcp__t3-code__t3_context_read",
   "mcp__t3-code__t3_environment_links",
   "mcp__t3-code__t3_theme_read",
   "mcp__t3-code__html_preview",
@@ -6432,6 +6433,25 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             return Deferred.succeed(tail.stop, undefined).pipe(
               Effect.andThen(Fiber.await(tail.fiber)),
               Effect.asVoid,
+            );
+          });
+        // Background shells outlive their tool call, so their tails end with the task instead.
+        const backgroundTaskOutputTails = new Map<
+          string,
+          {
+            readonly fiber: Fiber.Fiber<void>;
+            readonly stop: Deferred.Deferred<void>;
+            readonly end: Effect.Effect<void>;
+          }
+        >();
+        const stopBackgroundTaskOutputTail = (taskId: string) =>
+          Effect.suspend(() => {
+            const tail = backgroundTaskOutputTails.get(taskId);
+            if (tail === undefined) return Effect.void;
+            backgroundTaskOutputTails.delete(taskId);
+            return Deferred.succeed(tail.stop, undefined).pipe(
+              Effect.andThen(Fiber.await(tail.fiber)),
+              Effect.andThen(tail.end),
             );
           });
         const sdkMessageLock = yield* Semaphore.make(1);
@@ -12236,6 +12256,46 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 );
                 taskOutputTails.set(tailedCall.nativeItemId, { fiber, stop });
               }
+              if (
+                liveQuery.taskOutputRoot !== undefined &&
+                message.task_type === "local_bash" &&
+                message.is_backgrounded === true &&
+                tailedCall?.classification.itemType === "command_execution" &&
+                !backgroundTaskOutputTails.has(message.task_id)
+              ) {
+                const itemId = idAllocator.derive.turnItemFromProviderItem({
+                  driver: CLAUDE_PROVIDER,
+                  nativeItemId: tailedCall.nativeItemId,
+                });
+                const emitBackgroundOutput = (chunk: string, final?: true) =>
+                  emitProviderEvent({
+                    type: "command_output.delta",
+                    driver: CLAUDE_PROVIDER,
+                    threadId: tailedCall.threadId,
+                    itemId,
+                    chunk,
+                    background: true,
+                    ...(final ? { final } : {}),
+                  });
+                yield* emitBackgroundOutput("");
+                const stop = yield* Deferred.make<void>();
+                const fiber = yield* tailClaudeTaskOutput({
+                  root: liveQuery.taskOutputRoot,
+                  sessionId: message.session_id,
+                  taskId: message.task_id,
+                  stop,
+                  onChunk: (chunk) => emitBackgroundOutput(chunk),
+                }).pipe(
+                  Effect.provideService(FileSystem.FileSystem, fileSystem),
+                  Effect.provideService(Path.Path, path),
+                  Effect.forkIn(sessionScope),
+                );
+                backgroundTaskOutputTails.set(message.task_id, {
+                  fiber,
+                  stop,
+                  end: emitBackgroundOutput("", true),
+                });
+              }
               context.ignoredTaskIds.add(message.task_id);
               yield* applyBackgroundTaskRosterMessage({
                 nativeThreadId: liveQuery.nativeThreadId,
@@ -12373,6 +12433,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           }
 
           if (message.type === "system" && message.subtype === "task_notification") {
+            yield* stopBackgroundTaskOutputTail(message.task_id);
             const isRegistered = (yield* Ref.get(sessionSubagentsByTaskId)).has(message.task_id);
             // A task whose start is still held for the next wake drain has no
             // node to finish yet; hold its outcome behind that start, or the

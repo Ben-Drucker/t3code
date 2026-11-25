@@ -3151,7 +3151,20 @@ export const layerWithOptions = (
             if (shutdownSignal.received) return Effect.void;
             // Live output bypasses persistence and subscribers so floods cannot delay domain events.
             if (nativeEvent.type === "command_output.delta") {
-              return commandOutput.append(nativeEvent);
+              const target = { threadId: nativeEvent.threadId, itemId: nativeEvent.itemId };
+              return commandOutput
+                .append({
+                  ...target,
+                  chunk: nativeEvent.chunk,
+                  ...(nativeEvent.background ? { background: true as const } : {}),
+                })
+                .pipe(
+                  Effect.andThen(
+                    nativeEvent.final
+                      ? commandOutput.finish({ ...target, background: true })
+                      : Effect.void,
+                  ),
+                );
             }
             // A query process can exit under a live session, after the run's last event.
             if (nativeEvent.type === "background_work.lost") {

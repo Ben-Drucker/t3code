@@ -51,9 +51,14 @@ interface Subscriber {
 export type CommandOutputTarget = OrchestrationV2SubscribeCommandOutputInput;
 
 export interface CommandOutputHubShape {
-  readonly append: (input: CommandOutputTarget & { readonly chunk: string }) => Effect.Effect<void>;
+  /** `background` marks a shell that outlives its settled call; it streams until `finish`. */
+  readonly append: (
+    input: CommandOutputTarget & { readonly chunk: string; readonly background?: true },
+  ) => Effect.Effect<void>;
   /** Retains the tail briefly for settlements without output; otherwise rows use persisted output. */
-  readonly finish: (input: CommandOutputTarget) => Effect.Effect<void>;
+  readonly finish: (
+    input: CommandOutputTarget & { readonly background?: true },
+  ) => Effect.Effect<void>;
   readonly subscribe: (
     input: CommandOutputTarget,
   ) => Stream.Stream<OrchestrationV2CommandOutputFrame, OrchestrationV2CommandOutputError>;
@@ -109,6 +114,7 @@ export const make = Effect.gen(function* () {
   const tails = new Map<string, TerminalOutputState>();
   const finished = new Map<string, TerminalOutputState>();
   const subscribers = new Map<string, Set<Subscriber>>();
+  const background = new Map<string, true>();
 
   const wakeAll = (key: string, chunk: string) =>
     Effect.forEach(
@@ -127,10 +133,14 @@ export const make = Effect.gen(function* () {
       { discard: true },
     );
 
-  const append: CommandOutputHubShape["append"] = ({ chunk, ...target }) =>
+  const append: CommandOutputHubShape["append"] = ({ chunk, background: detached, ...target }) =>
     Effect.suspend(() => {
-      if (chunk.length === 0) return Effect.void;
       const key = commandKey(target);
+      if (detached) {
+        setBounded(background, key, true, MAX_LIVE_COMMANDS + MAX_FINISHED_COMMANDS);
+        if (!tails.has(key)) setBounded(tails, key, EMPTY_TERMINAL_OUTPUT, MAX_LIVE_COMMANDS);
+      }
+      if (chunk.length === 0) return wakeAll(key, "");
       const tail = appendTerminalOutput(tails.get(key) ?? EMPTY_TERMINAL_OUTPUT, chunk);
       setBounded(tails, key, tail, MAX_LIVE_COMMANDS, (oldest) => {
         // Eviction invalidates viewers' state; resync on their next frame.
@@ -142,13 +152,16 @@ export const make = Effect.gen(function* () {
       return wakeAll(key, chunk);
     });
 
-  const finish: CommandOutputHubShape["finish"] = (target) =>
-    Effect.sync(() => {
+  const finish: CommandOutputHubShape["finish"] = ({ background: detached, ...target }) =>
+    Effect.suspend(() => {
       const key = commandKey(target);
       const tail = tails.get(key);
-      if (tail === undefined) return;
+      if (tail === undefined) return Effect.void;
+      // A background shell's call settles first; only its own end finishes the tail.
+      if (background.has(key) && !detached) return Effect.void;
       tails.delete(key);
       setBounded(finished, key, tail, MAX_FINISHED_COMMANDS);
+      return wakeAll(key, "");
     });
 
   const subscribe: CommandOutputHubShape["subscribe"] = (target) =>
@@ -244,8 +257,18 @@ export const make = Effect.gen(function* () {
           }
           lastFrameAt = yield* Clock.currentTimeMillis;
           throttle = COMMAND_OUTPUT_FRAME_INTERVAL_MS;
-          const tail = tails.get(key) ?? finished.get(key);
-          if (settled !== undefined) {
+          const live = tails.get(key);
+          const tail = live ?? finished.get(key);
+          if (settled !== undefined && background.has(key)) {
+            if (live === undefined) {
+              return {
+                kind: "replace",
+                text: tail?.text ?? "",
+                truncated: tail?.truncated ?? false,
+                running: false,
+              };
+            }
+          } else if (settled !== undefined) {
             if (settled.output === undefined && tail !== undefined) {
               return {
                 kind: "replace",

@@ -301,7 +301,10 @@ import {
   resolveComposerDispatchMode,
   type ComposerDispatchMode,
 } from "@t3tools/client-runtime/state/composer-dispatch";
-import { deriveLatestContextWindowSnapshot } from "@t3tools/client-runtime/state/context-window";
+import {
+  countCompletedCompactions,
+  deriveLatestContextWindowSnapshot,
+} from "@t3tools/client-runtime/state/context-window";
 import { resolveContextBreakdown } from "@t3tools/client-runtime/context-breakdown";
 import {
   resolveProviderSkillsForCwd,
@@ -690,6 +693,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     contextWindowLiveUsage,
     contextWindowProviderThread,
   );
+  const compactionCount = countCompletedCompactions(contextWindowEntries);
   const contextBreakdown =
     activeContextWindow &&
     (contextWindowProviderThread?.driver !== "antigravity" || activeContextWindow.breakdown?.length)
@@ -4553,6 +4557,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         }
                         onToggleQq={onToggleQqStable}
                         activeContextWindow={activeContextWindow}
+                        compactionCount={compactionCount}
                         contextBreakdown={contextBreakdown}
                         reserveContextWindowMeter={reserveContextWindowMeter}
                         activeThreadModelDisplayName={activeThreadModelDisplayName}

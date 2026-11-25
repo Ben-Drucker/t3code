@@ -207,6 +207,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   qqDisabled: boolean;
   onToggleQq: () => void;
   activeContextWindow: ContextWindowSnapshot | null;
+  compactionCount: number;
   contextBreakdown: ContextBreakdown | null;
   reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
@@ -275,6 +276,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
       {props.activeContextWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}
+          compactionCount={props.compactionCount}
           breakdown={props.contextBreakdown}
           modelDisplayName={props.activeThreadModelDisplayName}
           onCompact={props.onCompactContext}

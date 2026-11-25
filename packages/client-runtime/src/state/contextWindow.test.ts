@@ -14,7 +14,11 @@ import {
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
-import { compactBeforeSendTokens, latestProviderTurnTokenUsage } from "./contextWindow.ts";
+import {
+  compactBeforeSendTokens,
+  countCompletedCompactions,
+  latestProviderTurnTokenUsage,
+} from "./contextWindow.ts";
 import type { ThreadStructure } from "./models.ts";
 import { v2Projection } from "./orchestrationV2TestFixtures.ts";
 
@@ -278,4 +282,16 @@ it("keeps newer child usage out of the active parent meter", () => {
       { ...v2Projection, thread: { ...v2Projection.thread, activeProviderThreadId: parent } },
     ),
   ).toEqual(parentUsage);
+});
+
+describe("countCompletedCompactions", () => {
+  it("counts completed compactions from every provider thread and nothing else", () => {
+    const entries = [
+      { item: { type: "compaction", status: "completed", providerThreadId: "a" } },
+      { item: { type: "compaction", status: "running", providerThreadId: "b" } },
+      { item: { type: "compaction", status: "completed", providerThreadId: "b" } },
+      { item: { type: "assistant_message", status: "completed" } },
+    ] as unknown as Parameters<typeof countCompletedCompactions>[0];
+    expect(countCompletedCompactions(entries)).toBe(2);
+  });
 });

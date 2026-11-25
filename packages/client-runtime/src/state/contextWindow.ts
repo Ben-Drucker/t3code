@@ -130,6 +130,17 @@ function compactionSnapshot(
   };
 }
 
+/** Completed compactions in the thread, across every provider thread it has used. */
+export function countCompletedCompactions(
+  entries: ReadonlyArray<{ readonly item: ThreadStructureTurnItem }>,
+): number {
+  let count = 0;
+  for (const { item } of entries) {
+    if (item.type === "compaction" && item.status === "completed") count++;
+  }
+  return count;
+}
+
 export function deriveLatestContextWindowSnapshot(
   entries: ReadonlyArray<{
     readonly item: ThreadStructureTurnItem;

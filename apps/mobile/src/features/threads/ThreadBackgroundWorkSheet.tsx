@@ -7,6 +7,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-execution";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as Haptics from "expo-haptics";
+import type React from "react";
 import { msg, T, useGT, useMessages } from "gt-react-native";
 import { Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -16,6 +17,9 @@ import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { ScreenContent } from "../../components/ui/ScreenContent";
 import { environmentThreadShells } from "../../state/threads";
+import { useQuietThreadStructure } from "../../state/use-thread-detail";
+import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
+import { ThreadCommandOutput, useCommandOutputStreaming } from "./thread-command-output";
 
 const KIND_LABELS = {
   subagent: msg("Subagent"),
@@ -32,10 +36,34 @@ export function ThreadBackgroundWorkSheet({ route }: StaticScreenProps<Backgroun
   const gt = useGT();
   const m = useMessages();
   const target = route.params;
-  const thread = useAtomValue(
-    environmentThreadShells.threadShellAtom(scopeThreadRef(target.environmentId, target.threadId)),
-  );
-  const presentation = presentPendingBackgroundWork(thread?.pendingBackgroundTasks ?? [], m);
+  const threadRef = scopeThreadRef(target.environmentId, target.threadId);
+  const thread = useAtomValue(environmentThreadShells.threadShellAtom(threadRef));
+  const tasks = thread?.pendingBackgroundTasks ?? [];
+  const presentation = presentPendingBackgroundWork(tasks, m);
+  const structure = useQuietThreadStructure(threadRef);
+  const streamsOutput = useCommandOutputStreaming(target.environmentId);
+  const themeAppearance = useAppearancePreferences().themeAppearance;
+  // Background shells settle their call at once; their live output stays on that command row.
+  const commandOutput = (taskId: string) => {
+    const task = tasks.find((candidate) => candidate.taskId === taskId);
+    if (!streamsOutput || task?.kind !== "command") return null;
+    const item = structure?.projection.visibleTurnItems.findLast(({ item: candidate }) =>
+      task.itemId === undefined
+        ? [task.taskId, task.nativeItemId].includes(
+            candidate.nativeItemRef?.nativeId || candidate.id,
+          )
+        : candidate.id === task.itemId,
+    )?.item;
+    if (item?.type !== "command_execution") return null;
+    return (
+      <ThreadCommandOutput
+        environmentId={target.environmentId}
+        threadId={task.sourceThreadId ?? item.threadId}
+        itemId={item.id}
+        themeAppearance={themeAppearance}
+      />
+    );
+  };
   const openThread = (threadId: ThreadId) => {
     void Haptics.selectionAsync();
     // A thread replaces the leaf sheet so workspace back navigation still works.
@@ -57,7 +85,12 @@ export function ThreadBackgroundWorkSheet({ route }: StaticScreenProps<Backgroun
         </Text>
       ) : (
         presentation.items.map((item) => (
-          <BackgroundWorkRow key={item.taskId} item={item} onOpen={openThread} />
+          <BackgroundWorkRow
+            key={item.taskId}
+            item={item}
+            onOpen={openThread}
+            output={commandOutput(item.taskId)}
+          />
         ))
       )}
     </ScrollView>
@@ -73,6 +106,7 @@ export function ThreadBackgroundWorkSheet({ route }: StaticScreenProps<Backgroun
 function BackgroundWorkRow(props: {
   readonly item: PendingBackgroundWorkItem;
   readonly onOpen: (threadId: ThreadId) => void;
+  readonly output: React.ReactNode;
 }) {
   const { item } = props;
   const gt = useGT();
@@ -98,7 +132,10 @@ function BackgroundWorkRow(props: {
     </View>
   );
   return childThreadId === undefined ? (
-    <View accessible>{row}</View>
+    <View>
+      <View accessible>{row}</View>
+      {props.output}
+    </View>
   ) : (
     <Pressable
       accessibilityRole="link"

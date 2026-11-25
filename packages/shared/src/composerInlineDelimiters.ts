@@ -1,4 +1,4 @@
-import { inlineMarkdownUnitMarks } from "./composerRichText";
+import { inlineMarkdownUnitMarks } from "./composerRichText.ts";
 
 const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
 const THEMATIC_BREAK = /^\s{0,3}([*_-])(?:\s*\1){2,}\s*$/;

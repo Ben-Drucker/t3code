@@ -1,4 +1,5 @@
 import {
+  countCompletedCompactions,
   deriveLatestContextWindowSnapshot,
   latestProviderTurnTokenUsage,
 } from "@t3tools/client-runtime/state/context-window";
@@ -9,6 +10,7 @@ import {
 import { formatContextWindowTokens } from "@t3tools/shared/contextWindow";
 import type { ThreadStructure } from "@t3tools/client-runtime/state/models";
 import type { ScopedThreadRef } from "@t3tools/contracts";
+import { useGT } from "gt-react-native";
 import { Pressable, View } from "react-native";
 import Svg, { Circle, Line } from "react-native-svg";
 
@@ -36,8 +38,9 @@ export function ThreadContextIndicator(props: {
   readonly size?: "regular" | "large";
 }) {
   const thread = useQuietThreadStructure(props.threadRef);
-  const { context } = activeThreadContextSnapshot(thread?.projection);
+  const { entries, context } = activeThreadContextSnapshot(thread?.projection);
   const theme = useUniwindTheme();
+  const gt = useGT();
   if (!context) return null;
 
   const normalizedPercentage = Math.max(0, Math.min(100, context.usedPercentage ?? 0));
@@ -62,15 +65,22 @@ export function ThreadContextIndicator(props: {
   const buttonSize = props.size === "large" ? 36 : 30;
   const label =
     context.maxTokens !== null && context.usedPercentage !== null
-      ? `Context window ${Math.round(normalizedPercentage)}% used`
-      : `Context window ${formatContextWindowTokens(context.usedTokens)} tokens used`;
+      ? gt("Context window {percent}% used", { percent: Math.round(normalizedPercentage) })
+      : gt("Context window {tokens} tokens used", {
+          tokens: formatContextWindowTokens(context.usedTokens),
+        });
+  const compactionCount = countCompletedCompactions(entries);
 
   return (
     <Pressable
       onPress={props.onPress}
       accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityHint="Opens thread details and context usage"
+      accessibilityLabel={
+        compactionCount > 0
+          ? gt("{label}, compacted {count} times", { label, count: compactionCount })
+          : label
+      }
+      accessibilityHint={gt("Opens thread details and context usage")}
       hitSlop={4}
       style={{
         width: buttonSize,
@@ -105,6 +115,24 @@ export function ThreadContextIndicator(props: {
           />
         ) : null}
       </Svg>
+      {compactionCount > 0 ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            inset: 0,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text
+            className="font-medium text-foreground-muted"
+            style={{ fontSize: 7, lineHeight: 8, fontVariant: ["tabular-nums"] }}
+          >
+            ×{compactionCount}
+          </Text>
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -114,7 +142,9 @@ export function ThreadContextUsage(props: { readonly threadRef: ScopedThreadRef 
   const { projection, entries, context, providerThread } = activeThreadContextSnapshot(
     thread?.projection,
   );
+  const gt = useGT();
   if (!context) return null;
+  const compactionCount = countCompletedCompactions(entries);
   const breakdown =
     providerThread?.driver === "antigravity" && !context.breakdown?.length
       ? null
@@ -128,11 +158,15 @@ export function ThreadContextUsage(props: { readonly threadRef: ScopedThreadRef 
         });
   const used = formatContextWindowTokens(context.usedTokens);
   const limit =
-    context.maxTokens == null ? "Unknown" : formatContextWindowTokens(context.maxTokens);
+    context.maxTokens == null ? gt("Unknown") : formatContextWindowTokens(context.maxTokens);
   return (
     <View className="mx-4 mb-4 gap-3 rounded-2xl bg-grouped-card p-4">
       <View className="flex-row justify-between gap-4">
-        <Text className="text-sm text-foreground">Context</Text>
+        <Text className="text-sm text-foreground">
+          {compactionCount > 0
+            ? gt("Context · compacted {count}×", { count: compactionCount })
+            : gt("Context")}
+        </Text>
         <Text className="text-sm text-foreground-secondary">
           {used} / {limit}
         </Text>
@@ -140,12 +174,12 @@ export function ThreadContextUsage(props: { readonly threadRef: ScopedThreadRef 
       {context.usedPercentage !== null ? (
         <View
           accessibilityRole="progressbar"
-          accessibilityLabel="Context used"
+          accessibilityLabel={gt("Context used")}
           accessibilityValue={{
             min: 0,
             max: 100,
             now: context.usedPercentage,
-            text: `${used} of ${limit} tokens`,
+            text: gt("{used} of {limit} tokens", { used, limit }),
           }}
           className="h-1 overflow-hidden rounded-full bg-subtle-strong"
         >
@@ -154,7 +188,7 @@ export function ThreadContextUsage(props: { readonly threadRef: ScopedThreadRef 
       ) : null}
       {breakdown ? (
         <Text className="text-xs text-foreground-muted">
-          {breakdown.estimated ? "Estimated breakdown" : "Breakdown"}
+          {breakdown.estimated ? gt("Estimated breakdown") : gt("Breakdown")}
         </Text>
       ) : null}
       {breakdown?.categories.map((row) => (

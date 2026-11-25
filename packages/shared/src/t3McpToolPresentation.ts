@@ -53,6 +53,7 @@ export type T3McpToolSummaryAction =
   | "environment-read"
   | "usage-providers"
   | "usage-read"
+  | "context-read"
   | "environment-links"
   | "environment-link"
   | "environment-unlink"
@@ -409,6 +410,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   ),
   t3_usage_providers: tool(["List", "Listing", "Listed", "usage providers"], "usage-providers"),
   t3_usage_read: tool(["Read", "Reading", "Read", "provider usage"], "usage-read"),
+  t3_context_read: tool(["Read", "Reading", "Read", "context window"], "context-read"),
   t3_environment_links: tool(
     ["List", "Listing", "Listed", "linked environments"],
     "environment-links",

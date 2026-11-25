@@ -60,7 +60,9 @@ export function BackgroundWorkDetails(props: {
             {props.tasks.map((task) => {
               const item = props.turnItems.findLast((candidate) =>
                 task.itemId === undefined
-                  ? (candidate.nativeItemRef?.nativeId || candidate.id) === task.taskId
+                  ? [task.taskId, task.nativeItemId].includes(
+                      candidate.nativeItemRef?.nativeId || candidate.id,
+                    )
                   : candidate.id === task.itemId,
               );
               const command =
@@ -90,7 +92,9 @@ export function BackgroundWorkDetails(props: {
                       <ShellCommandBlock command={command} />
                     </div>
                   ) : null}
-                  {itemId && streamsOutput && item?.status === "running" ? (
+                  {itemId &&
+                  streamsOutput &&
+                  (item?.status === "running" || task.kind === "command") ? (
                     <div className="font-mono text-xs whitespace-pre-wrap break-words">
                       <CommandOutputPanel
                         environmentId={props.environmentId}

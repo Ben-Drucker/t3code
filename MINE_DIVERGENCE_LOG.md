@@ -57,6 +57,7 @@ BACKLOG.md holds unfinished items. Once a feature, fix, or change is completed, 
 - **Context option readouts and locks.** Pickers display token equivalents for context limits and free-space buffers, and honor provider-disabled or launch-only settings in web and mobile. Areas: `ComposerContextLimit.ts`, `ComposerModelEffort.tsx`, `TraitsPicker.tsx`, `packages/client-runtime/src/modelTraits.ts`, mobile `providerOptions.ts` and `ThreadSettingsSheet.tsx`; history: `4862db3b76`, `2bef68cd33`, `953c09e94e`.
 - **Kimi quota reporting.** Registry Kimi and a local `kimi` command read the CLI's sign-in files to publish weekly and rolling quota windows through provider readiness, retaining the standard usage display. Areas: `kimiUsage.ts`, registry `driver.ts`, `kimiSession.ts`; history: `5feea1b62b`, `cd0c91c769`, `baa81dc395`.
 - **Agent access to quotas.** `t3_usage_providers` lists providers with available quota data and `t3_usage_read` returns limits with remaining allowance. Areas: MCP usage toolkit/registration, shared MCP presentation and client tool summaries; history: `6638c1e22d`.
+- **Agent access to its context window.** `t3_context_read` returns a thread's used tokens, window, auto-compact threshold, tokens left before compaction, and compaction count; web and mobile context meters show the compaction count as `×N`. Areas: MCP context toolkit, `countCompletedCompactions`, `ContextWindowMeter.tsx`, mobile `ThreadContextUsage.tsx`.
 
 ### Browser additions
 
