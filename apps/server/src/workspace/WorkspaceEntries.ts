@@ -6,6 +6,7 @@ import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as RcMap from "effect/RcMap";
 import * as Schema from "effect/Schema";
@@ -157,11 +158,32 @@ const resolveBrowseTarget = Effect.fn("WorkspaceEntries.resolveBrowseTarget")(fu
   );
 });
 
+// A link to an unresponsive network share must not hold up the local entries beside it.
+const SYMLINK_TARGET_STAT_TIMEOUT = Duration.seconds(1);
+// A timed-out stat cannot be cancelled and keeps a libuv worker (4 by default) busy,
+// so cap target stats in flight to leave most of the pool to other fs work.
+const MAX_PENDING_SYMLINK_TARGET_STATS = 2;
+
 /** @public */
 export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   const workspaceSearchIndexes = yield* WorkspaceSearchIndex.WorkspaceSearchIndexMap;
+  let pendingSymlinkTargetStats = 0;
+  const statSymlinkTarget = (candidate: { readonly name: string; readonly fullPath: string }) => {
+    if (pendingSymlinkTargetStats >= MAX_PENDING_SYMLINK_TARGET_STATS) {
+      return Promise.resolve(null);
+    }
+    pendingSymlinkTargetStats++;
+    return NodeFSP.stat(candidate.fullPath)
+      .then(
+        (stats) => (stats.isDirectory() ? candidate : null),
+        () => null,
+      )
+      .finally(() => {
+        pendingSymlinkTargetStats--;
+      });
+  };
   const vcsProcess = yield* VcsProcess.VcsProcess;
 
   const normalizeWorkspaceRoot = Effect.fn("WorkspaceEntries.normalizeWorkspaceRoot")(function* (
@@ -259,13 +281,15 @@ export const make = Effect.gen(function* () {
         (dirent) =>
           dirent.name.toLowerCase().startsWith(lowerPrefix) &&
           (showHidden || !dirent.name.startsWith(".")) &&
-          (dirent.isDirectory() || (includeFiles && (dirent.isFile() || dirent.isSymbolicLink()))),
+          (dirent.isDirectory() || dirent.isSymbolicLink() || (includeFiles && dirent.isFile())),
       );
-      const entries: Array<{
+      type BrowseEntry = {
         readonly name: string;
         readonly fullPath: string;
         readonly kind?: "file" | "directory";
-      }> = [];
+      };
+      const entries: Array<BrowseEntry> = [];
+      const symlinkCandidates: Array<{ readonly name: string; readonly fullPath: string }> = [];
       // Cap before the per-link stat so a huge folder costs one readdir and a bounded number of stats.
       const candidates = includeFiles
         ? matches
@@ -276,22 +300,35 @@ export const make = Effect.gen(function* () {
             )
             .slice(0, BROWSE_MAX_ENTRIES)
         : matches;
+      const kindOf = (kind: "file" | "directory") => (includeFiles ? { kind } : {});
       for (const dirent of candidates) {
         const fullPath = path.join(parentPath, dirent.name);
-        if (!includeFiles) {
-          entries.push({ name: dirent.name, fullPath });
-          continue;
+        if (dirent.isDirectory()) {
+          entries.push({ name: dirent.name, fullPath, ...kindOf("directory") });
+        } else if (dirent.isSymbolicLink()) {
+          symlinkCandidates.push({ name: dirent.name, fullPath });
+        } else {
+          entries.push({ name: dirent.name, fullPath, ...kindOf("file") });
         }
+      }
+      if (symlinkCandidates.length > 0) {
         // A symlink is a folder only if its target is; one stat per link, never per file.
-        const isDirectory = dirent.isSymbolicLink()
-          ? yield* Effect.promise(() =>
-              NodeFSP.stat(fullPath).then(
-                (stats) => stats.isDirectory(),
-                () => false,
-              ),
-            )
-          : dirent.isDirectory();
-        entries.push({ name: dirent.name, fullPath, kind: isDirectory ? "directory" : "file" });
+        const resolvedSymlinks = yield* Effect.forEach(
+          symlinkCandidates,
+          (candidate) =>
+            Effect.promise(() => statSymlinkTarget(candidate)).pipe(
+              Effect.timeoutOption(SYMLINK_TARGET_STAT_TIMEOUT),
+              Effect.map(Option.getOrNull),
+            ),
+          { concurrency: MAX_PENDING_SYMLINK_TARGET_STATS },
+        );
+        for (const [index, candidate] of symlinkCandidates.entries()) {
+          if (resolvedSymlinks[index] !== null) {
+            entries.push({ ...candidate, ...kindOf("directory") });
+          } else if (includeFiles) {
+            entries.push({ ...candidate, kind: "file" });
+          }
+        }
       }
       const kindRank = (kind: "file" | "directory" | undefined) => (kind === "file" ? 1 : 0);
 
@@ -536,6 +573,7 @@ export const make = Effect.gen(function* () {
         let gitRoot = "";
         let gitPrefix = "";
         // stdin avoids argument limits; ignore classification is optional without git/repositories.
+        // ./ avoids leading : pathspec magic; check-ignore rejects --literal-pathspecs.
         const checkIgnore = (paths: ReadonlyArray<string>) =>
           vcsProcess
             .run({
@@ -543,7 +581,7 @@ export const make = Effect.gen(function* () {
               command: "git",
               args: ["-c", "core.fsmonitor=false", "check-ignore", "-z", "--stdin"],
               cwd: path.join(normalizedCwd, gitRoot),
-              stdin: `${paths.map((entryPath) => entryPath.slice(gitPrefix.length)).join("\0")}\0`,
+              stdin: `${paths.map((entryPath) => `./${entryPath.slice(gitPrefix.length)}`).join("\0")}\0`,
               allowNonZeroExit: true,
               timeoutMs: 10_000,
               maxOutputBytes: 16 * 1024 * 1024,
@@ -557,12 +595,12 @@ export const make = Effect.gen(function* () {
         }
         const directoryGitPath = target.relativePath.slice(gitPrefix.length);
         // Check ignored folders once to avoid child index lookups; exit 0 guarantees no tracked descendants.
-        // Symlinks and pathspec magic still need per-child checks.
+        // Symlinks and glob characters still need per-child checks.
         if (
           entries.length > IGNORE_CHECK_CHUNK_SIZE &&
           directoryGitPath !== "" &&
           !throughSymlink &&
-          !/^:|[*?[\\]/.test(directoryGitPath) &&
+          !/[*?[\\]/.test(directoryGitPath) &&
           (yield* checkIgnore([target.relativePath]))?.exitCode === 0
         ) {
           return {
@@ -576,7 +614,9 @@ export const make = Effect.gen(function* () {
             entries.slice(offset, offset + IGNORE_CHECK_CHUNK_SIZE).map((entry) => entry.path),
           );
           if (!result || (result.exitCode !== 0 && result.exitCode !== 1)) break;
-          for (const ignoredPath of result.stdout.split("\0")) ignored.add(gitPrefix + ignoredPath);
+          for (const ignoredPath of result.stdout.split("\0")) {
+            ignored.add(gitPrefix + ignoredPath.replace(/^\.\//, ""));
+          }
         }
         return {
           entries: entries.map((entry) =>

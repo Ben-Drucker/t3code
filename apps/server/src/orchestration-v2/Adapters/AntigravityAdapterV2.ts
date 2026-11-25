@@ -18,13 +18,14 @@ import * as EffectAcpErrors from "effect-acp/errors";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { PULL_REQUEST_LINKING_INSTRUCTIONS } from "@t3tools/provider-core/server/runtimeInstructions";
 import type { AntigravityAuth } from "../../provider/AntigravityAuth.ts";
-import { acpPermissionDisposition } from "@t3tools/provider-acp/server/clientPolicy";
 import type * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
 import {
   antigravityAppendsSystemPrompt,
   ANTIGRAVITY_SESSION_MODE_ALIASES,
+  antigravityPermissionDisposition,
   antigravityPermissionMode,
   antigravityRuntimeModeForSessionMode,
+  antigravitySteersWithPrompt,
   applyAntigravityAcpModelSelection,
   buildAntigravityPrompt,
   type AntigravityAcpRuntimeInput,
@@ -33,6 +34,8 @@ import {
   ANTIGRAVITY_SUBAGENT_BATCH_TITLE,
   antigravitySubagentLaunches,
   describeAntigravitySubagentLaunches,
+  readAntigravityChildrenAtWork,
+  readAntigravityPendingReply,
 } from "../../provider/acp/AntigravityChildWork.ts";
 import { readAntigravityClientTextFile } from "../../provider/acp/AntigravityClientFiles.ts";
 import { antigravityContextWindow } from "../../provider/antigravityCompaction.ts";
@@ -44,11 +47,13 @@ import {
 import { watchAntigravityPromptOutcome } from "../../provider/acp/AntigravityTurnOutcome.ts";
 import {
   antigravityApprovalOptions,
+  antigravityToolOutlivesPrompt,
   antigravityCommandOutlivesPrompt,
   antigravitySubagentOutput,
   classifyAntigravitySubagentToolCall,
   extractAntigravityUserInputQuestion,
   makeAntigravityReadRepair,
+  makeAntigravityUpdateStepsPlans,
   makeAntigravityUserInputResponse,
   normalizeAntigravityToolCall,
 } from "../../provider/acp/AntigravityProtocol.ts";
@@ -169,12 +174,12 @@ export function makeAntigravityAcpAdapterFlavor(
             ...input,
             clientFileReads: true,
             sessionSystemPromptAppend: ANTIGRAVITY_ACP_SESSION_INSTRUCTIONS,
-            additionalDirectories: [options.host.paths.attachmentsDir],
           }),
         )
         .pipe(Effect.provideService(Scope.Scope, scope));
       // Repair keeps state across updates, so each runtime must have one session-update handler.
       const reads = makeAntigravityReadRepair();
+      const plans = makeAntigravityUpdateStepsPlans();
       // Served reads are reported from the read handler, so they take turns with agent updates.
       const updates = yield* Semaphore.make(1);
       let projectUpdate: Parameters<typeof runtime.handleSessionUpdate>[0] | undefined;
@@ -205,9 +210,10 @@ export function makeAntigravityAcpAdapterFlavor(
           Effect.sync(reads.reset).pipe(Effect.andThen(runtime.prompt(payload, promptOptions))),
         handleSessionUpdate: (handler) => {
           projectUpdate = handler;
-          return runtime.handleSessionUpdate((notification) =>
-            updates.withPermit(handler(reads.repair(notification))),
-          );
+          return runtime.handleSessionUpdate((notification) => {
+            const update = plans(reads.repair(notification));
+            return update === undefined ? Effect.void : updates.withPermit(handler(update));
+          });
         },
         start: () =>
           runtime
@@ -236,21 +242,12 @@ export function makeAntigravityAcpAdapterFlavor(
     mcpOverHttp: true,
     sessionCarriesPullRequestLinking: antigravityAppendsSystemPrompt,
     makeRuntime,
-    buildAttachmentPrompt: ({
-      text,
-      attachments,
-      resolveAttachmentPath,
-      promptCapabilities,
-      agentVersion,
-      currentModel,
-    }) =>
+    buildAttachmentPrompt: ({ text, attachments, resolveAttachmentPath, promptCapabilities }) =>
       buildAntigravityPrompt({
         input: text,
         attachments,
         resolveAttachmentPath,
         promptCapabilities,
-        agentVersion,
-        currentModel,
       }).pipe(
         Effect.map((blocks) => (text.trim() ? blocks.slice(1) : blocks)),
         Effect.provideService(FileSystem.FileSystem, options.fileSystem),
@@ -264,10 +261,18 @@ export function makeAntigravityAcpAdapterFlavor(
     deferFinalizeForBackgroundWork: true,
     wakeOnDetachedRequest: true,
     replyEndsWithUsageUpdate: true,
-    toolOutlivesPrompt: antigravityCommandOutlivesPrompt,
+    toolOutlivesPrompt: antigravityToolOutlivesPrompt,
+    // agy sometimes loses the terminal update or wake for a background command, which would
+    // hold the turn in Working forever. 30 minutes still leaves long commands room.
+    postSettleCommandHold: {
+      timeout: "30 minutes",
+      isCommand: antigravityCommandOutlivesPrompt,
+    },
     // session/cancel ends the agent's running commands, so only Stop sends it once the prompt
     // has ended. A message sent while a command runs leaves the command alone.
     preserveRuntimeOnSettledInterrupt: true,
+    // `agy acp` reads a prompt sent mid-turn as a steer; cancel-and-restart killed its subagents.
+    steersWithPrompt: antigravitySteersWithPrompt,
     ...(options.onSessionEvent === undefined ? {} : { onSessionEvent: options.onSessionEvent }),
     applyModelSelection: Effect.fn("AntigravityAdapterV2.applyModelSelection")(function* ({
       runtime,
@@ -294,9 +299,7 @@ export function makeAntigravityAcpAdapterFlavor(
           request,
         }),
     },
-    // Native Auto has already reviewed these requests and still requires the user's decision.
-    permissionDisposition: (policy, request) =>
-      policy.runtimeMode === "auto" ? "ask" : acpPermissionDisposition(policy, request),
+    permissionDisposition: antigravityPermissionDisposition,
     approvalOptions: antigravityApprovalOptions,
     extractPermissionQuestion: (request) => {
       const question = extractAntigravityUserInputQuestion(request);
@@ -314,8 +317,7 @@ export function makeAntigravityAcpAdapterFlavor(
       ),
     extractSubagentUpdate: extractAntigravitySubagentUpdate,
     supportsImagePrompts: true,
-    // ACP 1.3.0 treats /compact as ordinary model input.
-    supportsCompaction: false,
+    compactViaAdvertisedCommand: true,
     makeContextCompactionObserver: () => {
       let previous: AntigravityContextReading | undefined;
       let configuration: ReadonlyArray<readonly [string, string]> | undefined;
@@ -355,9 +357,9 @@ export function makeAntigravityAcpAdapterFlavor(
       };
     },
     requiresSignIn: isAntigravitySignInRequiredError,
+    checksVersionAtHandshake: true,
     // Antigravity can leave a prompt open without updates; long tools and approvals pause this.
     promptInactivityTimeout: "15 minutes",
-    // 1.4.5 returns the root trajectory's Gemini usageMetadata delta; 1.4.1 returns none.
     reportsPerTurnPromptUsage: true,
     geminiPromptUsage: true,
     contextUsageWindow: antigravityContextWindow,
@@ -379,6 +381,17 @@ export function makeAntigravityAcpAdapterFlavor(
               "antigravity-acp",
               generationCursor,
             ),
+          subagentsOutlivingPrompt: ({ sessionId, nativeTaskIds }) =>
+            readAntigravityChildrenAtWork({
+              profileDirectory,
+              rootSessionId: sessionId,
+              toolCallIds: nativeTaskIds,
+            }),
+          hasPendingReply: (sessionId: string) =>
+            readAntigravityPendingReply({
+              profileDirectory,
+              sessionId,
+            }),
         }),
     ...(options.pollContextUsage === undefined
       ? {}

@@ -26,7 +26,7 @@ Snapshot inspected: `main` at `50c1c5d` (2026-10-31, "feat: side chats beside th
 desktop/server package version `0.1.5`. Layout: `apps/{desktop,server,web,mobile,marketing}`,
 `packages/*` (contracts, client-runtime, provider-_, source-control-_, ...), `scripts/`, `docs/`.
 
-Key docs in the upstream repo: `docs/operations/development.md` (setup, checks, desktop builds),
+Key docs in the upstream repo: `docs/operations/00_development.md` (setup, checks, desktop builds),
 `docs/operations/release.md` (release/signing), `docs/internals/overview.md` (architecture),
 `docs/internals/adding-a-provider.md`, `AGENTS.md` (conventions and hazards).
 

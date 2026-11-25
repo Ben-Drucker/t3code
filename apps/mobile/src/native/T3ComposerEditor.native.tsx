@@ -5,6 +5,7 @@ import {
   parseAgentConfigChip,
   parseAgentToolChip,
 } from "@t3tools/shared/composerInlineTokens";
+import { markdownMathRanges } from "@t3tools/shared/markdownMath";
 import {
   composerContextEditorTokens,
   composerSkillLabels,
@@ -172,12 +173,16 @@ export function ComposerEditor({
   // an abandoned render from leaking a trailing token into the next one.
   const [confirmedTokens, setConfirmedTokens] = useState(() => ({
     value: props.value,
-    tokens: collectComposerInlineTokens(props.value, { agentConfigs: true }),
+    tokens: collectComposerInlineTokens(props.value, {
+      agentConfigs: true,
+      findMath: markdownMathRanges,
+    }),
   }));
   let tokens = confirmedTokens.tokens;
   if (confirmedTokens.value !== props.value) {
     tokens = collectComposerInlineTokens(props.value, {
       agentConfigs: true,
+      findMath: markdownMathRanges,
       preserveTrailingFrom: confirmedTokens.tokens,
     });
     setConfirmedTokens({ value: props.value, tokens });
@@ -240,7 +245,9 @@ export function ComposerEditor({
                   : token.type === "citation"
                     ? token.value
                     : (config?.model ??
-                      (tool ? `${tool.source} > ${tool.tool}` : basename(token.value))),
+                      (tool
+                        ? `${tool.source} > ${tool.tool}`
+                        : basename(token.value).normalize("NFC"))),
           detail: token.type === "context" ? composerChipSizeSuffix(record) : "",
           iconUri: model ? modelChipIconUri(model) : contextChipIconUri(icon),
           tintsIcon: model ? modelChipIcon(model).tintsIcon : icon.kind === "chip",

@@ -4,13 +4,9 @@ import {
   type ProviderOptionDescriptor,
   type ServerProviderModel,
 } from "@t3tools/contracts";
-import {
-  CHAT_MARKDOWN_REHYPE_PLUGINS,
-  CHAT_MARKDOWN_REMARK_PLUGINS,
-} from "@t3tools/shared/markdownPipeline";
 import { createElement, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { defaultUrlTransform, type ExtraProps } from "react-markdown";
+import type { Element as HastElement } from "hast";
 import { describe, expect, it } from "vite-plus/test";
 
 import { AgentConfigCatalogContext } from "./AgentConfigChip";
@@ -67,7 +63,11 @@ const catalog: ReadonlyArray<ChipCatalogEntry> = [
 ];
 
 function wrapInlineChips<Tag extends "p" | "li" | "td" | "th" | "h3">(tag: Tag) {
-  return function Wrapped({ node: _node, children, ...props }: ComponentProps<Tag> & ExtraProps) {
+  return function Wrapped({
+    node: _node,
+    children,
+    ...props
+  }: ComponentProps<Tag> & { node?: HastElement | undefined }) {
     return createElement(
       tag,
       props,
@@ -76,10 +76,9 @@ function wrapInlineChips<Tag extends "p" | "li" | "td" | "th" | "h3">(tag: Tag) 
   };
 }
 
-const renderMarkdown = createMarkdownRenderer({
-  remarkPlugins: CHAT_MARKDOWN_REMARK_PLUGINS,
-  rehypePlugins: CHAT_MARKDOWN_REHYPE_PLUGINS,
-  urlTransform: defaultUrlTransform,
+const renderer = createMarkdownRenderer({
+  markdown: { math: false, breaks: false, escapeHtml: false, insights: false, extensions: {} },
+  urlTransform: (url) => url,
   components: {
     p: wrapInlineChips("p"),
     li: wrapInlineChips("li"),
@@ -98,7 +97,7 @@ const renderMarkdown = createMarkdownRenderer({
 function renderHtml(markdown: string): string {
   return renderToStaticMarkup(
     <AgentConfigCatalogContext value={catalog}>
-      {renderMarkdown(markdown)}
+      {renderer.element(renderer.parse(markdown))}
     </AgentConfigCatalogContext>,
   );
 }
@@ -142,9 +141,11 @@ describe("assistant markdown %[...] chip rendering", () => {
     );
 
     expect(html).not.toContain("data-markdown-copy=");
-    expect(html).toContain('<code data-inline-code="">%[tool: T3 &gt; delegate_task]</code>');
     expect(html).toContain(
-      '<code data-inline-code="">%[model: claudeAgent/claude-opus-4-6, effort=max]</code>',
+      '<code data-inline-code="" dir="ltr">%[tool: T3 &gt; delegate_task]</code>',
+    );
+    expect(html).toContain(
+      '<code data-inline-code="" dir="ltr">%[model: claudeAgent/claude-opus-4-6, effort=max]</code>',
     );
     expect(html).toContain(
       '<pre><code class="language-txt">%[tool: T3 &gt; delegate_task]\n%[model: claudeAgent/claude-opus-4-6, effort=max]\n</code></pre>',

@@ -11,6 +11,7 @@ import {
   markdownWithInlineFileLinks,
   markdownWithRgbHexChips,
   markdownWithTableBreaks,
+  markdownWithTextDirection,
 } from "../lib/markdownDocument";
 import { useGT } from "gt-react-native";
 import { isValidElement, useMemo, useState, type ReactElement, type ReactNode } from "react";
@@ -22,6 +23,7 @@ import {
   type MarkdownImageBlock,
   type MarkdownLinkOccurrence,
   type MarkdownStyle,
+  type TextSelectionMenuConfig,
 } from "react-native-enriched-markdown";
 import { codeFenceRenderer } from "./codeBlockMarkdown";
 import { HighlightedCodeBlock } from "./HighlightedCodeBlock";
@@ -49,6 +51,8 @@ function enrichedStyle(
   fontScale: number,
 ): MarkdownStyle {
   const monospace = Platform.OS === "ios" ? "Menlo" : "monospace";
+  // Android only bolds fallback glyphs when the bold family is asked for at a bold weight (app.config.ts).
+  const boldFontWeight = Platform.OS === "android" ? "bold" : undefined;
   // Keep the radius modest: iOS clips square table-cell borders without stroking the corner arcs.
   const block = {
     marginTop: 4,
@@ -71,6 +75,7 @@ function enrichedStyle(
       ...body,
       color: style.strongColor,
       fontFamily: style.headingFontFamily,
+      fontWeight: boldFontWeight,
       fontSize,
       lineHeight: fontSize * 1.35,
       marginTop: 8,
@@ -93,7 +98,11 @@ function enrichedStyle(
     h4: heading(4),
     h5: heading(5),
     h6: heading(6),
-    strong: { color: style.strongColor, fontFamily: style.boldFontFamily, fontWeight: "normal" },
+    strong: {
+      color: style.strongColor,
+      fontFamily: style.boldFontFamily,
+      fontWeight: boldFontWeight ?? "normal",
+    },
     link: { color: style.linkColor, underline: false },
     code: {
       fontFamily: monospace,
@@ -183,7 +192,8 @@ function codeBlockElement(
   mathRenderingEnabled: boolean,
   scheme: HighlightScheme,
   accessibilityLabels: AccessibilityLabels,
-  onRunShellCommand?: (command: string) => void,
+  onRunShellCommand: ((command: string) => void) | undefined,
+  selectionMenuConfig: TextSelectionMenuConfig,
 ): ReactElement | undefined {
   const renderer = codeFenceRenderer(
     block.language,
@@ -208,6 +218,7 @@ function codeBlockElement(
         selectionColor={textStyle.selectionColor}
         selectionHandleColor={textStyle.selectionHandleColor}
         accessibilityLabels={accessibilityLabels}
+        selectionMenuConfig={selectionMenuConfig}
       />
     ) : undefined;
   }
@@ -253,12 +264,28 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
     }),
     [gt],
   );
+
+  // The library's built-in selection menu items default to English labels.
+  const selectionMenuConfig = useMemo<TextSelectionMenuConfig>(
+    () => ({
+      copy: { label: gt("Copy", { $context: "verb" }) },
+      copyAsMarkdown: { label: gt("Copy as Markdown") },
+      copyImageUrl: {
+        label: gt("Copy Image URL"),
+        pluralLabels: { other: gt("Copy {count} Image URLs", { count: "{count}" }) },
+      },
+    }),
+    [gt],
+  );
   const { markdown, fileHrefs, rgbChips } = useMemo(() => {
     if (!fileEmbedLabel) {
       return {
-        ...markdownWithRgbHexChips(
-          markdownForNativeRendering(props.markdown, ENRICHED_INLINE_FILE_LINK_REGEX),
-        ),
+        ...(() => {
+          const chips = markdownWithRgbHexChips(
+            markdownForNativeRendering(props.markdown, ENRICHED_INLINE_FILE_LINK_REGEX),
+          );
+          return { ...chips, markdown: markdownWithTextDirection(chips.markdown) };
+        })(),
         fileHrefs: new Set<string>(),
       };
     }
@@ -267,7 +294,8 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
       ENRICHED_INLINE_FILE_LINK_REGEX,
     );
     const files = markdownWithFileEmbeds(content, fileEmbedLabel);
-    return { ...files, ...markdownWithRgbHexChips(markdownWithTableBreaks(files.markdown)) };
+    const chips = markdownWithRgbHexChips(markdownWithTableBreaks(files.markdown));
+    return { ...files, ...chips, markdown: markdownWithTextDirection(chips.markdown) };
   }, [props.markdown, fileEmbedLabel]);
   const [parsedLinkUrls, setParsedLinkUrls] = useState<ReadonlyArray<string>>([]);
   const onLinksChange = (links: MarkdownLinkOccurrence[]) => {
@@ -422,6 +450,7 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
         themeAppearance,
         accessibilityLabels,
         props.onRunShellCommand,
+        selectionMenuConfig,
       ),
   };
   const resolveNativeImageSource = useRetryingImageSource(resolveImageSource);
@@ -480,6 +509,7 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
               : undefined
           }
           selectionClipboard={selectionClipboard}
+          selectionMenuConfig={selectionMenuConfig}
           selectionColor={props.textStyle.selectionColor}
           selectionHandleColor={props.textStyle.selectionHandleColor}
           md4cFlags={{

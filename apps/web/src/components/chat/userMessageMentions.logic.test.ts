@@ -1,40 +1,49 @@
-import { fromMarkdown } from "mdast-util-from-markdown";
+import type { Element, Root } from "hast";
 import { expect, it } from "vite-plus/test";
 
-import { remarkUserMessageMentions } from "./userMessageMentions";
+import { linkUserMessageMentions } from "./userMessageMentions";
+
+const text = (value: string) => ({ type: "text" as const, value });
+const element = (tagName: string, children: Element["children"], properties = {}): Element => ({
+  type: "element",
+  tagName,
+  properties,
+  children,
+});
 
 it("links file and directory mentions while preserving code and existing links", () => {
-  const tree = fromMarkdown(
-    'Inspect @"src/main.ts" and @"src/components" plus @"My Folder"\n\n' +
-      "`@src/code` [@src/label](https://example.com)\n\n```\n@src/fenced\n```",
-  );
-  remarkUserMessageMentions()(tree);
-  expect(tree.children[0]).toMatchObject({
-    type: "paragraph",
+  const tree: Root = {
+    type: "root",
     children: [
-      { type: "text", value: "Inspect " },
-      { type: "link", url: "src/main.ts", children: [{ type: "text", value: "src/main.ts" }] },
-      { type: "text", value: " and " },
-      {
-        type: "link",
-        url: "src/components",
-        children: [{ type: "text", value: "src/components" }],
-      },
-      { type: "text", value: " plus " },
-      { type: "link", url: "./My Folder", children: [{ type: "text", value: "My Folder" }] },
+      element("p", [text('Inspect @"src/main.ts" and @"src/components" plus @"My Folder"')]),
+      element("p", [
+        element("code", [text("@src/code")]),
+        text(" "),
+        element("a", [text("@src/label")], { href: "https://example.com" }),
+      ]),
+      element("pre", [element("code", [text("@src/fenced\n")])]),
+    ],
+  };
+  linkUserMessageMentions(tree);
+  expect(tree.children[0]).toMatchObject({
+    tagName: "p",
+    children: [
+      text("Inspect "),
+      { tagName: "a", properties: { href: "src/main.ts" }, children: [text("src/main.ts")] },
+      text(" and "),
+      { tagName: "a", properties: { href: "src/components" }, children: [text("src/components")] },
+      text(" plus "),
+      { tagName: "a", properties: { href: "./My Folder" }, children: [text("My Folder")] },
     ],
   });
   expect(tree.children[1]).toMatchObject({
-    type: "paragraph",
     children: [
-      { type: "inlineCode", value: "@src/code" },
-      { type: "text", value: " " },
-      {
-        type: "link",
-        url: "https://example.com",
-        children: [{ type: "text", value: "@src/label" }],
-      },
+      { tagName: "code", children: [text("@src/code")] },
+      text(" "),
+      { tagName: "a", properties: { href: "https://example.com" }, children: [text("@src/label")] },
     ],
   });
-  expect(tree.children[2]).toMatchObject({ type: "code", value: "@src/fenced" });
+  expect(tree.children[2]).toMatchObject({
+    children: [{ tagName: "code", children: [text("@src/fenced\n")] }],
+  });
 });

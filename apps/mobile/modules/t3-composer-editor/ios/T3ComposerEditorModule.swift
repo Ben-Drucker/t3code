@@ -121,6 +121,7 @@ public class T3ComposerEditorModule: Module {
         "onComposerSubmit",
         "onComposerPickerKey",
         "onComposerPasteImages",
+        "onComposerPasteImagesPending",
         "onComposerContextPress",
         "onComposerPasteContext",
         "onComposerPasteText",

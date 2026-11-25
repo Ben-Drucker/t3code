@@ -26,7 +26,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import type { LegendListRenderItemProps } from "@legendapp/list/react-native";
-import { RegistryContext, useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { RegistryContext, useAtomMount, useAtomValue } from "@effect/atom-react";
 import { AnimatedLegendList } from "@legendapp/list/reanimated";
 import {
   describeRecentModelConfiguration,
@@ -109,7 +109,7 @@ import { useSelectedThreadWorktree } from "../../state/use-selected-thread-workt
 import { providerWorkspaceSnapshotRefresh } from "../../state/provider-workspace-snapshot-refresh";
 import { threadAllowsProviderSwitch } from "../../state/thread-provider-switching";
 import { environmentServerConfigsAtom, serverEnvironment } from "../../state/server";
-import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
+import { mobilePreferencesAtom, saveMobilePreferences } from "../../state/preferences";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useNewTaskFlow } from "./new-task-flow-provider";
 import { ScreenContent } from "../../components/ui/ScreenContent";
@@ -129,11 +129,10 @@ import {
 } from "./thread-settings-options";
 import {
   canCommitPendingModel,
-  favoritesFirst,
   modelFavoriteKey,
-  modelMatchesCatalogQuery,
   pendingModelAfterPress,
   providerSectionIsCollapsed,
+  visibleCatalogModels,
 } from "./thread-settings-sheet-state";
 import { rankModelPickerSearch } from "@t3tools/client-runtime/model-search";
 import { formatProviderUpdateRequiredNotice } from "@t3tools/client-runtime/providerUpdateRequiredModels";
@@ -159,7 +158,6 @@ const EMPTY_MODEL_FAVORITES: ReadonlyArray<{
   readonly provider: ProviderInstanceId;
   readonly model: string;
 }> = [];
-const FAVORITES_PROVIDER_FILTER = "@favorites";
 const RECENTS_PROVIDER_FILTER = "@recents";
 // Servers that predate `migrateModelPreferences` drop it and keep reporting null favorites.
 const attemptedMigrationGenerations = new Map<EnvironmentId, number>();
@@ -382,6 +380,7 @@ type ThreadSettingsSessionValue = {
   readonly providerExpansionOverrides: ReadonlySet<string>;
   readonly hasLegacyModels: boolean;
   readonly pendingModel: ModelOption | null;
+  readonly favoritesOnly: boolean;
   readonly providerFilter: string | null;
   readonly searchQuery: string;
   readonly showLegacy: boolean;
@@ -390,6 +389,7 @@ type ThreadSettingsSessionValue = {
   readonly isApplied: (option: ModelOption) => boolean;
   readonly isDisplayed: (option: ModelOption) => boolean;
   readonly pressModel: (option: ModelOption) => void;
+  readonly setFavoritesOnly: (favoritesOnly: boolean) => void;
   readonly setProviderFilter: (providerKey: string | null) => void;
   readonly setSearchQuery: (query: string) => void;
   readonly setShowLegacy: (showLegacy: boolean) => void;
@@ -407,7 +407,7 @@ function ThreadSettingsSessionProvider(
   const messages = useMessages();
   const registry = use(RegistryContext);
   const preferences = useAtomValue(mobilePreferencesAtom);
-  const updatePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const updatePreferences = useAtomCommand(saveMobilePreferences);
   const configs = useAtomValue(environmentServerConfigsAtom);
   const config = props.environmentId ? configs.get(props.environmentId) : undefined;
   const settings = config?.settings;
@@ -482,7 +482,7 @@ function ThreadSettingsSessionProvider(
   const recordSelection = (selection: ModelSelection, option: ModelOption | null) => {
     const environmentId = props.environmentId;
     if (!environmentId) return;
-    updatePreferences({
+    void updatePreferences({
       transform: (current) => ({
         recentModelConfigurations: rememberRecentModelConfiguration(
           current.recentModelConfigurations ?? [],
@@ -615,15 +615,15 @@ function ThreadSettingsSessionProvider(
     });
   };
   const [showLegacyToggle, setShowLegacyToggle] = useState(false);
-  const [providerFilter, setProviderFilter] = useState<string | null>(() => {
-    if (!props.onModelPicked) return null;
-    const hasFavorite = props.providerGroups.some((group) =>
-      group.models.some((model) => !model.isHidden && favoriteKeys.has(model.key)),
-    );
-    return !props.lockedProviderInstanceId && hasFavorite
-      ? FAVORITES_PROVIDER_FILTER
-      : (props.providerInstanceId ?? null);
-  });
+  const [favoritesOnly, setFavoritesOnly] = useState(
+    () =>
+      props.onModelPicked !== undefined &&
+      !props.lockedProviderInstanceId &&
+      props.providerGroups.some((group) =>
+        group.models.some((model) => !model.isHidden && favoriteKeys.has(model.key)),
+      ),
+  );
+  const [providerFilter, setProviderFilter] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState(props.initialSearchQuery ?? "");
   const [providerExpansionOverrides, setProviderExpansionOverrides] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -787,9 +787,7 @@ function ThreadSettingsSessionProvider(
   const environmentId = props.environmentId;
   // Like the web picker's open tab: scanning every provider would spawn a probe per provider.
   const scannedInstanceId =
-    providerFilter !== null &&
-    providerFilter !== FAVORITES_PROVIDER_FILTER &&
-    providerFilter !== RECENTS_PROVIDER_FILTER
+    providerFilter !== null && providerFilter !== RECENTS_PROVIDER_FILTER
       ? ProviderInstanceId.make(providerFilter)
       : props.providerInstanceId;
   const workspaceScan =
@@ -817,6 +815,7 @@ function ThreadSettingsSessionProvider(
     providerExpansionOverrides,
     hasLegacyModels,
     pendingModel,
+    favoritesOnly,
     providerFilter,
     searchQuery,
     showLegacy: showLegacyToggle,
@@ -825,6 +824,7 @@ function ThreadSettingsSessionProvider(
     isApplied,
     isDisplayed,
     pressModel,
+    setFavoritesOnly,
     setProviderFilter,
     setSearchQuery,
     setShowLegacy: setShowLegacyToggle,
@@ -1005,7 +1005,7 @@ function subProviderCatalogItems(
   if (
     !group.subProviders?.length ||
     session.searchQuery.trim().length > 0 ||
-    session.providerFilter === FAVORITES_PROVIDER_FILTER
+    session.favoritesOnly
   ) {
     return null;
   }
@@ -1077,38 +1077,21 @@ function buildThreadSettingsCatalogItems(
     }));
   }
   return session.providerGroups.flatMap((group) => {
-    if (
-      session.providerFilter !== null &&
-      session.providerFilter !== FAVORITES_PROVIDER_FILTER &&
-      group.providerKey !== session.providerFilter
-    ) {
+    if (session.providerFilter !== null && group.providerKey !== session.providerFilter) {
       return [];
     }
     const driver = group.models[0]?.providerDriver ?? group.providerKey;
-    const catalogModels =
-      session.manageHidden ||
-      session.showLegacy ||
-      session.providerFilter === FAVORITES_PROVIDER_FILTER
-        ? group.models
-        : group.models.filter(
-            (model) =>
-              !model.isLegacy || session.isDisplayed(model) || session.favoriteKeys.has(model.key),
-          );
-    const visibleModels = favoritesFirst(
-      catalogModels.filter(
-        (model) =>
-          (session.providerFilter !== FAVORITES_PROVIDER_FILTER ||
-            session.favoriteKeys.has(model.key)) &&
-          modelMatchesCatalogQuery({
-            model,
-            providerLabel: group.providerLabel,
-            query: session.searchQuery,
-          }),
-      ),
-      session.favoriteKeys,
-    );
+    const visibleModels = visibleCatalogModels({
+      models: group.models,
+      providerLabel: group.providerLabel,
+      query: session.searchQuery,
+      favoriteKeys: session.favoriteKeys,
+      favoritesOnly: session.favoritesOnly,
+      showLegacy: session.manageHidden || session.showLegacy,
+      isDisplayed: session.isDisplayed,
+    });
     const updateRequiredNotice =
-      group.updateRequired && session.providerFilter !== FAVORITES_PROVIDER_FILTER
+      group.updateRequired && !session.favoritesOnly
         ? formatProviderUpdateRequiredNotice(
             group.updateRequired,
             session.searchQuery,
@@ -1121,7 +1104,10 @@ function buildThreadSettingsCatalogItems(
     }
     const isPrimary = driver !== undefined && PRIMARY_PROVIDER_DRIVERS.has(driver);
     const containsAppliedSelection = group.models.some(session.isApplied);
-    const isNarrowed = session.providerFilter !== null || session.searchQuery.trim().length > 0;
+    const isNarrowed =
+      session.favoritesOnly ||
+      session.providerFilter !== null ||
+      session.searchQuery.trim().length > 0;
     const collapsible = !isNarrowed;
     const collapsed = providerSectionIsCollapsed({
       defaultExpanded: isPrimary || containsAppliedSelection,
@@ -1319,7 +1305,9 @@ function ThreadSettingsMainContent(props: {
   const animationsReady = listLoaded && !reducedMotion && !reduceMotionEnabled;
   const catalogItems = buildThreadSettingsCatalogItems(session, m, locale);
   const hasActiveCatalogFilter =
-    session.providerFilter !== null || session.searchQuery.trim().length > 0;
+    session.favoritesOnly ||
+    session.providerFilter !== null ||
+    session.searchQuery.trim().length > 0;
   const listItems = [
     ...(catalogItems.length === 0 ? ([{ kind: "empty", key: "empty" }] as const) : catalogItems),
     { kind: "options", key: "options" },
@@ -1346,7 +1334,8 @@ function ThreadSettingsMainContent(props: {
       content = (
         <View className="items-center px-8 py-14">
           <Text className="text-center text-sm text-foreground-muted">
-            {session.providerFilter === FAVORITES_PROVIDER_FILTER &&
+            {session.favoritesOnly &&
+            session.providerFilter === null &&
             session.searchQuery.trim().length === 0
               ? gt("No favorite models")
               : session.providerFilter === RECENTS_PROVIDER_FILTER && !session.searchQuery.trim()
@@ -1541,7 +1530,8 @@ function ThreadSettingsModelsScreen() {
   const session = useThreadSettingsSession();
   const presentation = useThreadSettingsPickerPresentation();
   const navigation = useNavigation<NativeStackNavigationProp<ThreadSettingsPickerStackParams>>();
-  const hasCustomCatalogFilter = session.providerFilter !== null || session.showLegacy;
+  const hasCustomCatalogFilter =
+    session.favoritesOnly || session.providerFilter !== null || session.showLegacy;
   const commitAndClose = useEffectEvent(() => {
     if (!session.commitPendingModel()) return;
     presentation.onClose();
@@ -1557,7 +1547,6 @@ function ThreadSettingsModelsScreen() {
   const searchToolbarInset = useSearchToolbarInset(search);
   const providerFilters = [
     { id: "all-providers", title: gt("All providers"), value: null },
-    { id: "favorites", title: gt("Favorites"), value: FAVORITES_PROVIDER_FILTER },
     { id: "recents", title: gt("Recents"), value: RECENTS_PROVIDER_FILTER },
     ...session.providerGroups.map((group) => ({
       id: `provider:${group.providerKey}`,
@@ -1580,6 +1569,12 @@ function ThreadSettingsModelsScreen() {
               ? "line.3.horizontal.decrease.circle.fill"
               : "line.3.horizontal.decrease",
             items: [
+              {
+                id: "favorites-only",
+                title: gt("Favorites only"),
+                selected: session.favoritesOnly,
+                onPress: () => session.setFavoritesOnly(!session.favoritesOnly),
+              },
               {
                 id: "provider",
                 title: gt("Provider"),
@@ -1607,6 +1602,7 @@ function ThreadSettingsModelsScreen() {
           },
         ]}
         optionsVersion={[
+          session.favoritesOnly,
           session.providerFilter,
           session.providerGroups.map((group) => group.providerKey),
           session.showLegacy,
@@ -1760,10 +1756,11 @@ export function ExistingThreadSettingsRouteScreen({
   const structure = useQuietThreadStructure(selectedThreadDetailRef);
   const reportedModelSelection = useThreadReportedModelSelection(selectedThreadDetailRef);
   const threadKey = scopedThreadKey(route.params.environmentId, route.params.threadId);
-  const draftSettings = useComposerDraftSettings(threadKey);
   const queuedRunEdit = useQueuedRunEdit(threadKey);
   // A queued edit can end while the sheet is open; the prompt then belongs to the thread's draft.
   const draftKey = activeComposerDraftKey(threadKey, route.params.draftKey, queuedRunEdit);
+  const draftSettings = useComposerDraftSettings(draftKey);
+  const threadDraftSettings = useComposerDraftSettings(threadKey);
   const prompt = useComposerDraft(draftKey).text;
 
   if (!selectedThread) {
@@ -1847,7 +1844,7 @@ export function ExistingThreadSettingsRouteScreen({
         rememberModelOptions(modelSelection.instanceId, modelSelection.model, options ?? []);
         updateModelSelection({ ...modelSelection, options });
       }}
-      runtimeMode={draftSettings.runtimeMode ?? selectedThread.runtimeMode}
+      runtimeMode={threadDraftSettings.runtimeMode ?? selectedThread.runtimeMode}
       onUpdateRuntimeMode={(runtimeMode) => updateComposerDraftSettings(threadKey, { runtimeMode })}
       onClose={() => navigation.goBack()}
     />

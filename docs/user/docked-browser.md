@@ -15,7 +15,7 @@ Full-screen T3 windows hide the docked browser. Moving the pair between Spaces i
 
 T3 Code connects to your running Firefox and opens a dedicated window using your normal profile,
 extensions, saved logins, and passkeys. Start Firefox with Marionette, WebDriver BiDi, and system
-access enabled (see the [development guide](../operations/development.md#firefox-server-preview)).
+access enabled (see the [development guide](../operations/00_development.md#firefox-server-preview)).
 T3 docks only its dedicated window. Your other Firefox windows stay where you left them.
 If Firefox is unavailable or T3 cannot identify its window unambiguously, T3 uses the built-in preview.
 

@@ -28,7 +28,7 @@ import {
   WrenchIcon,
   type LucideIcon,
 } from "lucide-react";
-import { msg, useGT, useMessages } from "gt-react";
+import { T, msg, useGT, useMessages } from "gt-react";
 import { Fragment, memo, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../composer-logic";

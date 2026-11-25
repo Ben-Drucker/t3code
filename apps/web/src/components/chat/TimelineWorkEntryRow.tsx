@@ -29,7 +29,6 @@ import {
 import { claudeSkillInvocation } from "@t3tools/shared/toolActivity";
 import { msg, T, useGT, useMessages, Var } from "gt-react";
 import { memo, use, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { observeResize } from "~/lib/observeResize";
 import {
   workEntryDisplayIndicatesToolFailure,
   workEntrySignalsSevereFailure,
@@ -39,10 +38,13 @@ import ChatMarkdown from "../ChatMarkdown";
 import { ChatMarkdownAssetImage } from "./ChatMarkdownMedia";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
 import { workGroupImageGallery } from "./markdownImageGallery";
+import { McpSignInAction } from "./McpSignInAction";
+import * as DateTime from "effect/DateTime";
 import { ChevronRightIcon, CircleAlertIcon, XIcon, RotateCcwIcon } from "lucide-react";
 import { Button, InlineButton } from "../ui/button";
 import { useAssetUrls } from "../../assets/assetUrls";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
+import { observeResize } from "../../lib/observeResize";
 import { useThreadShell } from "../../state/entities";
 import {
   threadReadTargetId,
@@ -73,7 +75,7 @@ import {
   workEntryRawCommand,
   buildToolCallExpandedBody,
   workEntryIconName,
-  thoughtPreviewPlugins,
+  thoughtPreviewMarkdown,
   THOUGHT_PREVIEW_SOURCE_MAX_LENGTH,
 } from "./TimelineWorkEntryRow.logic";
 
@@ -285,7 +287,6 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
   const [userToggled, setUserToggled] = useState(false);
   const isReasoning = workEntry.itemType === "reasoning";
   const multilineThought = workEntry.detail?.trim().includes("\n") ?? false;
-  const thoughtLabelRef = useRef<HTMLSpanElement>(null);
   const [thoughtOverflows, setThoughtOverflows] = useState(false);
   const reasoningText = isReasoning ? (workEntry.detail?.trim() ?? "") : "";
   const canExpandReasoning = reasoningText !== "" && (multilineThought || thoughtOverflows);
@@ -302,13 +303,27 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
   const wrapsInRow = expanded && isReasoning;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures whether the collapsed label is clipped by the DOM
   useLayoutEffect(() => {
-    const el = thoughtLabelRef.current;
+    const el = labelRef.current;
     if (!el || expanded || !reasoningText) return;
     const measure = () =>
       setThoughtOverflows(reasoningText.length > 0 && el.scrollWidth > el.clientWidth + 1);
     measure();
     return observeResize(el, measure);
   }, [expanded, reasoningText]);
+  const noticeMessage =
+    workEntry.structuredPayload?.type === "system_notice"
+      ? workEntry.structuredPayload.message
+      : null;
+  const labelRef = useRef<HTMLSpanElement>(null);
+  const [noticeCutOff, setNoticeCutOff] = useState(false);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- only layout knows whether a notice fits its row
+  useLayoutEffect(() => {
+    const label = labelRef.current;
+    if (!label || noticeMessage === null) return;
+    const measure = () => setNoticeCutOff(label.scrollWidth > label.clientWidth);
+    measure();
+    return observeResize(label, measure);
+  }, [noticeMessage]);
   const onInitialOutputReady = () => {
     if (groupView) groupView.onContentReady?.(workEntry.id);
     else props.onContentReady?.();
@@ -426,6 +441,18 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       : null;
   const viewedImagePath = workEntryViewedImagePath(workEntry);
   const payload = workEntry.structuredPayload;
+  const mcpSignIn =
+    payload?.type === "system_notice" &&
+    payload.mcpSignIn !== undefined &&
+    payload.providerThreadId !== null ? (
+      <McpSignInAction
+        environmentId={ctx.activeThreadEnvironmentId}
+        threadId={payload.threadId}
+        providerThreadId={payload.providerThreadId}
+        server={payload.mcpSignIn.server}
+        noticeAt={DateTime.toEpochMillis(payload.updatedAt)}
+      />
+    ) : null;
   const skill =
     payload?.type === "dynamic_tool"
       ? claudeSkillInvocation(payload.toolName, payload.input)
@@ -484,15 +511,17 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
     ? false
     : isReasoning
       ? canExpandReasoning
-      : plainOutput !== undefined
-        ? Boolean(plainOutput || viewedImage || workEntry.questionAnswer || plainOutputFetches)
-        : workEntry.projectedItem === undefined
-          ? canExpand
-          : Boolean(
-              viewedImage ||
-              workEntry.questionAnswer ||
-              turnItemHasDetail(workEntry.projectedItem.item),
-            );
+      : // A notice's details repeat its row, so it expands only to show text the row cuts off.
+        (noticeMessage === null || noticeCutOff) &&
+        (plainOutput !== undefined
+          ? Boolean(plainOutput || viewedImage || workEntry.questionAnswer || plainOutputFetches)
+          : workEntry.projectedItem === undefined
+            ? canExpand
+            : Boolean(
+                viewedImage ||
+                workEntry.questionAnswer ||
+                turnItemHasDetail(workEntry.projectedItem.item),
+              ));
   // An expanded shell command points its prompt down so the open row stands out in long output.
   const expandedCommand = expanded && workEntry.projectedItem?.item.type === "command_execution";
   const iconWrapperClass = cn(
@@ -524,34 +553,25 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
   const accessibleDisplayText = showFailedIndicator
     ? gt("{label}, tool call failed", { label: accessiblePreview })
     : accessiblePreview;
-  const rowToggleProps = isTodoList
+  const rowAction = isTodoList
+    ? openTasksPanel
+    : canExpandProjectedItem
+      ? toggleExpanded
+      : undefined;
+  const rowToggleProps = rowAction
     ? {
         role: "button" as const,
         tabIndex: 0 as const,
         "aria-label": accessibleDisplayText,
-        onClick: openTasksPanel,
+        ...(isTodoList ? {} : { "aria-expanded": expanded }),
         onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
           if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
             e.preventDefault();
-            openTasksPanel();
+            rowAction();
           }
         },
       }
-    : canExpandProjectedItem
-      ? {
-          role: "button" as const,
-          tabIndex: 0 as const,
-          "aria-label": accessibleDisplayText,
-          "aria-expanded": expanded,
-          onClick: toggleExpanded,
-          onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
-            if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
-              e.preventDefault();
-              toggleExpanded();
-            }
-          },
-        }
-      : {};
+    : undefined;
 
   return (
     <WorkLogRow
@@ -560,7 +580,8 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       data-v2-item-visibility={workEntry.projectedItem?.visibility}
       tinted={expandedCommand}
       wrapLabel={wrapsInRow}
-      {...rowToggleProps}
+      onClick={rowAction}
+      toggle={rowToggleProps}
       icon={
         <span
           className={iconWrapperClass}
@@ -579,9 +600,9 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
         <div className="min-w-0 flex-1 overflow-hidden">
           <div className="flex min-w-0 w-full items-baseline gap-1.5 text-sm leading-relaxed">
             <span
-              ref={thoughtLabelRef}
+              ref={labelRef}
               className={cn(
-                answerPreview ? "min-w-0" : "min-w-0 flex-1",
+                answerPreview || mcpSignIn ? "min-w-0" : "min-w-0 flex-1",
                 wrapsInRow ? "whitespace-normal break-words" : "truncate",
                 headingClass,
               )}
@@ -614,10 +635,10 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
                     )}
                     cwd={ctx.markdownCwd}
                     parseRawHtml={false}
-                    extraRemarkPlugins={
+                    extensions={
                       workEntry.toolLifecycleStatus === "inProgress"
-                        ? thoughtPreviewPlugins(gt("Thinking"))
-                        : thoughtPreviewPlugins(gt("Thought"))
+                        ? thoughtPreviewMarkdown(gt("Thinking"))
+                        : thoughtPreviewMarkdown(gt("Thought"))
                     }
                   />
                 )
@@ -647,11 +668,20 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
                 {answerPreview}
               </span>
             ) : null}
+            {mcpSignIn}
           </div>
         </div>
       }
       trailing={
         <>
+          {/* First, so revealing it takes label space instead of moving the controls. Notices
+              skip it, so hovering never changes what fits or moves Sign in. */}
+          {noticeMessage === null ? (
+            <TimelineRowTimestamp
+              createdAt={workEntry.createdAt}
+              timestampFormat={timestampFormat}
+            />
+          ) : null}
           {createdThread ? (
             <button
               type="button"
@@ -697,7 +727,6 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
               />
             </span>
           ) : null}
-          <TimelineRowTimestamp createdAt={workEntry.createdAt} timestampFormat={timestampFormat} />
         </>
       }
     >

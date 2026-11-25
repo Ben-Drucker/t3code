@@ -51,7 +51,6 @@ it.each(["file", "directory"] as const)(
       composerPreviewAnnotations: [],
       composerReviewComments: [],
       composerEditorRef: { current: null },
-      composerMenuOpenRef: menuOpen,
       composerMenuItemsRef: { current: [{ ...item, id: "first" }, item] },
       activeComposerMenuItemRef: { current: item },
       setComposerDraftPrompt: vi.fn(),
@@ -63,7 +62,11 @@ it.each(["file", "directory"] as const)(
       dismissComposerTrigger: vi.fn(),
       nudgeComposerMenuHighlight: vi.fn(),
       onSelectComposerItem,
-      resolveActiveComposerTrigger: () => ({ trigger: null }),
+      resolveActiveComposerTrigger: () => ({
+        trigger: menuOpen.current
+          ? { kind: "path", query: "ex", rangeStart: 0, rangeEnd: 3 }
+          : null,
+      }),
       readComposerSnapshot: () => ({ value: "@ex" }),
       applyPromptReplacement: vi.fn(),
       submitComposer,

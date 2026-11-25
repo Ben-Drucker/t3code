@@ -76,6 +76,7 @@ import * as MacPermissions from "../permissions/MacPermissions.ts";
 import * as LoopbackTunnel from "../preview/LoopbackTunnel.ts";
 import * as PreviewManager from "../preview/Manager.ts";
 import * as WindowDock from "../windowDock/WindowDock.ts";
+import * as AppleSpeech from "../speech/AppleSpeech.ts";
 
 interface StubbedDesktop {
   readonly localEnvironmentEnabled: boolean;
@@ -238,6 +239,7 @@ const runStubbedDesktop = (stub: StubbedDesktop) =>
           Layer.mock(MiniQqWindow.MiniQqWindow, {
             registerShortcut: Effect.void,
           }),
+          Layer.mock(AppleSpeech.AppleSpeech, {}),
           Layer.mock(LoopbackTunnel.LoopbackTunnel, {}),
           Layer.mock(PreviewManager.PreviewManager, {
             isBrowserPartition: () => {
