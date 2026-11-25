@@ -3,7 +3,7 @@ import * as NodeCrypto from "node:crypto";
 import * as NodeModule from "node:module";
 import * as NodePath from "node:path";
 import * as NodeVM from "node:vm";
-import { PI_T3_MCP_EXTENSION_SOURCE } from "./mcpExtensionSource.ts";
+import { PI_T3_MCP_EXTENSION_SOURCE, PI_T3_TODO_TOOL } from "./mcpExtensionSource.ts";
 
 interface RegisteredTool {
   readonly name: string;
@@ -147,6 +147,8 @@ export async function loadMcpBridge(
       on: (name: string, handler: AgentStartHook) => handlers.set(name, handler),
       registerCommand: () => {},
       registerTool: (tool: RegisteredTool) => {
+        // The todo tool is local to the extension; these fixtures cover the MCP bridge.
+        if (tool.name === PI_T3_TODO_TOOL) return;
         if (options.allowsTool && !options.allowsTool(tool.name)) return;
         const index = tools.findIndex((current) => current.name === tool.name);
         const previous = index === -1 ? undefined : tools[index];

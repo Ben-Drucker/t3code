@@ -16,6 +16,8 @@ import {
 import * as Cause from "effect/Cause";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -27,6 +29,8 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import { buildPiRpcLaunch, resolvePiLaunchArgs } from "./mcpInjection.ts";
+import { piModelContextWindow, withPiContextControls } from "./piCompaction.ts";
+import { filterByPiEnabledModels, readPiEnabledModels } from "./piEnabledModels.ts";
 import {
   makePiRpcConnection,
   PiRpcError,
@@ -129,11 +133,14 @@ function parseDiscoveredModels(
       name: recordString(model, "name") ?? slug,
       subProvider: provider,
       isCustom: false,
-      capabilities: piModelCapabilities(
-        model,
-        provider === activeProvider && id === activeModelId
-          ? recordString(state, "thinkingLevel")
-          : undefined,
+      capabilities: withPiContextControls(
+        piModelCapabilities(
+          model,
+          provider === activeProvider && id === activeModelId
+            ? recordString(state, "thinkingLevel")
+            : undefined,
+        ),
+        piModelContextWindow(model),
       ),
     });
   }
@@ -278,11 +285,18 @@ const discoverPiViaRpc = Effect.fn("PiProviderStatus.discoverPiViaRpc")(function
   const activeModel = recordField(stateData, "model");
   const activeProvider = recordString(activeModel, "provider");
   const activeModelId = recordString(activeModel, "id");
+  const pickerModels = filterByPiEnabledModels(
+    discoveredModels,
+    yield* readPiEnabledModels(environment),
+    activeProvider === undefined || activeModelId === undefined
+      ? undefined
+      : `${activeProvider}/${activeModelId}`,
+  );
   return {
     models:
       textGenerationModelSlugs === undefined
-        ? discoveredModels
-        : discoveredModels.map((model) =>
+        ? pickerModels
+        : pickerModels.map((model) =>
             textGenerationModelSlugs.has(model.slug)
               ? model
               : { ...model, supportsTextGeneration: false },
@@ -437,7 +451,11 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
   environment: NodeJS.ProcessEnv = process.env,
   cwd?: string,
   compatibility: ProviderCompatibilityLookup = noCompatibilityPolicy,
-): Effect.fn.Return<ServerProviderDraft, never, ChildProcessSpawner.ChildProcessSpawner> {
+): Effect.fn.Return<
+  ServerProviderDraft,
+  never,
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+> {
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
   const fallbackModels = piModelsFromSettings(piSettings.customModels);
 

@@ -155,6 +155,8 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv, Path.Path> = {
         ),
         Effect.map(stampIdentity),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, pathService),
       );
 
     const snapshotSettings = yield* makeProviderSnapshotSettingsSource(effectiveConfig);

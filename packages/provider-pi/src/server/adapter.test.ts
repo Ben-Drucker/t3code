@@ -3447,6 +3447,59 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
+  it.effect("shows T3's todo tool as the thread's todo list", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "agent_start" });
+      const todos = [
+        { content: "Read the parser", status: "completed" },
+        { content: "Fix the bug", status: "in_progress" },
+        { content: "Drop the old path", status: "cancelled" },
+        { content: "Run the tests", status: "pending" },
+      ];
+      yield* fake.emit({
+        type: "tool_execution_start",
+        toolCallId: "call_todo",
+        toolName: "todo_write",
+        args: { todos },
+      });
+      yield* fake.emit({
+        type: "tool_execution_end",
+        toolCallId: "call_todo",
+        toolName: "todo_write",
+        result: { content: [{ type: "text", text: "Todo list updated" }], details: { todos } },
+        isError: false,
+      });
+      const plan = yield* takeEvent((event) => event.type === "plan.updated");
+      if (plan.type !== "plan.updated" || plan.plan.kind !== "todo_list")
+        return yield* Effect.die("Expected a todo plan");
+      assert.equal(plan.plan.status, "active");
+      assert.deepEqual(
+        plan.plan.steps.map((step) => [step.text, step.status]),
+        [
+          ["Read the parser", "completed"],
+          ["Fix the bug", "running"],
+          ["Run the tests", "pending"],
+        ],
+      );
+      const item = yield* takeEvent(
+        (event) => event.type === "turn_item.updated" && event.turnItem.type === "todo_list",
+      );
+      if (item.type !== "turn_item.updated" || item.turnItem.type !== "todo_list")
+        return yield* Effect.die("Expected a todo item");
+      assert.equal(item.turnItem.planId, plan.plan.id);
+      assert.equal(item.turnItem.steps.length, 3);
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect(
     "keeps native and MCP images available to the shared asset reader with typed results",
     () =>

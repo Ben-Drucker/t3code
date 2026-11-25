@@ -9,6 +9,8 @@ export const T3_MCP_BEARER_ENV = "T3_MCP_BEARER_TOKEN";
 export const T3_PI_RUNTIME_MODE_ENV = "T3_PI_RUNTIME_MODE";
 export const T3_PI_MCP_EXTENSION_PATH_ENV = "T3_PI_MCP_EXTENSION_PATH";
 export const PI_T3_SERVICE_TIER_COMMAND = "t3-service-tier";
+export const PI_T3_COMPACT_AT_COMMAND = "t3-compact-at";
+export const PI_T3_TODO_TOOL = "todo_write";
 
 // These tools trigger file-change approvals, bypassed by Auto-accept edits.
 export const PI_FILE_CHANGE_TOOLS = ["edit", "write"] as const;
@@ -27,8 +29,10 @@ const EXTENSION_PATH_ENV = ${JSON.stringify(T3_PI_MCP_EXTENSION_PATH_ENV)};
 const ORCHESTRATION_INSTRUCTIONS = ${JSON.stringify(T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim())};
 const PULL_REQUEST_LINKING_INSTRUCTIONS = ${JSON.stringify(PULL_REQUEST_LINKING_INSTRUCTIONS)};
 const SERVICE_TIER_COMMAND = ${JSON.stringify(PI_T3_SERVICE_TIER_COMMAND)};
+const COMPACT_AT_COMMAND = ${JSON.stringify(PI_T3_COMPACT_AT_COMMAND)};
+const TODO_TOOL = ${JSON.stringify(PI_T3_TODO_TOOL)};
 const PROTOCOL = "2025-06-18";
-const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
+const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", TODO_TOOL]);
 const FILE_CHANGE_TOOLS = new Set(${JSON.stringify(PI_FILE_CHANGE_TOOLS)});
 
 type RuntimeMode = "approval-required" | "auto-accept-edits" | "auto" | "full-access";
@@ -298,6 +302,77 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       images: event.images,
     };
   });
+
+  // Pi has no todo tool of its own. T3 shows this tool's \`details.todos\` as the thread's todo list.
+  if (typeof pi.registerTool === "function") pi.registerTool({
+    name: TODO_TOOL,
+    label: "Todo list",
+    description:
+      "Track multi-step work as a todo list the user can see. Send the whole list each time, " +
+      "with one item in_progress while you work on it. Use it for tasks with three or more steps.",
+    parameters: jsonSchemaToTypebox({
+      type: "object",
+      properties: {
+        todos: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              content: { type: "string", description: "What the step does, in a short imperative sentence" },
+              status: { type: "string", enum: ["pending", "in_progress", "completed", "cancelled"] },
+            },
+            required: ["content", "status"],
+          },
+        },
+      },
+      required: ["todos"],
+    }),
+    async execute(_toolCallId, params) {
+      const todos = Array.isArray(params?.todos) ? params.todos : [];
+      const open = todos.filter((todo) => todo.status === "pending" || todo.status === "in_progress").length;
+      return {
+        content: [{ type: "text", text: "Todo list updated: " + open + " open of " + todos.length + "." }],
+        details: { todos },
+      };
+    },
+  });
+
+  // Pi's compaction settings are file-wide, and T3 runs one Pi process per thread. To compact at
+  // the thread's threshold, T3 lowers the active model's window until Pi's own mid-turn check,
+  // \`contextWindow - reserveTokens\`, fires there. The model's real window is restored on switch.
+  let compactAt: number | undefined;
+  const nativeWindows = new WeakMap<object, number>();
+  let limitedModel: { contextWindow?: number } | undefined;
+  const reserveTokens = (model: { provider?: string; id?: string }) => {
+    const compaction = (pi.getSettings() as { compaction?: Record<string, any> }).compaction ?? {};
+    const override = compaction.modelOverrides?.[\`\${model.provider}/\${model.id}\`]?.reserveTokens;
+    if (typeof override === "number") return override;
+    return typeof compaction.reserveTokens === "number" ? compaction.reserveTokens : 16384;
+  };
+  const applyCompactAt = (ctx: ExtensionContext) => {
+    const model = ctx.model as { provider?: string; id?: string; contextWindow?: number } | undefined;
+    if (limitedModel !== undefined && limitedModel !== model) {
+      const native = nativeWindows.get(limitedModel);
+      if (native !== undefined) limitedModel.contextWindow = native;
+      limitedModel = undefined;
+    }
+    if (model === undefined || typeof model !== "object") return;
+    const native = nativeWindows.get(model) ?? model.contextWindow;
+    if (typeof native !== "number" || native <= 0) return;
+    nativeWindows.set(model, native);
+    model.contextWindow =
+      compactAt === undefined ? native : Math.min(native, compactAt + reserveTokens(model));
+    limitedModel = model;
+  };
+  pi.registerCommand(COMPACT_AT_COMMAND, {
+    description: "Set the token count where T3 Code has Pi compact this session",
+    handler: async (args, ctx) => {
+      const tokens = Number(args.trim());
+      compactAt = Number.isFinite(tokens) && tokens > 0 ? Math.round(tokens) : undefined;
+      applyCompactAt(ctx);
+    },
+  });
+  pi.on("model_select", (_event, ctx) => applyCompactAt(ctx));
 
   // Pi has no service tier setting, so T3 sets one through this command before each turn.
   // Only a tier the active model advertises is sent; Standard sends none.

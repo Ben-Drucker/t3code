@@ -16,7 +16,9 @@ import {
   type OrchestrationV2ProviderRetry,
   type OrchestrationV2ProviderSession,
   type OrchestrationV2ProviderThread,
+  type OrchestrationV2PlanStep,
   type OrchestrationV2ProviderTurn,
+  type PlanId,
   type OrchestrationV2RuntimeRequest,
   type OrchestrationV2Subagent,
   type OrchestrationV2TurnItem,
@@ -79,7 +81,13 @@ import {
   materializePiT3McpExtension,
   resolvePiLaunchArgs,
 } from "./mcpInjection.ts";
-import { PI_FILE_CHANGE_TOOLS, PI_T3_SERVICE_TIER_COMMAND } from "./mcpExtensionSource.ts";
+import {
+  PI_FILE_CHANGE_TOOLS,
+  PI_T3_COMPACT_AT_COMMAND,
+  PI_T3_TODO_TOOL,
+  PI_T3_SERVICE_TIER_COMMAND,
+} from "./mcpExtensionSource.ts";
+import { resolvePiCompaction } from "./piCompaction.ts";
 import { PI_STANDARD_SERVICE_TIER } from "./modelCapabilities.ts";
 
 export const PI_PROVIDER = ProviderDriverKind.make("pi");
@@ -158,7 +166,7 @@ const PiProviderCapabilitiesV2 = {
   },
   planning: {
     emitsPlanUpdated: false,
-    emitsTodoList: false,
+    emitsTodoList: true,
     emitsProposedPlan: false,
     supportsStructuredQuestions: true,
     planDeltasHaveItemIds: false,
@@ -364,6 +372,18 @@ type PiMessageTokenUsage = Pick<
   "inputTokens" | "cachedInputTokens" | "outputTokens"
 >;
 
+const PiTodoList = Schema.Struct({
+  todos: Schema.Array(
+    Schema.Struct({
+      content: Schema.String,
+      status: Schema.Literals(["pending", "in_progress", "completed", "cancelled"]),
+    }),
+  ),
+});
+type PiTodoList = typeof PiTodoList.Type;
+const isPiTodoList = Schema.is(PiTodoList);
+const decodePiTodos = (details: unknown) => (isPiTodoList(details) ? details.todos : undefined);
+
 interface ActivePiTurn {
   readonly turnInput: ProviderAdapter.ProviderAdapterV2TurnInput;
   readonly providerTurn: OrchestrationV2ProviderTurn;
@@ -373,6 +393,7 @@ interface ActivePiTurn {
   messageOrdinal: number;
   readonly streamItems: Map<string, PiStreamItemState>;
   readonly toolArgs: Map<string, unknown>;
+  todoPlanId: PlanId | undefined;
   readonly toolStartedAt: Map<string, DateTime.Utc>;
   readonly commandOutputBytes: Map<string, number>;
   interrupted: boolean;
@@ -694,6 +715,9 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       // Pi reloads extensions (resetting the tier) on paths the adapter cannot see, so a chosen tier
       // is resent every turn; Standard sends a clear only when an earlier tier may still be set.
       let serviceTierMayBeSet = false;
+      // The thread's context limit and compaction point; the extension holds Pi to the latter.
+      let compaction: ReturnType<typeof resolvePiCompaction> = { maxTokens: null, threshold: null };
+      let appliedCompactAt: number | null = null;
       let appliedSessionName: string | null = null;
       const outOfTurnExtensionErrors: Array<PiRpcRecord> = [];
       let lastKnownLeaf: string | null = null;
@@ -956,8 +980,10 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         const id = recordString(model, "id");
         const capacity = nonNegativeInteger(model, "contextWindow");
         if (provider !== undefined && id !== undefined && capacity !== undefined && capacity > 0) {
-          modelContextWindows.set(`${provider}/${id}`, capacity);
-          return capacity;
+          // T3's extension lowers the active model's window to compact early; keep the real one.
+          const known = Math.max(capacity, modelContextWindows.get(`${provider}/${id}`) ?? 0);
+          modelContextWindows.set(`${provider}/${id}`, known);
+          return known;
         }
         return null;
       };
@@ -1045,13 +1071,19 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         updatedAt: DateTime.Utc,
       ): OrchestrationV2ProviderTurnTokenUsage | undefined => {
         const contextUsage = recordField(stats, "contextUsage");
-        const maxTokens = nonNegativeInteger(contextUsage, "contextWindow");
+        const maxTokens = compaction.maxTokens ?? nonNegativeInteger(contextUsage, "contextWindow");
         const usedTokens =
           nonNegativeInteger(contextUsage, "tokens") ?? fallbackUsedTokens ?? undefined;
         if (usedTokens === undefined || maxTokens === undefined || maxTokens === 0)
           return undefined;
         // Stats `tokens` are whole-session totals; the breakdown comes from the turn's last message.
-        return { usedTokens, maxTokens, ...messageUsage, updatedAt: DateTime.formatIso(updatedAt) };
+        return {
+          usedTokens,
+          maxTokens,
+          ...(compaction.threshold === null ? {} : { autoCompactThreshold: compaction.threshold }),
+          ...messageUsage,
+          updatedAt: DateTime.formatIso(updatedAt),
+        };
       };
 
       const readTokenUsage = (turn: ActivePiTurn, updatedAt: DateTime.Utc) =>
@@ -1096,7 +1128,10 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               ...turn.providerTurn,
               tokenUsage: {
                 usedTokens,
-                maxTokens: contextWindow,
+                maxTokens: compaction.maxTokens ?? contextWindow,
+                ...(compaction.threshold === null
+                  ? {}
+                  : { autoCompactThreshold: compaction.threshold }),
                 ...turn.lastMessageUsage,
                 updatedAt: DateTime.formatIso(updatedAt),
               },
@@ -1402,6 +1437,64 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           });
         });
 
+      const emitTodoList = Effect.fnUntraced(function* (
+        turn: ActivePiTurn,
+        toolCallId: string,
+        todos: PiTodoList["todos"],
+        startedAt: DateTime.Utc,
+      ) {
+        turn.todoPlanId ??= yield* idAllocator.allocate.plan({
+          threadId: turn.turnInput.threadId,
+          ...(turn.turnInput.runId === null ? {} : { runId: turn.turnInput.runId }),
+          driver: PI_PROVIDER,
+        });
+        const now = yield* DateTime.now;
+        const steps: Array<OrchestrationV2PlanStep> = todos.flatMap((todo, index) =>
+          todo.status === "cancelled"
+            ? []
+            : [
+                {
+                  id: `${toolCallId}:${index + 1}`,
+                  text: todo.content.trim() || `Todo ${index + 1}`,
+                  status:
+                    todo.status === "completed"
+                      ? "completed"
+                      : todo.status === "in_progress"
+                        ? "running"
+                        : "pending",
+                },
+              ],
+        );
+        const base = baseItemFields(turn, toolCallId, startedAt, now);
+        yield* emitItemNode(turn, toolCallId, "todo_list", "completed", startedAt, now);
+        yield* emit({
+          type: "plan.updated",
+          driver: PI_PROVIDER,
+          plan: {
+            id: turn.todoPlanId,
+            threadId: turn.turnInput.threadId,
+            runId: turn.turnInput.runId,
+            nodeId: base.nodeId,
+            kind: "todo_list",
+            status: steps.every((step) => step.status === "completed") ? "completed" : "active",
+            steps,
+          },
+        });
+        yield* emit({
+          type: "turn_item.updated",
+          driver: PI_PROVIDER,
+          turnItem: {
+            ...base,
+            status: "completed",
+            completedAt: now,
+            type: "todo_list",
+            title: "Todo list",
+            planId: turn.todoPlanId,
+            steps,
+          },
+        });
+      });
+
       const emitToolItem = Effect.fnUntraced(function* (
         turn: ActivePiTurn,
         event: PiRpcRecord,
@@ -1518,6 +1611,22 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               },
             });
             return;
+          }
+        }
+        if (toolName === PI_T3_TODO_TOOL) {
+          if (!completed) return;
+          const todos = isError ? undefined : decodePiTodos(recordField(resultRecord, "details"));
+          if (todos !== undefined) {
+            const projected = yield* emitTodoList(turn, toolCallId, todos, startedAt).pipe(
+              Effect.as(true),
+              Effect.catchTags({
+                IdAllocatorV2AllocationError: (error) =>
+                  Effect.logWarning("Could not allocate a Pi todo list.", error).pipe(
+                    Effect.as(false),
+                  ),
+              }),
+            );
+            if (projected) return;
           }
         }
         const output = piToolOutput(resultRecord, toolName);
@@ -3175,6 +3284,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             baselineModel = null;
             baselineThinking = null;
             contextWindow = null;
+            appliedCompactAt = null;
             const result =
               resumeId != null && existing !== undefined
                 ? yield* reportingResume(
@@ -3383,6 +3493,20 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           }
           serviceTierMayBeSet = serviceTier !== null;
         }
+        compaction = resolvePiCompaction(modelSelection, contextWindow);
+        if (compaction.threshold !== appliedCompactAt) {
+          const result = yield* request({
+            type: "prompt",
+            message: `/${PI_T3_COMPACT_AT_COMMAND} ${compaction.threshold ?? ""}`.trimEnd(),
+          });
+          const disposition = recordString(result, "disposition");
+          if (disposition !== undefined && disposition !== "handled") {
+            return yield* protocolError(
+              "T3 Code's Pi extension did not apply the compaction point",
+            );
+          }
+          appliedCompactAt = compaction.threshold;
+        }
       });
 
       const resolvePromptPayload = Effect.fnUntraced(function* (
@@ -3554,6 +3678,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               messageOrdinal: 0,
               streamItems: new Map(),
               toolArgs: new Map(),
+              todoPlanId: undefined,
               toolStartedAt: new Map(),
               commandOutputBytes: new Map(),
               interrupted: false,
