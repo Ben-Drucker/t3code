@@ -2202,9 +2202,11 @@ export function deriveMessagesTimelineRows(
       let cursor = index + 1;
       while (cursor < timelineEntries.length) {
         const nextEntry = timelineEntries[cursor];
+        // An image read ends its group so the image shows right after the read, not the group.
         if (
           !nextEntry ||
           nextEntry.kind !== "work" ||
+          workEntriesViewedImagePaths([groupedEntries.at(-1)!]).length > 0 ||
           nextEntry.entry.sourceActivityKind === "context-compaction" ||
           (nextEntry.entry.itemType === "error" &&
             nextEntry.entry.toolLifecycleStatus === "failed") ||

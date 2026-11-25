@@ -175,6 +175,26 @@ describe("wordsHast", () => {
     );
   });
 
+  it("strikes a single-tilde span only past 100 characters", () => {
+    const long = "x".repeat(101);
+    expect(wordsHtml("Takes ~5 min and ~10 min.")).toBe(
+      '<p dir="ltr">Takes ~5 min and ~10 min.</p>',
+    );
+    expect(wordsHtml(`a ~${long}~ b ~~c~~`)).toBe(
+      `<p dir="ltr">a <del>${long}</del> b <del>c</del></p>`,
+    );
+  });
+
+  it("styles reasoning only where the composer would", () => {
+    const reasoning = { extensions: { composerInline: true } };
+    expect(wordsHtml("Maybe ~5 min, a * b, and `x\n* list `y` **ok**", reasoning)).toBe(
+      '<p dir="ltr">Maybe ~5 min, a * b, and `x</p>\n<ul dir="ltr">\n<li>list <code data-inline-code="" dir="ltr">y</code> <strong>ok</strong></li>\n</ul>',
+    );
+    expect(wordsHtml("Start *here\nand end* there\n\n* item *one*", reasoning)).toBe(
+      '<p dir="ltr">Start *here\nand end* there</p>\n<ul dir="ltr">\n<li>item <em>one</em></li>\n</ul>',
+    );
+  });
+
   it("keeps the composer's tildes and list numbers in user messages", () => {
     const markdown = "Install as ~/a/x, then (~/b.md). ~one~ ~~two~~\n\n3. three\n5. five";
     expect(wordsHtml(markdown, { extensions: { userMessage: true } })).toBe(

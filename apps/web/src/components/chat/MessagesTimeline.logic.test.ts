@@ -2450,7 +2450,12 @@ describe("deriveMessagesTimelineRows", () => {
     expect(viewedImages(false)).toEqual([{ after: "work-live", paths }]);
     // A settled turn's fold keeps hiding its work, images included, until it is opened.
     expect(viewedImages(true)).toEqual([]);
-    expect(viewedImages(true, new Set([runId]))).toEqual([{ after: "work-toggle", paths }]);
+    // Each image follows the read that showed it.
+    expect(viewedImages(true, new Set([runId]))).toEqual([
+      { after: "work", paths: ["/repo/docs/sidebar.png"] },
+      { after: "work-toggle", paths: ["/repo/docs/sidebar.png"] },
+      { after: "work", paths: ["/repo/docs/topbar.png"] },
+    ]);
   });
 
   it("does not render viewed-images under active thinking work or expanded read blocks", () => {

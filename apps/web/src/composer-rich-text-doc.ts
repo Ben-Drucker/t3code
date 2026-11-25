@@ -51,7 +51,7 @@ import {
   parseInlineMarkdown,
   RICH_TEXT_DELIMITERS,
   type RichTextMark,
-} from "~/composer-rich-text";
+} from "@t3tools/shared/composerRichText";
 import { collectInlineContextIds } from "~/lib/composerContextReferences";
 import { composerMathRanges } from "@t3tools/shared/composerInlineTokens";
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";

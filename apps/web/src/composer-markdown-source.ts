@@ -25,7 +25,7 @@ import {
   inlineMarkdownUnitMarks,
   MARKDOWN_SOURCE_MARK,
   type RichTextMark,
-} from "~/composer-rich-text";
+} from "@t3tools/shared/composerRichText";
 import { caretTakesMarksBefore, serializeEditorDoc } from "~/composer-rich-text-doc";
 import { isPasteTransaction } from "~/composer-undo-grouping";
 

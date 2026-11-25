@@ -2222,6 +2222,8 @@ function appendActivityGroupRows(
     }
     groupAnchorId ??= activity.id;
     groupAnchorIdByActivityId.set(activity.id, groupAnchorId);
+    // An image read ends its group so the image shows right after the read, not the group.
+    if (workEntriesViewedImagePaths([activity.workEntry]).length > 0) groupAnchorId = null;
   }
   const activities = entry.activities.filter(
     (activity) =>
@@ -2275,6 +2277,7 @@ function appendActivityGroupRows(
     const severeProviderError = item.type === "error" && item.status === "failed";
     if (!activity.prominent && !severeProviderError && item.type !== "notification") {
       groupableRun.push(activity);
+      if (workEntriesViewedImagePaths([activity.workEntry]).length > 0) flushGroupableRun(false);
       continue;
     }
     flushGroupableRun(false);

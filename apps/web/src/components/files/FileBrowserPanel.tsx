@@ -43,6 +43,14 @@ import {
   setAllDirectoriesExpanded,
   writeExpandedDirectories,
 } from "./fileTreeExpansion";
+import {
+  EXPAND_ALL_MAX_DEPTH,
+  FOLDER_ROW_LIMIT,
+  limitFolderRows,
+  type MoreRow,
+  pathDepth,
+  withAncestors,
+} from "./fileTreeLimits";
 import { buildFileTreePathUpdates, shouldRebuildFileTree } from "./fileTreePathReconciliation";
 import { loadFileAncestors } from "./loadFileAncestors";
 import { useDirectoryEntries } from "./useDirectoryEntries";
@@ -138,20 +146,22 @@ function FileSearchField({
 function buildTreeEntries(
   directoryEntries: readonly ProjectEntry[],
   searchEntries: readonly ProjectEntry[],
-  searchPending: boolean,
   query: string,
+  options: {
+    readonly showAllWithMatches: boolean;
+    readonly folderLimits: ReadonlyMap<string, number>;
+    readonly moreLabel: (hidden: number) => string;
+  },
 ) {
-  const result = new Map(directoryEntries.map((entry) => [entry.path, entry]));
-  if (query.trim() && !searchPending) {
-    for (const entry of searchEntries) {
-      if (!result.has(entry.path)) result.set(entry.path, entry);
-      const segments = entry.path.split("/");
-      for (let index = 1; index < segments.length; index++) {
-        const path = segments.slice(0, index).join("/");
-        if (!result.has(path)) result.set(path, { path, kind: "directory" });
-      }
-    }
-  }
+  const searching = query.trim().length > 0;
+  // A search lists only the matches and their folders unless the user asks for everything.
+  const searchOnly = searching && !options.showAllWithMatches;
+  const limited = searchOnly
+    ? { entries: [], moreRows: new Map<string, MoreRow>() }
+    : limitFolderRows(directoryEntries, options.folderLimits, options.moreLabel);
+  const matches = searching ? withAncestors(searchEntries) : [];
+  const result = new Map(limited.entries.map((entry) => [entry.path, entry]));
+  for (const entry of matches) if (!result.has(entry.path)) result.set(entry.path, entry);
   const entries = [...result.values()];
   const entryKinds: ReadonlyMap<string, ProjectEntry["kind"]> = new Map(
     entries.map((entry) => [entry.path, entry.kind] as const),
@@ -160,9 +170,20 @@ function buildTreeEntries(
   const directories = entries.filter((entry) => entry.kind === "directory");
   const directoryPaths = directories.map(treePath);
   // Expanding a folder lists it, and an ignored one such as `node_modules` can hold tens of
-  // thousands, so expand all skips ignored folders. They still open by hand.
-  const expandableDirectoryPaths = directories.filter((entry) => !entry.ignored).map(treePath);
-  return { entries, entryKinds, treePaths, directoryPaths, expandableDirectoryPaths };
+  // thousands, so expand all skips ignored and deep folders. They still open by hand.
+  const expandableDirectoryPaths = directories
+    .filter((entry) => !entry.ignored && pathDepth(entry.path) <= EXPAND_ALL_MAX_DEPTH)
+    .map(treePath);
+  const matchDirectoryPaths = matches.filter((entry) => entry.kind === "directory").map(treePath);
+  return {
+    entries,
+    entryKinds,
+    treePaths,
+    directoryPaths,
+    expandableDirectoryPaths,
+    matchDirectoryPaths,
+    moreRows: limited.moreRows,
+  };
 }
 
 export default function FileBrowserPanel({
@@ -195,15 +216,36 @@ export default function FileBrowserPanel({
   } = useDirectoryEntries(environmentId, cwd);
   const [query, setQuery] = useState("");
   const [expandAll, setExpandAll] = useState(false);
+  const [showAllWithMatches, setShowAllWithMatches] = useState(false);
+  const [folderLimits, setFolderLimits] = useState<ReadonlyMap<string, number>>(new Map());
   const pathSearch = useProjectPathSearch(
     { environmentId, cwd: hostFolder ? null : cwd, query: query.slice(0, 256) },
     200,
     undefined,
     messages,
   );
-  const { entries, entryKinds, treePaths, directoryPaths, expandableDirectoryPaths } =
-    buildTreeEntries(directoryEntries, pathSearch.entries, pathSearch.isPending, query);
+  // Host folders search only what is loaded, so Pierre filters the loaded tree there.
+  const serverSearch = !hostFolder && query.trim().length > 0;
+  const {
+    entries,
+    entryKinds,
+    treePaths,
+    directoryPaths,
+    expandableDirectoryPaths,
+    matchDirectoryPaths,
+    moreRows,
+  } = buildTreeEntries(
+    directoryEntries,
+    hostFolder ? [] : pathSearch.entries,
+    hostFolder ? "" : query,
+    {
+      showAllWithMatches,
+      folderLimits,
+      moreLabel: (hidden) => gt("{count} more", { count: hidden }),
+    },
+  );
   const entryKindsRef = useRef(entryKinds);
+  const moreRowsRef = useRef(moreRows);
   const previousTreePathsRef = useRef<readonly string[] | null>(null);
   const syncingSelectionRef = useRef(false);
   const treeSelectionPathRef = useRef<string | null>(null);
@@ -299,6 +341,17 @@ export default function FileBrowserPanel({
     },
   );
 
+  const showMoreRows = (path: string) => {
+    const moreRow = moreRowsRef.current.get(path);
+    if (!moreRow) return false;
+    setFolderLimits((limits) =>
+      new Map(limits).set(
+        moreRow.directory,
+        (limits.get(moreRow.directory) ?? FOLDER_ROW_LIMIT) + FOLDER_ROW_LIMIT,
+      ),
+    );
+    return true;
+  };
   const loadingDirectoriesRef = useRef(loadingDirectories);
   const dragMention = createFileTreeDragMentionController(
     hostFolder ? { mentionPath: (path: string) => joinHostPath(cwd, path) } : {},
@@ -326,6 +379,7 @@ export default function FileBrowserPanel({
         return;
       }
       const selectedPath = selectedPaths.at(-1)?.replace(/\/$/, "");
+      if (selectedPath && showMoreRows(selectedPath)) return;
       if (selectedPath && entryKindsRef.current.get(selectedPath) === "file") {
         treeSelectionPathRef.current = selectedPath;
         onOpenFile(panelPath(selectedPath));
@@ -350,7 +404,9 @@ export default function FileBrowserPanel({
   }, [loadingDirectories, model]);
   const search = useFileTreeSearch(model);
   // Pierre restores the unfiltered tree when a search has no matches.
-  const hasNoSearchMatches = search.value.trim().length > 0 && search.matchingPaths.length === 0;
+  const hasNoSearchMatches = serverSearch
+    ? !pathSearch.isPending && pathSearch.entries.length === 0
+    : search.value.trim().length > 0 && search.matchingPaths.length === 0;
   const allDirectoriesExpanded = useFileTreeSelector(model, (currentModel) =>
     areAllDirectoriesExpanded(currentModel, expandableDirectoryPaths),
   );
@@ -365,6 +421,7 @@ export default function FileBrowserPanel({
   };
   const closeSearch = () => {
     setQuery("");
+    setShowAllWithMatches(false);
     search.close();
   };
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -382,6 +439,12 @@ export default function FileBrowserPanel({
     return subscribePreviewAction(onPanelAction);
   }, [answersPanelFind]);
   const expandedPathsRef = useRef(new Set<string>());
+  const serverSearchRef = useRef(serverSearch);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- the Pierre tree model's callbacks read the latest rows and search mode
+  useEffect(() => {
+    moreRowsRef.current = moreRows;
+    serverSearchRef.current = serverSearch;
+  });
   const expansionRoot = `${environmentId}:${cwd}`;
   // Folders expanded when the panel last unmounted; each reopens once lazy loading lists it.
   const [pendingExpandedPaths] = useState(() => new Set(readExpandedDirectories(expansionRoot)));
@@ -411,7 +474,8 @@ export default function FileBrowserPanel({
           if (expandedPathsRef.current.delete(path)) changed = true;
         }
       }
-      if (changed) {
+      // Folders opened to show search matches are not the user's layout.
+      if (changed && !serverSearchRef.current) {
         writeExpandedDirectories(expansionRoot, [
           ...expandedPathsRef.current,
           ...pendingExpandedPaths,
@@ -447,10 +511,17 @@ export default function FileBrowserPanel({
   const handleSearchValueChange = (value: string) => {
     setQuery(value);
     if (value.trim().length === 0) {
+      setShowAllWithMatches(false);
       search.close();
       return;
     }
-    search.setValue(value);
+    if (!showAllWithMatches) search.setValue(value);
+  };
+  const toggleShowAllWithMatches = () => {
+    const next = !showAllWithMatches;
+    setShowAllWithMatches(next);
+    if (next) search.close();
+    else search.setValue(query);
   };
   const handleRefresh = () => {
     refresh();
@@ -493,6 +564,12 @@ export default function FileBrowserPanel({
       model.scrollToPath(followedRevealRef.current, { focus: false, offset: "center" });
     }
   }, [ready, entryKinds, model, treePaths]);
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- opens the folders that hold search matches in the imperative Pierre tree model
+  useEffect(() => {
+    if (serverSearch && !pathSearch.isPending)
+      setAllDirectoriesExpanded(model, matchDirectoryPaths, true);
+  }, [matchDirectoryPaths, model, pathSearch.isPending, serverSearch]);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- expands every directory in the Pierre tree model while expand-all is on and no search is active
   useEffect(() => {
@@ -603,10 +680,15 @@ export default function FileBrowserPanel({
           ref={searchInputRef}
           name="project-files-search"
           ariaLabel={gt("Search {projectName} files", { projectName })}
-          value={search.value}
+          value={query}
           onValueChange={handleSearchValueChange}
           onClose={closeSearch}
         />
+        {serverSearch ? (
+          <Button type="button" size="xs" variant="ghost" onClick={toggleShowAllWithMatches}>
+            {showAllWithMatches ? gt("Matches only") : gt("Show all files")}
+          </Button>
+        ) : null}
         {directoryPaths.length > 0 && !hostFolder ? (
           <Tooltip>
             <TooltipTrigger
@@ -624,7 +706,7 @@ export default function FileBrowserPanel({
                 />
               }
             >
-              {allDirectoriesExpanded ? (
+              {expandAll || allDirectoriesExpanded ? (
                 <ChevronsDownUpIcon className="size-3.5" />
               ) : (
                 <ChevronsUpDownIcon className="size-3.5" />
@@ -691,6 +773,7 @@ export default function FileBrowserPanel({
             const selected = model.getSelectedPaths();
             const path = selected.length === 1 ? selected[0] : undefined;
             if (!path || entryKindsRef.current.get(path) !== "file") return;
+            if (showMoreRows(path)) return;
             const clickedSelectedRow = event.nativeEvent
               .composedPath()
               .some(

@@ -1144,16 +1144,23 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
   const toolIcon = row.workEntry.toolIcon ?? row.workEntry.toolSource?.icon;
   const editItem = row.projectedItem.item.type === "file_change" ? row.projectedItem.item : null;
   const category = toolGroupAction(row.workEntry);
+  const readsImage = viewedImagePath !== null;
   const categoryColor = reasoning
     ? "#ec4899"
-    : category === "read"
-      ? "#ef4444"
-      : category === "search" || category === "code-search"
-        ? "#0ea5e9"
-        : category === "command"
-          ? "#000000"
-          : "#4682b4";
-  const icon = reasoning ? "brain" : (toolPresentation?.icon ?? workRowSymbolName(row.icon));
+    : readsImage
+      ? "#f97316"
+      : category === "read"
+        ? "#ef4444"
+        : category === "search" || category === "code-search"
+          ? "#0ea5e9"
+          : category === "command"
+            ? "#000000"
+            : "#4682b4";
+  const icon = reasoning
+    ? "brain"
+    : readsImage
+      ? "camera"
+      : (toolPresentation?.icon ?? workRowSymbolName(row.icon));
 
   return (
     <Animated.View
@@ -1230,7 +1237,7 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
                     d="m10 14 1-4L19 2l3 3-8 8-4 1Zm7-10 3 3"
                   />
                 </Svg>
-              ) : toolIcon ? (
+              ) : toolIcon && !readsImage ? (
                 <ToolActivityIconView
                   environmentId={props.environmentId}
                   icon={toolIcon}

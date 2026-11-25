@@ -1,4 +1,5 @@
 import { CollapsibleUserMessageBody } from "./CollapsibleUserMessageBody";
+import { escapeNonComposerDelimiters } from "@t3tools/shared/composerInlineDelimiters";
 import { msg, T, useGT, useLocale, useMessages } from "gt-react-native";
 import { m } from "../../i18n/messages";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
@@ -3720,7 +3721,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const markdownStyles = useMarkdownStyles();
   const renderReasoning = (text: string) => (
     <AssistantMarkdownContent
-      markdown={text}
+      markdown={escapeNonComposerDelimiters(text)}
       environmentId={props.environmentId}
       markdownStyles={markdownStyles.assistant}
       linkHandlers={markdownLinkHandlers}

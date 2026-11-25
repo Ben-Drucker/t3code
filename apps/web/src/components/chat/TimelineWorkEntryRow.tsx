@@ -75,6 +75,7 @@ import {
   workEntryRawCommand,
   buildToolCallExpandedBody,
   workEntryIconName,
+  REASONING_MARKDOWN,
   thoughtPreviewMarkdown,
   THOUGHT_PREVIEW_SOURCE_MAX_LENGTH,
 } from "./TimelineWorkEntryRow.logic";
@@ -420,10 +421,15 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
     !showWarningIndicator &&
     showFailedIndicator &&
     (workEntrySignalsSevereFailure(workEntry) || !workLogEntryIsToolLike(workEntry));
+  const readsImage = workEntryViewedImagePath(workEntry) !== null;
   const entryIconName =
-    showWarningIndicator || showDestructiveRowStyle ? "circle-alert" : workEntryIconName(workEntry);
-  const entryToolIcon =
     showWarningIndicator || showDestructiveRowStyle
+      ? "circle-alert"
+      : readsImage
+        ? "camera"
+        : workEntryIconName(workEntry);
+  const entryToolIcon =
+    showWarningIndicator || showDestructiveRowStyle || readsImage
       ? undefined
       : (workEntry.toolIcon ?? workEntry.toolSource?.icon);
   const questionHeading = workEntry.questionAnswer
@@ -624,6 +630,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
                     headingLevelOffset={MESSAGE_HEADING_LEVEL}
                     onUseArtifactTemplate={ctx.onUseArtifactTemplate}
                     onImageExpand={ctx.onImageExpand}
+                    extensions={REASONING_MARKDOWN}
                     lineBreaks
                   />
                 ) : (

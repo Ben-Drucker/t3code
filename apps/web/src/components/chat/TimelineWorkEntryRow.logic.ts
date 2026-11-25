@@ -211,10 +211,15 @@ export const THOUGHT_PREVIEW_MAX_LENGTH = 2_048;
 const thoughtPreviews = new Map<string, MarkdownExtensions>();
 
 /** Compact reasoning keeps formulas while flattening other Markdown into label text. */
+export const REASONING_MARKDOWN: MarkdownExtensions = { composerInline: true };
+
 export function thoughtPreviewMarkdown(fallback: string): MarkdownExtensions {
   let extensions = thoughtPreviews.get(fallback);
   if (!extensions) {
-    extensions = { preview: { fallback, maxLength: THOUGHT_PREVIEW_MAX_LENGTH } };
+    extensions = {
+      composerInline: true,
+      preview: { fallback, maxLength: THOUGHT_PREVIEW_MAX_LENGTH },
+    };
     thoughtPreviews.set(fallback, extensions);
   }
   return extensions;

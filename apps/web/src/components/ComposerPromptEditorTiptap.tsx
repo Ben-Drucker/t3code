@@ -78,7 +78,7 @@ import {
   collapseShownMarkdownSource,
   ComposerMarkdownSourceExtension,
 } from "~/composer-markdown-source";
-import { MARKDOWN_SOURCE_MARK } from "~/composer-rich-text";
+import { MARKDOWN_SOURCE_MARK } from "@t3tools/shared/composerRichText";
 import {
   collectComposerPromptInlineTokens,
   selectionTouchesMentionBoundary,

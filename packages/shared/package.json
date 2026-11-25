@@ -3,6 +3,14 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./composerRichText": {
+      "types": "./src/composerRichText.ts",
+      "import": "./src/composerRichText.ts"
+    },
+    "./composerInlineDelimiters": {
+      "types": "./src/composerInlineDelimiters.ts",
+      "import": "./src/composerInlineDelimiters.ts"
+    },
     "./tasksPanel": {
       "types": "./src/tasksPanel.ts",
       "import": "./src/tasksPanel.ts"

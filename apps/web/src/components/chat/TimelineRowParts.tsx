@@ -23,15 +23,16 @@ export function TimelineRowTimestamp({
   alwaysVisible?: boolean;
 }) {
   const m = useMessages();
-  return (
+  const timestamp = (
     <Tooltip>
       <TooltipTrigger
         render={
           <span
             className={cn(
-              "pointer-events-none absolute me-1 shrink-0 whitespace-nowrap rounded-md text-muted-foreground text-xs tabular-nums opacity-0 group-hover/timeline-row:pointer-events-auto group-hover/timeline-row:static group-hover/timeline-row:opacity-100 group-focus-within/timeline-row:pointer-events-auto group-focus-within/timeline-row:static group-focus-within/timeline-row:opacity-100",
-              alwaysVisible && "pointer-events-auto static opacity-100",
-              className,
+              "shrink-0 whitespace-nowrap rounded-md text-muted-foreground text-xs tabular-nums",
+              alwaysVisible
+                ? cn("me-1", className)
+                : "pointer-events-none absolute end-0 top-0 flex h-full max-h-6 items-center bg-background ps-2 pe-1 opacity-0 group-hover/timeline-row:pointer-events-auto group-hover/timeline-row:opacity-100 group-focus-within/timeline-row:pointer-events-auto group-focus-within/timeline-row:opacity-100",
             )}
           />
         }
@@ -41,6 +42,9 @@ export function TimelineRowTimestamp({
       <TooltipPopup>{formatChatTimestampTooltip(createdAt, timestampFormat, m)}</TooltipPopup>
     </Tooltip>
   );
+  if (alwaysVisible) return timestamp;
+  // A zero-width anchor: the revealed time overlays the label's end, so nothing reflows.
+  return <span className={cn("relative w-0 shrink-0 self-stretch", className)}>{timestamp}</span>;
 }
 
 export function ActivityShimmerOverlay({

@@ -177,6 +177,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 @theme {
   --color-tool-think: #ec4899;
   --color-tool-read: #ef4444;
+  --color-tool-image: #f97316;
   --color-tool-search: #0ea5e9;
   --color-tool-generic: #4682b4;
   --color-tool-edit: #84cc16;

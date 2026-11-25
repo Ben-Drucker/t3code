@@ -7,6 +7,7 @@ import { T3Wordmark } from "../T3Wordmark";
 import {
   BotIcon,
   BrainIcon,
+  CameraIcon,
   CheckIcon,
   CircleAlertIcon,
   EyeIcon,
@@ -36,6 +37,7 @@ export type WorkEntryIconName =
   | "bot"
   | "brain"
   | "browser"
+  | "camera"
   | "check"
   | "list-todo"
   | "circle-alert"
@@ -232,15 +234,17 @@ function WorkEntryIcon({ name, className }: { name: WorkEntryIconName; className
   const tint =
     name === "brain"
       ? "text-tool-think"
-      : name === "eye"
-        ? "text-tool-read"
-        : name === "search" || name === "globe" || name === "browser" || name === "computer"
-          ? "text-tool-search"
-          : name === "wrench" || name === "hammer"
-            ? "text-tool-generic"
-            : name === "terminal"
-              ? "text-tool-terminal dark:bg-tool-terminal-surface rounded-sm"
-              : undefined;
+      : name === "camera"
+        ? "text-tool-image"
+        : name === "eye"
+          ? "text-tool-read"
+          : name === "search" || name === "globe" || name === "browser" || name === "computer"
+            ? "text-tool-search"
+            : name === "wrench" || name === "hammer"
+              ? "text-tool-generic"
+              : name === "terminal"
+                ? "text-tool-terminal dark:bg-tool-terminal-surface rounded-sm"
+                : undefined;
   className = cn(className, tint);
   switch (name) {
     case "pull-request":
@@ -252,6 +256,8 @@ function WorkEntryIcon({ name, className }: { name: WorkEntryIconName; className
     case "browser":
     case "computer":
       return <BrowserAppIcon className={className} />;
+    case "camera":
+      return <CameraIcon className={className} aria-hidden />;
     case "code":
       return <Code2Icon className={className} aria-hidden />;
     case "device":

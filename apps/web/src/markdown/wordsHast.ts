@@ -25,6 +25,8 @@ import { rehypeHeadingIds } from "../components/chat/markdownFragments";
 import { rehypeRgbHexColors } from "../components/chat/markdownRgbHexColors";
 import { rehypeTextDirection } from "../components/chat/markdownTextDirection";
 import { linkUserMessageMentions } from "../components/chat/userMessageMentions";
+import { escapeNonComposerDelimiters } from "@t3tools/shared/composerInlineDelimiters";
+import { strikeLongSingleTildeSpans } from "./longTildeStrikethrough";
 
 /** What a kind of message adds to chat Markdown. Pass a stable object: renderers cache by it. */
 export interface MarkdownExtensions {
@@ -48,6 +50,8 @@ export interface MarkdownExtensions {
   readonly githubEmoji?: boolean;
   /** Link a sent message's `@path` mentions to the files they name. */
   readonly userMentions?: boolean;
+  /** Reasoning: style only the `*`, `~~`, and `` ` `` spans the composer would style. */
+  readonly composerInline?: boolean;
 }
 
 export interface WordsHastOptions {
@@ -1112,14 +1116,15 @@ function makeInert(node: Root | Element) {
 }
 
 /** ChatMarkdown's sanitized hast for `text`, rendered by Words. */
-export function wordsHast(text: string, options: WordsHastOptions): Root {
+export function wordsHast(markdown: string, options: WordsHastOptions): Root {
   const { extensions } = options;
+  const text = extensions.composerInline ? escapeNonComposerDelimiters(markdown) : markdown;
   const renderOptions: RenderOptions = {
     math: options.math,
     // llm-math's `\(…\)` and `\[…\]`, which agents write as often as `$`.
     texDelimiters: options.math,
     autolinkBoundaries: true,
-    singleTilde: !extensions.userMessage,
+    singleTilde: false,
     leadingWhitespace: extensions.leadingWhitespace === true,
     windowsPaths: true,
     codeMeta: true,
@@ -1145,6 +1150,7 @@ export function wordsHast(text: string, options: WordsHastOptions): Root {
     insightMarker: insights?.marker ?? null,
   };
   transform(tree, walk, false, false);
+  if (!extensions.userMessage && !extensions.composerInline) strikeLongSingleTildeSpans(tree);
   if (extensions.userMentions) linkUserMessageMentions(tree);
   preserveImageSourceMeta(tree as never);
   normalizeLocalEditorLinks(tree as never);
