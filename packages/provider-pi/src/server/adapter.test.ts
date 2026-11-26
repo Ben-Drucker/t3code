@@ -4374,6 +4374,50 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
+  it.effect("updates context usage when a tool call finishes", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      fake.queueState({
+        sessionFile: FAKE_SESSION_FILE,
+        model: { provider: "anthropic", id: "large", contextWindow: 1_000_000 },
+      });
+      const { runtime, takeEvent } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread);
+      yield* fake.takeRequest("prompt");
+      yield* fake.emit({ type: "response", command: "prompt", success: true });
+      yield* fake.emit({ type: "agent_start" });
+      fake.queueStats({ contextUsage: { tokens: 61_234, contextWindow: 1_000_000 } });
+      yield* fake.emit({
+        type: "tool_execution_start",
+        toolCallId: "call_read",
+        toolName: "read",
+        args: { path: "big.txt" },
+      });
+      yield* fake.emit({
+        type: "tool_execution_end",
+        toolCallId: "call_read",
+        toolName: "read",
+        result: { content: [{ type: "text", text: "lots of text" }] },
+        isError: false,
+      });
+      const updated = yield* takeEvent(
+        (event) =>
+          event.type === "provider_turn.updated" && event.providerTurn.tokenUsage !== undefined,
+      );
+      assert.equal(
+        updated.type === "provider_turn.updated"
+          ? updated.providerTurn.tokenUsage?.usedTokens
+          : undefined,
+        61_234,
+      );
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect.each(["turn window", "full tree"] as const)(
     "finishes a turn whose %s has a parentId cycle",
     (cycleIn) =>

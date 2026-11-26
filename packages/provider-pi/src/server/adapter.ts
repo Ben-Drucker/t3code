@@ -1139,6 +1139,22 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           });
         });
 
+      /**
+       * A tool result grows the context before the next message reports usage. Pi's session
+       * stats estimate the context including it, so the meter moves with each tool call.
+       */
+      const reportContextUsage = Effect.fnUntraced(function* (turn: ActivePiTurn) {
+        const tokenUsage = yield* readTokenUsage(turn, yield* DateTime.now);
+        if (tokenUsage === undefined || tokenUsage.usedTokens === turn.lastLiveUsedTokens) return;
+        turn.lastLiveUsedTokens = tokenUsage.usedTokens;
+        yield* emit({
+          type: "provider_turn.updated",
+          driver: PI_PROVIDER,
+          threadId: turn.turnInput.threadId,
+          providerTurn: { ...turn.providerTurn, tokenUsage },
+        });
+      });
+
       const baseItemFields = (
         turn: ActivePiTurn,
         nativeItemId: string,
@@ -2572,7 +2588,10 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             if (turn !== null) yield* emitToolItem(turn, event, "update");
             return;
           case "tool_execution_end":
-            if (turn !== null) yield* emitToolItem(turn, event, "end");
+            if (turn !== null) {
+              yield* emitToolItem(turn, event, "end");
+              yield* reportContextUsage(turn);
+            }
             return;
           case "compaction_start": {
             if (turn === null) return;
