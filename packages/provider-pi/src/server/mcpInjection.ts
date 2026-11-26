@@ -230,6 +230,7 @@ export function piToolsFiles(cacheDir: string, threadId: string) {
     tools: `${dir}/${thread}.tools.json`,
     choices: `${dir}/${thread}.choices.json`,
     defaultChoices: `${dir}/default.choices.json`,
+    latestTools: `${dir}/latest.tools.json`,
   };
 }
 

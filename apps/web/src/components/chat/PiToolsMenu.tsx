@@ -95,14 +95,11 @@ function PiToolsPanel(props: { environmentId: EnvironmentId; threadId: ThreadId 
 
   if (query.data !== null && query.data !== undefined && tools.length === 0) {
     return (
-      <p className="px-3 py-3 text-secondary-label text-xs">
-        {gt("Pi lists its tools after this thread's first message.")}
-      </p>
+      <p className="px-3 py-3 text-secondary-label text-xs">{gt("No tools to choose from.")}</p>
     );
   }
   const all = piToolsDeferredState(tools, choices);
-  // Tools are reported once a turn has run, so the session already has cached context.
-  const locked = tools.length > 0 && !acknowledged;
+  const locked = query.data?.started === true && !acknowledged;
   return (
     <div className="relative flex max-h-96 flex-col">
       {locked ? (

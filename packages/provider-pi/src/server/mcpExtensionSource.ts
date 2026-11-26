@@ -658,10 +658,14 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
         };
       })
       .filter((tool) => tool.loaded || tool.deferrable);
-    const staging = file + "." + process.pid + ".tmp";
+    // latest.tools.json lets T3 list Pi's tools for a thread that has not started yet.
+    const text = JSON.stringify({ tools });
     void NodeFSP.mkdir(dir, { recursive: true })
-      .then(() => NodeFSP.writeFile(staging, JSON.stringify({ tools })))
-      .then(() => NodeFSP.rename(staging, file))
+      .then(() => Promise.all([file, NodePath.join(dir, "latest.tools.json")].map(async (target) => {
+        const staging = target + "." + process.pid + ".tmp";
+        await NodeFSP.writeFile(staging, text);
+        await NodeFSP.rename(staging, target);
+      })))
       .catch(() => undefined);
   };
 

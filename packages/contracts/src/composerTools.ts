@@ -58,6 +58,8 @@ export type PiTool = typeof PiTool.Type;
 export const PiToolsSnapshot = Schema.Struct({
   tools: Schema.Array(PiTool),
   choices: PiToolChoices,
+  /** Pi has reported this thread's own tools, so the session has run and has cached context. */
+  started: Schema.Boolean,
 });
 export type PiToolsSnapshot = typeof PiToolsSnapshot.Type;
 

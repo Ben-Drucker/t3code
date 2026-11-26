@@ -50,6 +50,8 @@ export class ComposerTools extends Context.Service<
   {
     /** Emits the whole list when the menu opens and again as each server reports. */
     readonly list: (input: ComposerToolsListInput) => Stream.Stream<Snapshot>;
+    /** T3's own MCP tools, as its /mcp endpoint lists them. */
+    readonly t3Tools: ReadonlyArray<{ readonly name: string; readonly description: string | null }>;
   }
 >()("t3/composerTools/ComposerTools") {}
 
@@ -323,6 +325,7 @@ const make = Effect.gen(function* () {
 
   return ComposerTools.of({
     list: (input) => Stream.unwrap(planList(input).pipe(Effect.provideContext(services))),
+    t3Tools,
   });
 });
 

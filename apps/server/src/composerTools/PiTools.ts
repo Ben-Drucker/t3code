@@ -10,6 +10,8 @@ import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "../config.ts";
+import type { ComposerTools } from "./ComposerTools.ts";
+import { DIRECT_TOOLS } from "../mcp/McpToolExposure.ts";
 
 const ToolsFile = Schema.fromJsonString(Schema.Struct({ tools: PiToolsSnapshot.fields.tools }));
 const ChoicesFile = Schema.fromJsonString(PiToolChoices);
@@ -29,7 +31,10 @@ const readDecoded = <A, E>(file: string, decode: (text: string) => Effect.Effect
   );
 
 /** What T3's Pi extension reported for the thread, with the choices it will apply next turn. */
-export const get = Effect.fn("PiTools.get")(function* (input: PiToolsInput) {
+export const get = Effect.fn("PiTools.get")(function* (
+  input: PiToolsInput,
+  t3Tools: ComposerTools["Service"]["t3Tools"],
+) {
   const config = yield* ServerConfig.ServerConfig;
   const files = piToolsFiles(config.providerStatusCacheDir, input.threadId);
   const report = yield* readDecoded(files.tools, decodeTools);
@@ -37,7 +42,17 @@ export const get = Effect.fn("PiTools.get")(function* (input: PiToolsInput) {
     (yield* readDecoded(files.choices, decodeChoices)) ??
     (yield* readDecoded(files.defaultChoices, decodeChoices)) ??
     {};
-  return { tools: report?.tools ?? [], choices };
+  if (report !== undefined) return { tools: report.tools, choices, started: true };
+  // Before the thread's first turn: the tools another Pi thread reported, else T3's own catalog.
+  const latest = yield* readDecoded(files.latestTools, decodeTools);
+  if (latest !== undefined) return { tools: latest.tools, choices, started: false };
+  const tools = t3Tools.map((tool) => ({
+    name: `mcp__t3-code__${tool.name}`,
+    description: tool.description?.split("\n")[0] ?? null,
+    loaded: DIRECT_TOOLS.has(tool.name),
+    deferrable: true,
+  }));
+  return { tools, choices, started: false };
 });
 
 /** Saved for the thread and as the default for threads without their own. */
