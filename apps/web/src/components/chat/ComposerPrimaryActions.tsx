@@ -64,7 +64,7 @@ interface ComposerPrimaryActionsProps {
   onSubmitMessage?: MouseEventHandler<HTMLButtonElement>;
   onResume?: () => void;
   onPreviousPendingQuestion: () => void;
-  onInterrupt: (parentOnly?: boolean) => void;
+  onInterrupt: (includeSubagents?: boolean) => void;
   compactBeforeSendTokens?: number | null;
   hideCompactToggle?: boolean;
   keepFullHistory?: boolean;
@@ -151,7 +151,7 @@ function StopGenerationButton({
   insidePendingAction: boolean;
   preserveComposerFocusOnPointerDown: boolean;
   onStopRequested: () => void;
-  onInterrupt: (parentOnly?: boolean) => void;
+  onInterrupt: (includeSubagents?: boolean) => void;
 }) {
   const gt = useGT();
   const shortcutModifiers = useShortcutModifierState();
@@ -165,7 +165,7 @@ function StopGenerationButton({
   return (
     <Tooltip>
       {shortcutModifiers.altKey && (
-        <span className="text-xs text-muted-foreground">{gt("Parent")}</span>
+        <span className="text-xs text-muted-foreground">{gt("Parent & all subagents")}</span>
       )}
       <TooltipTrigger
         render={

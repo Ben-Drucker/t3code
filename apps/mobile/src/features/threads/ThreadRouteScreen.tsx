@@ -686,7 +686,8 @@ function ThreadRouteContent(
   const handleOpenConnectionEditor = () => {
     void navigation.navigate("Connections");
   };
-  const handleStopThread = (parentOnly = false) => {
+  // Stop leaves subagents running; the long-press menu stops them too.
+  const handleStopThread = (includeSubagents = false) => {
     if (
       !selectedThread ||
       !readEnvironmentScope(selectedThread.environmentId, AuthOrchestrationOperateScope) ||
@@ -699,7 +700,7 @@ function ThreadRouteContent(
       input: {
         threadId: selectedThread.id,
         runId: composer.interruptibleRunId,
-        ...(parentOnly ? { parentOnly: true } : {}),
+        ...(includeSubagents ? {} : { parentOnly: true }),
       },
     });
   };
@@ -1155,8 +1156,10 @@ function ThreadRouteContent(
           onNativePasteText={composer.onNativePasteText}
           onRemoveDraftImage={composer.onRemoveDraftImage}
           serverConfig={serverConfig}
-          onStopThread={awaitingBootstrapTurn ? handleCancelWorktreeSetup : handleStopThread}
-          onStopParentThread={
+          onStopThread={
+            awaitingBootstrapTurn ? handleCancelWorktreeSetup : () => void handleStopThread()
+          }
+          onStopThreadAndSubagents={
             !awaitingBootstrapTurn &&
             selectedThreadDetail?.subagents.some(
               (child) =>

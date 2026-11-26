@@ -306,7 +306,7 @@ export interface ThreadDetailScreenProps {
   readonly onNativePasteText: (paste: ComposerTextPaste) => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
-  readonly onStopParentThread?: () => void;
+  readonly onStopThreadAndSubagents?: () => void;
   /** Present while the thread's queue is held. */
   readonly onResumeQueue: (() => Promise<void>) | null;
   readonly offersSideChat: boolean;
@@ -2084,7 +2084,7 @@ function ThreadDetailBody(
                         onNativePasteText={props.onNativePasteText}
                         onRemoveDraftImage={props.onRemoveDraftImage}
                         onStopThread={props.onStopThread}
-                        onStopParentThread={props.onStopParentThread}
+                        onStopThreadAndSubagents={props.onStopThreadAndSubagents}
                         onResumeQueue={props.onResumeQueue}
                         onSendMessage={handleSendMessage}
                         onShowUsageLimits={showUsageLimits}

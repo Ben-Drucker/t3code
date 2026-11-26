@@ -2026,7 +2026,8 @@ export default function ChatView(props: ChatViewProps) {
     useComposerFocus(composerRef);
   const canInterruptRunningThread =
     canOperateThread && deriveCanInterruptRunningThread(activeThread !== undefined, activeRuntime);
-  const onInterrupt = async (parentOnly?: boolean) => {
+  // Stop leaves subagents running unless the user holds Option/Alt.
+  const onInterrupt = async (includeSubagents?: boolean) => {
     if (
       !activeThread ||
       !readEnvironmentScope(activeThread.environmentId, AuthOrchestrationOperateScope)
@@ -2034,7 +2035,7 @@ export default function ChatView(props: ChatViewProps) {
       return;
     const result = await interruptThreadTurn({
       environmentId,
-      input: { threadId: activeThread.id, ...(parentOnly ? { parentOnly: true } : {}) },
+      input: { threadId: activeThread.id, ...(includeSubagents ? {} : { parentOnly: true }) },
     });
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);

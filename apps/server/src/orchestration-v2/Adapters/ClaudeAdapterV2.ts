@@ -406,8 +406,9 @@ const CLAUDE_WAKE_TURN_START_DEADLINE = "2 minutes";
 // stays the source of its answer this long after it settles.
 const WORKFLOW_MEMBER_TRANSCRIPT_FLUSH_MS = 500;
 // A steer waits at most this long, from its request, for its foreground
-// subagents to move to the background before it is sent.
+// subagents and shell commands to move to the background before it is sent.
 const BACKGROUND_MOVE_TIMEOUT_MS = 5_000;
+const CLAUDE_SHELL_TOOL_NAMES = new Set(["Bash", "PowerShell"]);
 // How long a Stop waits for the CLI to exit before the user is offered Force stop.
 const CLAUDE_STOP_CONFIRM_TIMEOUT_MS = 10_000;
 // Matches the stderr tail the SDK keeps for a CLI it spawns itself.
@@ -14863,15 +14864,28 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ),
         );
 
-        // Move subagents to the background so a steer reaches Claude without waiting for them to finish.
-        const backgroundForegroundSubagents = Effect.fnUntraced(function* (
+        // Move subagents and shell commands to the background so a steer reaches Claude without
+        // waiting for them to finish. Claude reads a steer only after its running tool call returns.
+        const backgroundForegroundWork = Effect.fnUntraced(function* (
           live: ClaudeLiveQueryContext,
+          context: ActiveClaudeTurnContext,
           deadline: number,
         ) {
           const foreground: Array<{
-            readonly taskId: string;
+            readonly taskId: string | null;
             readonly toolUseId: string;
           }> = [];
+          for (const toolCall of context.toolCalls.values()) {
+            if (
+              CLAUDE_SHELL_TOOL_NAMES.has(toolCall.toolName) &&
+              !(
+                toolCall.input.type === "record" &&
+                toolCall.input.value["run_in_background"] === true
+              )
+            ) {
+              foreground.push({ taskId: null, toolUseId: toolCall.nativeItemId });
+            }
+          }
           for (const [taskId, subagent] of yield* Ref.get(sessionSubagentsByTaskId)) {
             const toolUseId = subagent.runToolUseId;
             if (
@@ -14897,7 +14911,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             }
             const move = yield* live.query.backgroundTasks(toolUseId).pipe(
               Effect.flatMap((moved) =>
-                moved
+                moved && taskId !== null
                   ? Ref.get(sessionSubagentsByTaskId).pipe(
                       Effect.flatMap((registry) =>
                         registry.get(taskId)?.task.status === "running" &&
@@ -14911,7 +14925,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   : Effect.void,
               ),
               Effect.catch((cause) =>
-                Effect.logWarning("orchestration-v2.claude-steer-background-subagent-failed", {
+                Effect.logWarning("orchestration-v2.claude-steer-background-task-failed", {
                   taskId,
                   toolUseId,
                   cause,
@@ -15028,7 +15042,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 currentTurn.appContextOffered = appContextOffered;
               }
             };
-            yield* backgroundForegroundSubagents(existing, backgroundDeadline);
+            yield* backgroundForegroundWork(existing, currentTurn, backgroundDeadline);
             if (liveSteerSelection !== undefined) {
               yield* applySelectionLive(existing, liveSteerSelection);
             }

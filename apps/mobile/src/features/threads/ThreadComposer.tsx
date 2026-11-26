@@ -189,7 +189,7 @@ export interface ThreadComposerProps {
   readonly onNativePasteText: (paste: ComposerTextPaste) => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
-  readonly onStopParentThread?: () => void;
+  readonly onStopThreadAndSubagents?: () => void;
   /** Present while the thread's queue is held. */
   readonly onResumeQueue: (() => Promise<void>) | null;
   /** `stillSendable` reports whether the draft is unchanged after any wait before sending. */
@@ -218,7 +218,7 @@ function StopActionButton(props: {
   readonly size: "regular" | "large";
   readonly disabled: boolean;
   readonly onStop: () => void;
-  readonly onStopParent?: () => void;
+  readonly onStopAll?: () => void;
 }) {
   const gt = useGT();
   const button = (
@@ -231,13 +231,13 @@ function StopActionButton(props: {
       onPress={props.onStop}
     />
   );
-  if (!props.onStopParent || props.disabled) return button;
+  if (!props.onStopAll || props.disabled) return button;
   return (
     <Menu
       accessibilityLabel={gt("Stop options")}
       shouldOpenOnLongPress
-      actions={[{ id: "parent", title: gt("Stop parent only") }]}
-      onPressAction={() => props.onStopParent?.()}
+      actions={[{ id: "all", title: gt("Parent & all subagents") }]}
+      onPressAction={() => props.onStopAll?.()}
     >
       {button}
     </Menu>
@@ -1148,7 +1148,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                     size={usesLargeControls ? "large" : "regular"}
                     disabled={!props.canOperateThread}
                     onStop={props.onStopThread}
-                    onStopParent={props.onStopParentThread}
+                    onStopAll={props.onStopThreadAndSubagents}
                   />
                 ) : showResumeAction ? (
                   <ComposerActionButton
@@ -1214,7 +1214,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                       size={usesLargeControls ? "large" : "regular"}
                       disabled={!props.canOperateThread}
                       onStop={props.onStopThread}
-                      onStopParent={props.onStopParentThread}
+                      onStopAll={props.onStopThreadAndSubagents}
                     />
                   ) : showResumeAction && voicePresentation.showsSend ? (
                     <ComposerActionButton
