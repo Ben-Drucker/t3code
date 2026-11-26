@@ -72,6 +72,8 @@ export class TerminalCommandService extends Context.Service<
       input: TerminalCommandRunInput,
     ) => Effect.Effect<TerminalCommandRunResult, OrchestratorMcpFailure>;
     readonly interruptThread: (threadId: ThreadId) => Effect.Effect<void>;
+    /** Ends the foreground wait of the thread's running commands; the commands keep running. */
+    readonly backgroundThread: (threadId: ThreadId, reason: "steer") => Effect.Effect<void>;
   }
 >()("t3/terminal/TerminalCommandService") {}
 
@@ -82,6 +84,7 @@ interface ActiveJob {
   readonly child: NodeChildProcess.ChildProcess;
   cancelledByStop: boolean;
   backgrounded: boolean;
+  readonly release: Deferred.Deferred<"steer">;
 }
 
 class BoundedOutputBuffer {
@@ -242,12 +245,29 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
     yield* terminateChildTree(job.child, platform, exited);
   });
 
+  const backgroundThread: TerminalCommandService["Service"]["backgroundThread"] = Effect.fn(
+    "TerminalCommandService.backgroundThread",
+  )(function* (threadId, reason) {
+    for (const job of activeJobs.values()) {
+      if (job.threadId === threadId && !job.backgrounded) {
+        yield* Deferred.succeed(job.release, reason);
+      }
+    }
+  });
+
   // Kill active terminal jobs on Stop (run_interrupt_request fires immediately on interrupt commit;
   // command_execution interrupted fires from settleBackgroundWork even without a live session).
   yield* orchestrator.streamDomainEvents.pipe(
     Stream.runForEach((event) => {
       if (event.type !== "turn-item.updated") return Effect.void;
       const item = event.payload;
+      // A steer is read only after the running tool call returns.
+      if (
+        item.type === "user_message" &&
+        (item.inputIntent === "steer" || item.inputIntent === "promoted_queued_to_steer")
+      ) {
+        return backgroundThread(item.threadId, "steer");
+      }
       if (item.type === "run_interrupt_request") {
         const matching = [...activeJobs.values()].filter((job) => job.threadId === item.threadId);
         return Effect.forEach(matching, killJob, { discard: true });
@@ -483,6 +503,7 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
         child,
         cancelledByStop: false,
         backgrounded: input.mode !== "foreground",
+        release: yield* Deferred.make<"steer">(),
       };
       activeJobs.set(taskId, job);
 
@@ -623,12 +644,17 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
       }
 
       // Foreground mode: race completion against hard 60s escalation timeout.
-      const foregroundOutcome = yield* Deferred.await(exitDeferred).pipe(
-        Effect.map((result) => ({ kind: "exited" as const, result })),
-        Effect.timeoutOrElse({
-          duration: Duration.millis(foregroundTimeoutMs),
-          orElse: () => Effect.succeed({ kind: "escalate" as const }),
-        }),
+      const foregroundOutcome = yield* Effect.raceFirst(
+        Deferred.await(exitDeferred).pipe(
+          Effect.map((result) => ({ kind: "exited" as const, result })),
+          Effect.timeoutOrElse({
+            duration: Duration.millis(foregroundTimeoutMs),
+            orElse: () => Effect.succeed({ kind: "escalate" as const }),
+          }),
+        ),
+        Deferred.await(job.release).pipe(
+          Effect.map((reason) => ({ kind: "released" as const, reason })),
+        ),
       );
 
       if (foregroundOutcome.kind === "exited") {
@@ -685,7 +711,9 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
         output,
         truncated,
         message:
-          "Command did not finish within the 60s foreground timeout and moved to background mode. T3 Code will show the thread waiting and wake it when the command exits.",
+          foregroundOutcome.kind === "released"
+            ? "Command moved to background mode because the user sent a message while it ran. It is still running; T3 Code will wake this thread when it exits."
+            : "Command did not finish within the 60s foreground timeout and moved to background mode. T3 Code will show the thread waiting and wake it when the command exits.",
       };
     },
   );
@@ -697,7 +725,7 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
     yield* Effect.forEach(matching, killJob, { discard: true });
   });
 
-  return TerminalCommandService.of({ run, interruptThread });
+  return TerminalCommandService.of({ run, interruptThread, backgroundThread });
 });
 
 export const layer = Layer.effect(TerminalCommandService, makeWithOptions());

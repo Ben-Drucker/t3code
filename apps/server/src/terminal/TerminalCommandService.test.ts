@@ -1,4 +1,5 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as Fiber from "effect/Fiber";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -313,5 +314,38 @@ it.live("stops background commands on interruptThread without waking the thread"
       assert.isEmpty(after.providerThreads[0]?.pendingBackgroundTasks ?? []);
       assert.isUndefined(after.messages.find((m) => m.creationSource === "server"));
     }).pipe(Effect.provide(makeTestLayer(workspaceRoot, 50)));
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live("moves a foreground command to the background when the thread is steered", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const workspaceRoot = yield* fs.makeTempDirectoryScoped();
+    yield* Effect.gen(function* () {
+      const terminal = yield* TerminalCommandService.TerminalCommandService;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const { threadId } = yield* seedRunningThread("fg-steer");
+      const run = yield* terminal
+        .run({
+          threadId,
+          command: `${JSON.stringify(process.execPath)} -e "console.log('started'); setTimeout(() => {}, 30000)"`,
+          mode: "foreground",
+          description: "long command",
+        })
+        .pipe(Effect.forkScoped);
+      yield* awaitDomainEvent(
+        orchestrator,
+        (event): event is Extract<OrchestrationV2DomainEvent, { type: "turn-item.updated" }> =>
+          event.type === "turn-item.updated" &&
+          event.threadId === threadId &&
+          event.payload.type === "command_execution" &&
+          event.payload.status === "running",
+      );
+      yield* terminal.backgroundThread(threadId, "steer");
+      const result = yield* Fiber.join(run).pipe(Effect.timeout("5 seconds"));
+      assert.equal(result.status, "backgrounded");
+      assert.include(result.message, "user sent a message");
+      yield* terminal.interruptThread(threadId);
+    }).pipe(Effect.scoped, Effect.provide(makeTestLayer(workspaceRoot, 60_000)));
   }).pipe(Effect.provide(NodeServices.layer)),
 );
