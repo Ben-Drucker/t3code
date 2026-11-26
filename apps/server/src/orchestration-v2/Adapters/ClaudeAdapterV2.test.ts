@@ -765,6 +765,44 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     assert.isFalse(overrides.allowedTools?.includes(ClaudeAdapterV2.CLAUDE_T3_MCP_TOOL_WILDCARD));
   });
 
+  it("swaps Claude's shell tools for T3's terminal only in a Full access turn", () => {
+    const threadId = ThreadId.make("thread-claude-mcp-terminal");
+    const mcpSession = {
+      ...mcpSessionFor(threadId),
+      capabilities: new Set(["terminal", "terminal-unrestricted"] as const),
+    };
+    const fullAccess = ClaudeAdapterV2.claudeMcpQueryOverrides({
+      mcpSession,
+      readOnlySandbox: false,
+      hostTerminal: true,
+    });
+    assert.deepEqual(fullAccess.disallowedTools, ClaudeAdapterV2.CLAUDE_T3_TERMINAL_REPLACED_TOOLS);
+    const approval = ClaudeAdapterV2.claudeMcpQueryOverrides({
+      mcpSession,
+      readOnlySandbox: false,
+      hostTerminal: false,
+    });
+    assert.isUndefined(approval.disallowedTools);
+    assert.isUndefined(
+      ClaudeAdapterV2.claudeMcpQueryOverrides({
+        mcpSession: mcpSessionFor(threadId),
+        readOnlySandbox: false,
+        hostTerminal: true,
+      }).disallowedTools,
+    );
+    const queryPolicy = ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy(
+      ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        cwd: "/workspace",
+      }),
+    );
+    assert.notEqual(
+      ClaudeAdapterV2.claudeEffectiveQueryPolicyKey(queryPolicy, fullAccess),
+      ClaudeAdapterV2.claudeEffectiveQueryPolicyKey(queryPolicy, approval),
+    );
+  });
+
   it("invalidates live-query reuse when MCP credentials rotate or tracked folders change", () => {
     const threadId = ThreadId.make("thread-claude-mcp-credential-rotation");
     const mcpSession = mcpSessionFor(threadId);

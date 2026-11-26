@@ -2914,12 +2914,17 @@ export const CLAUDE_T3_MCP_TOOL_TIMEOUT_MS = 65 * 60 * 1_000;
 // allowedTools pre-approves calls; tools controls availability. Pre-approve T3 tools for headless modes,
 // limited to annotated read-only tools in read-only sandboxes.
 
+export const CLAUDE_T3_TERMINAL_REPLACED_TOOLS = ["Bash", "PowerShell", "Monitor"] as const;
+
 export function claudeMcpQueryOverrides(input: {
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
   readonly readOnlySandbox: boolean;
   readonly allowedTools?: ReadonlyArray<string>;
+  /** The turn may run host commands without approval (Full access, bypass permissions). */
+  readonly hostTerminal?: boolean;
 }): {
   readonly allowedTools?: ReadonlyArray<string>;
+  readonly disallowedTools?: ReadonlyArray<string>;
   readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
 } {
   const session = input.mcpSession;
@@ -2931,6 +2936,10 @@ export function claudeMcpQueryOverrides(input: {
     : [CLAUDE_T3_MCP_TOOL_WILDCARD];
   return {
     allowedTools: Array.from(new Set([...(input.allowedTools ?? []), ...mcpAllowedTools])),
+    // T3's terminal can background a command on steer or Stop and wake the thread when it exits.
+    ...(input.hostTerminal === true && session.capabilities?.has("terminal-unrestricted") === true
+      ? { disallowedTools: CLAUDE_T3_TERMINAL_REPLACED_TOOLS }
+      : {}),
     mcpServers: {
       "t3-code": {
         type: "http",
@@ -3995,6 +4004,7 @@ export function claudeEffectiveQueryPolicyKey(
   queryPolicy: ClaudeRuntimeQueryPolicy,
   mcpOverrides: {
     readonly allowedTools?: ReadonlyArray<string>;
+    readonly disallowedTools?: ReadonlyArray<string>;
     readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
   },
   // Folders are fixed when a query starts, so a changed list needs a new one.
@@ -4008,6 +4018,7 @@ export function claudeEffectiveQueryPolicyKey(
         ? {}
         : { allowedTools: mcpOverrides.allowedTools }),
     }),
+    disallowedTools: mcpOverrides.disallowedTools,
     mcpServers: mcpOverrides.mcpServers,
   });
 }
@@ -13859,6 +13870,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ...(queryPolicy.allowedTools === undefined
               ? {}
               : { allowedTools: queryPolicy.allowedTools }),
+            hostTerminal:
+              queryPolicy.permissionMode === "bypassPermissions" &&
+              McpProviderSession.permitsHostTerminal(turnInput.runtimePolicy),
           });
           const queryPolicyKey = claudeEffectiveQueryPolicyKey(
             queryPolicy,
@@ -14066,6 +14080,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             ...(mcpOverrides.allowedTools === undefined
               ? {}
               : { allowedTools: mcpOverrides.allowedTools }),
+            ...(mcpOverrides.disallowedTools === undefined
+              ? {}
+              : { disallowedTools: mcpOverrides.disallowedTools }),
             ...(mcpOverrides.mcpServers === undefined
               ? {}
               : { mcpServers: mcpOverrides.mcpServers }),

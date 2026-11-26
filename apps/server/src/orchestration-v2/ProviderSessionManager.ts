@@ -640,9 +640,9 @@ export const layerWithOptions = (
                   driver !== undefined &&
                   driver !== "antigravity" &&
                   // These providers can enforce command rules independently of T3's runtime mode.
+                  // Claude swaps its shell tools for T3's terminal in Full access.
                   driver !== "codex" &&
                   driver !== "cursor" &&
-                  driver !== "claude" &&
                   runtimePolicy !== undefined &&
                   permitsHostTerminal(runtimePolicy);
                 const terminalToolsAvailable = driver === "antigravity" || unrestrictedTerminal;
