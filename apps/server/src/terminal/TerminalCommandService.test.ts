@@ -27,6 +27,7 @@ import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterReg
 import * as ProviderReplayHarness from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as TerminalCommandService from "./TerminalCommandService.ts";
+import * as TurnStartNotes from "../orchestration-v2/TurnStartNotes.ts";
 
 const instanceId = ProviderInstanceId.make("antigravity");
 const adapter = {
@@ -74,10 +75,15 @@ const makeTestLayer = (workspaceRoot: string, foregroundTimeoutMs = 50) => {
     orchestratorHarness,
     ProjectionStore.layer.pipe(Layer.provide(databaseLayer)),
     projectLayer,
+    TurnStartNotes.layer,
     Layer.effect(
       TerminalCommandService.TerminalCommandService,
       TerminalCommandService.makeWithOptions({ foregroundTimeoutMs }),
-    ).pipe(Layer.provide(orchestratorHarness), Layer.provide(projectLayer)),
+    ).pipe(
+      Layer.provide(orchestratorHarness),
+      Layer.provide(projectLayer),
+      Layer.provide(TurnStartNotes.layer),
+    ),
   ).pipe(Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)));
 };
 
@@ -348,4 +354,51 @@ it.live("moves a foreground command to the background when the thread is steered
       yield* terminal.interruptThread(threadId);
     }).pipe(Effect.scoped, Effect.provide(makeTestLayer(workspaceRoot, 60_000)));
   }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.live(
+  "keeps a foreground command running after a parent-only Stop and notes it for the next prompt",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const workspaceRoot = yield* fs.makeTempDirectoryScoped();
+      yield* Effect.gen(function* () {
+        const terminal = yield* TerminalCommandService.TerminalCommandService;
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const notes = yield* TurnStartNotes.TurnStartNotes;
+        const { threadId } = yield* seedRunningThread("fg-stop");
+        const run = yield* terminal
+          .run({
+            threadId,
+            command: `${JSON.stringify(process.execPath)} -e "console.log('started'); setTimeout(() => {}, 30000)"`,
+            mode: "foreground",
+            description: "long command",
+          })
+          .pipe(Effect.forkScoped);
+        yield* awaitDomainEvent(
+          orchestrator,
+          (event): event is Extract<OrchestrationV2DomainEvent, { type: "turn-item.updated" }> =>
+            event.type === "turn-item.updated" &&
+            event.threadId === threadId &&
+            event.payload.type === "command_execution" &&
+            event.payload.status === "running",
+        );
+        const { runs } = yield* orchestrator.getThreadRecords(threadId, ["runs"]);
+        yield* orchestrator.dispatch({
+          type: "run.interrupt",
+          commandId: CommandId.make("cmd-stop-parent-only"),
+          threadId,
+          runId: runs.at(-1)!.id,
+          parentOnly: true,
+        });
+        const result = yield* Fiber.join(run).pipe(Effect.timeout("5 seconds"));
+        assert.equal(result.status, "backgrounded");
+        assert.include(result.message, "pressed Stop");
+        const note = yield* notes.take(threadId);
+        assert.include(note, "when the user pressed Stop");
+        assert.include(note, "Still running");
+        assert.equal(yield* notes.take(threadId), "");
+        yield* terminal.interruptThread(threadId);
+      }).pipe(Effect.scoped, Effect.provide(makeTestLayer(workspaceRoot, 60_000)));
+    }).pipe(Effect.provide(NodeServices.layer)),
 );

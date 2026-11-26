@@ -13769,6 +13769,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         updatedAt: now,
         type: "run_interrupt_request",
         message: command.reason ?? RunExecutionService.USER_STOP_REASON,
+        ...(command.type === "run.interrupt" && command.parentOnly === true
+          ? { parentOnly: true }
+          : {}),
       },
     });
   });
@@ -14354,6 +14357,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       updatedAt: now,
       type: "run_interrupt_request",
       message: command.reason ?? RunExecutionService.USER_STOP_REASON,
+      ...(command.parentOnly === true ? { parentOnly: true } : {}),
     };
 
     const otherProviderInterrupts: Array<PendingOrchestrationEffectV2> = [];

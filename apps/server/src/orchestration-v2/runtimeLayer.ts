@@ -63,6 +63,7 @@ import * as ThreadIssueService from "./ThreadIssueService.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ThreadForkService from "./ThreadForkService.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
+import * as TurnStartNotes from "./TurnStartNotes.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as FeedbackStore from "../feedback/FeedbackStore.ts";
@@ -197,6 +198,8 @@ const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pip
       TurnItemPositionStore.layer,
       // The same instance as thread management's, which hands over send-time recreations.
       layerThreadWorktreeRestore,
+      // The same instance as the terminal service's, which leaves notes after a Stop.
+      TurnStartNotes.layer,
     ),
   ),
 );

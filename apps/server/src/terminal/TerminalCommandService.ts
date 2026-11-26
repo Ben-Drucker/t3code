@@ -27,6 +27,7 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
+import * as TurnStartNotes from "../orchestration-v2/TurnStartNotes.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 
 const TERMINAL_COMMAND_FOREGROUND_TIMEOUT_MS = 60_000;
@@ -73,18 +74,31 @@ export class TerminalCommandService extends Context.Service<
     ) => Effect.Effect<TerminalCommandRunResult, OrchestratorMcpFailure>;
     readonly interruptThread: (threadId: ThreadId) => Effect.Effect<void>;
     /** Ends the foreground wait of the thread's running commands; the commands keep running. */
-    readonly backgroundThread: (threadId: ThreadId, reason: "steer") => Effect.Effect<void>;
+    readonly backgroundThread: (threadId: ThreadId, reason: ReleaseReason) => Effect.Effect<void>;
   }
 >()("t3/terminal/TerminalCommandService") {}
+
+type ReleaseReason = "steer" | "stop";
 
 interface ActiveJob {
   readonly taskId: string;
   readonly threadId: ThreadId;
   readonly turnItemId: TurnItemId;
+  readonly command: string;
   readonly child: NodeChildProcess.ChildProcess;
   cancelledByStop: boolean;
   backgrounded: boolean;
-  readonly release: Deferred.Deferred<"steer">;
+  readonly release: Deferred.Deferred<ReleaseReason>;
+  /** A parent-only Stop kept it running; its result waits for the user's next prompt. */
+  heldByStop: boolean;
+  exitNote?: string;
+}
+
+function stopHeldCommandNote(job: ActiveJob): string {
+  const status =
+    job.exitNote ??
+    `Still running (task ${job.taskId}): \`${summarizeCommand(job.command)}\`. T3 Code will wake this thread when it exits.`;
+  return `Note: when the user pressed Stop, T3 Code moved your running command to the background instead of killing it.\n\n${status}`;
 }
 
 class BoundedOutputBuffer {
@@ -219,6 +233,7 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
   options: TerminalCommandServiceOptions = {},
 ) {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
+  const turnStartNotes = yield* Effect.serviceOption(TurnStartNotes.TurnStartNotes);
   const projects = yield* ProjectService.ProjectService;
   const random = yield* SecureRandom.SecureRandom;
   const fs = yield* FileSystem.FileSystem;
@@ -255,6 +270,26 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
     }
   });
 
+  // A parent-only Stop keeps the thread's commands running and tells the agent on the next prompt.
+  const holdThreadForStop = Effect.fn("TerminalCommandService.holdThreadForStop")(function* (
+    threadId: ThreadId,
+    notes: TurnStartNotes.TurnStartNotes["Service"],
+  ) {
+    for (const job of activeJobs.values()) {
+      if (job.threadId !== threadId || job.cancelledByStop) continue;
+      job.heldByStop = true;
+      yield* notes.put(
+        threadId,
+        `terminal:${job.taskId}`,
+        () => stopHeldCommandNote(job),
+        () => {
+          job.heldByStop = false;
+        },
+      );
+      if (!job.backgrounded) yield* Deferred.succeed(job.release, "stop");
+    }
+  });
+
   // Kill active terminal jobs on Stop (run_interrupt_request fires immediately on interrupt commit;
   // command_execution interrupted fires from settleBackgroundWork even without a live session).
   yield* orchestrator.streamDomainEvents.pipe(
@@ -269,11 +304,16 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
         return backgroundThread(item.threadId, "steer");
       }
       if (item.type === "run_interrupt_request") {
+        if (item.parentOnly === true && Option.isSome(turnStartNotes)) {
+          return holdThreadForStop(item.threadId, turnStartNotes.value);
+        }
         const matching = [...activeJobs.values()].filter((job) => job.threadId === item.threadId);
         return Effect.forEach(matching, killJob, { discard: true });
       }
       if (item.type === "command_execution" && item.status === "interrupted") {
-        const matching = [...activeJobs.values()].filter((job) => job.turnItemId === item.id);
+        const matching = [...activeJobs.values()].filter(
+          (job) => job.turnItemId === item.id && !job.heldByStop,
+        );
         return Effect.forEach(matching, killJob, { discard: true });
       }
       return Effect.void;
@@ -500,10 +540,12 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
         taskId,
         threadId: input.threadId,
         turnItemId,
+        command: input.command,
         child,
         cancelledByStop: false,
         backgrounded: input.mode !== "foreground",
-        release: yield* Deferred.make<"steer">(),
+        release: yield* Deferred.make<ReleaseReason>(),
+        heldByStop: false,
       };
       activeJobs.set(taskId, job);
 
@@ -575,6 +617,26 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
           const succeeded = !timedOut && exitResult.exitCode === 0;
           const resultOutput = outputBuffer.snapshot(TERMINAL_COMMAND_RESULT_MAX_CHARS).output;
           const wakeOutput = outputBuffer.snapshot(TERMINAL_COMMAND_WAKE_MAX_CHARS).output;
+          const wakeText = formatWakeMessage({
+            taskId,
+            command: input.command,
+            timedOut,
+            timeoutSeconds,
+            exitCode: exitResult.exitCode,
+            signal: exitResult.signal,
+            output: wakeOutput,
+          });
+          if (job.heldByStop) {
+            job.exitNote = wakeText;
+            yield* recordCommand({
+              ...commandItem,
+              commandStatus: succeeded ? "completed" : "failed",
+              exitCode: timedOut ? null : exitResult.exitCode,
+              output: resultOutput,
+              awaited: false,
+            });
+            return;
+          }
           const wakeMessageId = MessageId.make(
             `message:terminal:${idSuffix}:${yield* random.uuidV4()}`,
           );
@@ -588,15 +650,7 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
             awaited: false,
             wake: {
               messageId: wakeMessageId,
-              text: formatWakeMessage({
-                taskId,
-                command: input.command,
-                timedOut,
-                timeoutSeconds,
-                exitCode: exitResult.exitCode,
-                signal: exitResult.signal,
-                output: wakeOutput,
-              }),
+              text: wakeText,
               notification: {
                 source: { kind: "command" },
                 outcome: succeeded ? "completed" : "failed",
@@ -655,6 +709,16 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
         Deferred.await(job.release).pipe(
           Effect.map((reason) => ({ kind: "released" as const, reason })),
         ),
+      ).pipe(
+        // A Stop can cancel this tool call before the release lands; the held command still needs a watcher.
+        Effect.onInterrupt(() =>
+          job.heldByStop && !job.backgrounded
+            ? Effect.suspend(() => {
+                job.backgrounded = true;
+                return launchBackgroundMonitor(undefined);
+              })
+            : Effect.void,
+        ),
       );
 
       if (foregroundOutcome.kind === "exited") {
@@ -712,7 +776,9 @@ export const makeWithOptions = Effect.fn("TerminalCommandService.make")(function
         truncated,
         message:
           foregroundOutcome.kind === "released"
-            ? "Command moved to background mode because the user sent a message while it ran. It is still running; T3 Code will wake this thread when it exits."
+            ? foregroundOutcome.reason === "stop"
+              ? "Command moved to background mode because the user pressed Stop. It is still running."
+              : "Command moved to background mode because the user sent a message while it ran. It is still running; T3 Code will wake this thread when it exits."
             : "Command did not finish within the 60s foreground timeout and moved to background mode. T3 Code will show the thread waiting and wake it when the command exits.",
       };
     },

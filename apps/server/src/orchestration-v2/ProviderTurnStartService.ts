@@ -84,6 +84,7 @@ import {
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
+import * as TurnStartNotes from "./TurnStartNotes.ts";
 import {
   isRestartNoteContinuation,
   pendingRestartCancelledBackgroundWork,
@@ -323,6 +324,7 @@ export const layer: Layer.Layer<
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
     const restoreMissingWorktree = yield* makeRestoreMissingWorktree;
     const worktreeRestore = yield* ThreadWorktreeRestore;
+    const turnStartNotes = yield* Effect.serviceOption(TurnStartNotes.TurnStartNotes);
     const turnItemPositions = yield* TurnItemPositionStore.TurnItemPositionStoreV2;
 
     // Build draining callbacks outside startup scope so they cannot retain full thread history.
@@ -2203,7 +2205,12 @@ export const layer: Layer.Layer<
             ),
             ...(sideChatContext === "" || sideChatHandoff === undefined ? [] : [sideChatHandoff]),
           ];
-          const context = [delivery.context, sideChatContext, restartNote]
+          // Like the side chat context, these notes wait for a turn that sends a prompt.
+          const pendingNotes =
+            compact || slashCommand || Option.isNone(turnStartNotes)
+              ? ""
+              : yield* turnStartNotes.value.take(projection.thread.id);
+          const context = [delivery.context, sideChatContext, restartNote, pendingNotes]
             .filter((part) => part !== "")
             .join("\n\n");
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
