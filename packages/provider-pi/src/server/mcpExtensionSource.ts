@@ -11,6 +11,11 @@ export const T3_PI_MCP_EXTENSION_PATH_ENV = "T3_PI_MCP_EXTENSION_PATH";
 export const PI_T3_SERVICE_TIER_COMMAND = "t3-service-tier";
 export const PI_T3_COMPACT_AT_COMMAND = "t3-compact-at";
 export const PI_T3_TODO_TOOL = "todo_write";
+/**
+ * Beside the extension: it writes each thread's tools to `<thread>.tools.json` for T3's picker,
+ * and reads the thread's choices from `<thread>.choices.json`, else `default.choices.json`.
+ */
+export const PI_T3_TOOLS_DIR = "pi-tools";
 
 // These tools trigger file-change approvals, bypassed by Auto-accept edits.
 export const PI_FILE_CHANGE_TOOLS = ["edit", "write"] as const;
@@ -18,6 +23,7 @@ export const PI_FILE_CHANGE_TOOLS = ["edit", "write"] as const;
 export const PI_T3_MCP_EXTENSION_SOURCE = `\
 import { stripFrontmatter, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as NodeCrypto from "node:crypto";
+import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 import * as NodePath from "node:path";
 import { Type } from "typebox";
@@ -31,6 +37,11 @@ const PULL_REQUEST_LINKING_INSTRUCTIONS = ${JSON.stringify(PULL_REQUEST_LINKING_
 const SERVICE_TIER_COMMAND = ${JSON.stringify(PI_T3_SERVICE_TIER_COMMAND)};
 const COMPACT_AT_COMMAND = ${JSON.stringify(PI_T3_COMPACT_AT_COMMAND)};
 const TODO_TOOL = ${JSON.stringify(PI_T3_TODO_TOOL)};
+const TOOLS_DIR = ${JSON.stringify(PI_T3_TOOLS_DIR)};
+const TOOL_SEARCH_HINT =
+  "Loads tools that are installed but not in your tool list yet. Before you say a tool, " +
+  "server, or capability is unavailable, call this to find and load it, whenever the user " +
+  "names, suggests, or implies one you do not see.";
 const PROTOCOL = "2025-06-18";
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", TODO_TOOL]);
 const FILE_CHANGE_TOOLS = new Set(${JSON.stringify(PI_FILE_CHANGE_TOOLS)});
@@ -327,6 +338,12 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       },
       required: ["todos"],
     }),
+    // Always declared, so it carries the deferral hint for Pi's tool_search.
+    prepareLoadout: (loadout) => {
+      const search = loadout.declared.find((tool) => tool.name === "tool_search");
+      if (search === undefined) return {};
+      return { descriptions: { tool_search: TOOL_SEARCH_HINT + "\\n\\n" + search.description } };
+    },
     async execute(_toolCallId, params) {
       const todos = Array.isArray(params?.todos) ? params.todos : [];
       const open = todos.filter((todo) => todo.status === "pending" || todo.status === "in_progress").length;
@@ -476,7 +493,9 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   const nativeShellTools = new Set(["bash", "powershell"]);
   const ALIAS_PREFIX = "mcp__t3_code__";
   let deferOptionalTools = supportsExposure;
-  const isDeferred = (name: string) => deferOptionalTools && !directTools.has(name);
+  // Every T3 tool is registered deferred so the thread can move any of them behind tool_search;
+  // reconcileDiscovery activates the direct ones.
+  const isDeferred = (_name: string) => deferOptionalTools;
   // An alias follows its public tool: gone when --exclude-tools removed it,
   // off while a direct one is off.
   const followsPublicTool = (
@@ -544,6 +563,47 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     }
   };
 
+  // The thread's own choices, by Pi tool name, which T3's tool picker saves beside this file.
+  const toolsDir = () => {
+    const extensionPath = env(EXTENSION_PATH_ENV);
+    return extensionPath === undefined ? undefined : NodePath.join(NodePath.dirname(extensionPath), TOOLS_DIR);
+  };
+  const threadFile = (suffix: string) => {
+    const dir = toolsDir();
+    const threadId = env("T3CODE_THREAD_ID");
+    return dir === undefined || threadId === undefined
+      ? undefined
+      : NodePath.join(dir, threadId.replace(/[^A-Za-z0-9_.-]/g, "_") + suffix);
+  };
+  let exposureOverrides: Record<string, "direct" | "deferred"> = {};
+  const readExposureOverrides = () => {
+    const dir = toolsDir();
+    const own = threadFile(".choices.json");
+    for (const file of [own, dir === undefined ? undefined : NodePath.join(dir, "default.choices.json")]) {
+      if (file === undefined) continue;
+      try {
+        const parsed = JSON.parse(NodeFS.readFileSync(file, "utf8"));
+        exposureOverrides = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+        return;
+      } catch {}
+    }
+    exposureOverrides = {};
+  };
+  const isUserDeferred = (name: string) => exposureOverrides[name] === "deferred";
+
+  // Registered deferred, the direct ones start active as direct registration would leave them.
+  // Later loadouts, such as a restored tree, keep whatever they turned off.
+  const activateDirectTools = () => {
+    if (!deferOptionalTools || typeof pi.setActiveTools !== "function") return;
+    readExposureOverrides();
+    const active = pi.getActiveTools();
+    const missing = catalog
+      .filter((tool) => directTools.has(tool.name))
+      .map((tool) => "mcp__t3-code__" + tool.name)
+      .filter((name) => !active.includes(name) && !isUserDeferred(name));
+    if (missing.length > 0) pi.setActiveTools([...active, ...missing]);
+  };
+
   const ensureStarted = () => {
     if (started !== undefined) return started;
     const attempt = (async () => {
@@ -551,6 +611,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       await client.connect(signal);
       catalog = await client.listTools(signal);
       registerTools();
+      activateDirectTools();
     })();
     started = attempt;
     void attempt.catch(() => {
@@ -564,6 +625,46 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   // mcp.json configures it; retry a failed connection at session_start.
   await ensureStarted().catch(() => undefined);
 
+  const applyExposureOverrides = () => {
+    if (typeof pi.getAllTools !== "function" || typeof pi.setActiveTools !== "function") return;
+    const tools = new Map(pi.getAllTools().map((tool) => [tool.name, tool]));
+    const active = pi.getActiveTools();
+    const searchable = (name: string) => {
+      const exposure = (tools.get(name) as { exposure?: string } | undefined)?.exposure;
+      return exposure === "deferred" || exposure === "codemode";
+    };
+    const next = active.filter((name) => !(isUserDeferred(name) && searchable(name)));
+    for (const [name, choice] of Object.entries(exposureOverrides)) {
+      if (choice === "direct" && tools.has(name) && !next.includes(name)) next.push(name);
+    }
+    if (next.length !== active.length || next.some((name, index) => name !== active[index])) {
+      pi.setActiveTools(next);
+    }
+  };
+  const writeToolsReport = () => {
+    const file = threadFile(".tools.json");
+    const dir = toolsDir();
+    if (file === undefined || dir === undefined || typeof pi.getAllTools !== "function") return;
+    const active = new Set(pi.getActiveTools());
+    const tools = pi.getAllTools()
+      .filter((tool) => !tool.name.startsWith(ALIAS_PREFIX))
+      .map((tool) => {
+        const exposure = (tool as { exposure?: string }).exposure ?? "direct";
+        return {
+          name: tool.name,
+          description: typeof tool.description === "string" ? tool.description.split("\\n")[0] : null,
+          loaded: active.has(tool.name),
+          deferrable: exposure === "deferred" || exposure === "codemode",
+        };
+      })
+      .filter((tool) => tool.loaded || tool.deferrable);
+    const staging = file + "." + process.pid + ".tmp";
+    void NodeFSP.mkdir(dir, { recursive: true })
+      .then(() => NodeFSP.writeFile(staging, JSON.stringify({ tools })))
+      .then(() => NodeFSP.rename(staging, file))
+      .catch(() => undefined);
+  };
+
   const removedShellTools = new Set<string>();
   const reconcileTerminal = () => {
     if (env(RUNTIME_MODE_ENV) !== "full-access" || typeof pi.getAllTools !== "function" ||
@@ -574,9 +675,11 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       bridgePath && pi.getAllTools().some((tool) =>
         tool.name === terminalTool && typeof tool.sourceInfo?.path === "string" &&
         NodePath.resolve(tool.sourceInfo.path) === NodePath.resolve(bridgePath));
-    if (available && !active.includes(terminalTool)) pi.setActiveTools([...active, terminalTool]);
+    if (available && !active.includes(terminalTool) && !isUserDeferred(terminalTool)) {
+      pi.setActiveTools([...active, terminalTool]);
+    }
     const advertised = pi.getActiveTools();
-    if (available && advertised.includes(terminalTool)) {
+    if (available && (advertised.includes(terminalTool) || isUserDeferred(terminalTool))) {
       const shellTools = advertised.filter((name) => nativeShellTools.has(name));
       if (shellTools.length > 0) {
         for (const name of shellTools) removedShellTools.add(name);
@@ -589,6 +692,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   };
 
   const reconcileDiscovery = (ctx: Pick<ExtensionContext, "model">) => {
+    readExposureOverrides();
     if (!supportsExposure) {
       reconcileTerminal();
       return;
@@ -597,7 +701,10 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     const hasToolSearch = hasBuiltinToolSearch();
     const exposureChanged = deferOptionalTools !== hasToolSearch;
     deferOptionalTools = hasToolSearch;
-    if (exposureChanged) registerTools();
+    if (exposureChanged) {
+      registerTools();
+      activateDirectTools();
+    }
     // Completion gateways can silently drop calls to undeclared tools named
     // in history or guidance. Eagerly load T3 schemas, including after tree
     // restores, while retaining deferred exposure for Pi's allowlist rules.
@@ -605,7 +712,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     const required = [
       ...(hasToolSearch ? ["tool_search"] : []),
       ...(ctx.model?.api === "openai-completions" ? catalog.map((tool) => "mcp__t3-code__" + tool.name) : []),
-    ];
+    ].filter((name) => !isUserDeferred(name));
     const current = pi.getActiveTools();
     const missing = required.filter((name) => !current.includes(name));
     if (missing.length > 0) pi.setActiveTools([...current, ...missing]);
@@ -622,7 +729,9 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     const kept = loaded.filter((name) => !name.startsWith(ALIAS_PREFIX) || aliases.includes(name));
     const added = aliases.filter((name) => !loaded.includes(name));
     if (added.length > 0 || kept.length !== loaded.length) pi.setActiveTools([...kept, ...added]);
+    applyExposureOverrides();
     reconcileTerminal();
+    writeToolsReport();
   };
 
   // Pi runs a message's tool calls after message_end handlers replace it.

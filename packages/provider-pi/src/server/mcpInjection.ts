@@ -5,6 +5,7 @@ import * as FileSystem from "effect/FileSystem";
 import type { McpProviderSessionConfig } from "@t3tools/provider-core/server/mcpSession";
 import {
   PI_T3_MCP_EXTENSION_FILENAME,
+  PI_T3_TOOLS_DIR,
   PI_T3_MCP_EXTENSION_SOURCE,
   T3_MCP_BEARER_ENV,
   T3_MCP_URL_ENV,
@@ -218,6 +219,18 @@ function withoutToolSelectionArgs(args: ReadonlyArray<string>): ReadonlyArray<st
     filtered.push(arg);
   }
   return filtered;
+}
+
+/** The files T3's Pi extension shares with the tool picker; it names them the same way. */
+export function piToolsFiles(cacheDir: string, threadId: string) {
+  const dir = `${cacheDir.replace(/\\/g, "/")}/${PI_T3_TOOLS_DIR}`;
+  const thread = threadId.replace(/[^A-Za-z0-9_.-]/g, "_");
+  return {
+    dir,
+    tools: `${dir}/${thread}.tools.json`,
+    choices: `${dir}/${thread}.choices.json`,
+    defaultChoices: `${dir}/default.choices.json`,
+  };
 }
 
 function piT3McpExtensionDestPath(cacheDir: string): string {

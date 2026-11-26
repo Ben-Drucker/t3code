@@ -279,6 +279,7 @@ import { importComposerThreadAttachment } from "./composerThreadImport";
 import { observeResize } from "~/lib/observeResize";
 
 const isEnvironmentRequestInvalidError = Schema.is(EnvironmentRequestInvalidError);
+const PI_DRIVER_KIND = ProviderDriverKind.make("pi");
 import { toastManager } from "../ui/toast";
 import { m as resolveMessage } from "../../i18n/messages";
 import { BuildingIcon, PlayIcon, ReplyIcon } from "lucide-react";
@@ -4560,6 +4561,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         compactionCount={compactionCount}
                         contextBreakdown={contextBreakdown}
                         reserveContextWindowMeter={reserveContextWindowMeter}
+                        piToolsTarget={
+                          selectedProvider === PI_DRIVER_KIND && activeThreadId !== null
+                            ? { environmentId, threadId: activeThreadId }
+                            : null
+                        }
                         activeThreadModelDisplayName={activeThreadModelDisplayName}
                         pendingAction={pendingPrimaryAction}
                         isRunning={

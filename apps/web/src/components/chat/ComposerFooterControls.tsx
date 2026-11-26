@@ -1,8 +1,10 @@
 import type {
+  EnvironmentId,
   ModelSelection,
   ProviderInstanceId,
   ProviderOptionSelection,
   RuntimeMode,
+  ThreadId,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { T, useGT, useMessages } from "gt-react";
@@ -17,6 +19,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ComposerControl, ComposerControlIcon } from "./ComposerControl";
 import { focusRequestedPermission, useComposerMenuProps } from "./composerEventScope";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
+import { PiToolsMenu } from "./PiToolsMenu";
 import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import { resolveRuntimeModeOption, runtimeModeConfig } from "./runtimeModeConfig";
@@ -210,6 +213,8 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   compactionCount: number;
   contextBreakdown: ContextBreakdown | null;
   reserveContextWindowMeter: boolean;
+  /** Set for a Pi thread, which can choose its deferred tools. */
+  piToolsTarget: { environmentId: EnvironmentId; threadId: ThreadId } | null;
   activeThreadModelDisplayName: string | null;
   compactDisabled: boolean;
   compactDisabledReason?: string | null | undefined;
@@ -285,6 +290,12 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
         />
       ) : props.reserveContextWindowMeter ? (
         <ContextWindowMeterPlaceholder />
+      ) : null}
+      {props.piToolsTarget ? (
+        <PiToolsMenu
+          environmentId={props.piToolsTarget.environmentId}
+          threadId={props.piToolsTarget.threadId}
+        />
       ) : null}
       <ComposerPrimaryActions
         compact={props.compact}

@@ -1,4 +1,10 @@
-import { ComposerToolsListInput, ComposerToolsSnapshot } from "./composerTools.ts";
+import {
+  ComposerToolsListInput,
+  ComposerToolsSnapshot,
+  PiToolsInput,
+  PiToolsSetChoicesInput,
+  PiToolsSnapshot,
+} from "./composerTools.ts";
 import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
@@ -519,6 +525,8 @@ export const WS_METHODS = {
   mcpAppsCallTool: "mcpApps.callTool",
   mcpAppsToolInfo: "mcpApps.toolInfo",
   composerToolsList: "composerTools.list",
+  piToolsGet: "piTools.get",
+  piToolsSetChoices: "piTools.setChoices",
   mcpAppsReadResource: "mcpApps.readResource",
   mcpAppsUpdateModelContext: "mcpApps.updateModelContext",
 
@@ -1805,6 +1813,17 @@ const WsComposerToolsListRpc = Rpc.make(WS_METHODS.composerToolsList, {
   stream: true,
 });
 
+const WsPiToolsGetRpc = Rpc.make(WS_METHODS.piToolsGet, {
+  payload: PiToolsInput,
+  success: PiToolsSnapshot,
+  error: EnvironmentAuthorizationError,
+});
+
+const WsPiToolsSetChoicesRpc = Rpc.make(WS_METHODS.piToolsSetChoices, {
+  payload: PiToolsSetChoicesInput,
+  error: EnvironmentAuthorizationError,
+});
+
 const WsMcpAppsUpdateModelContextRpc = Rpc.make(WS_METHODS.mcpAppsUpdateModelContext, {
   payload: McpAppUpdateModelContextInput,
   error: Schema.Union([McpAppRequestError, EnvironmentAuthorizationError]),
@@ -2664,6 +2683,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsMcpAppsCallToolRpc,
   WsMcpAppsToolInfoRpc,
   WsComposerToolsListRpc,
+  WsPiToolsGetRpc,
+  WsPiToolsSetChoicesRpc,
   WsMcpAppsReadResourceRpc,
   WsMcpAppsUpdateModelContextRpc,
   WsProviderUploadFeedbackRpc,

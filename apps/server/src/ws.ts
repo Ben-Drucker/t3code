@@ -129,6 +129,7 @@ import * as ThreadManagementService from "./orchestration-v2/ThreadManagementSer
 import * as ThreadViewers from "./orchestration-v2/ThreadViewers.ts";
 import * as CommandOutputHub from "./orchestration-v2/CommandOutputHub.ts";
 import * as ComposerTools from "./composerTools/ComposerTools.ts";
+import * as PiTools from "./composerTools/PiTools.ts";
 import * as McpAppRequests from "./mcpApps/McpAppRequests.ts";
 import * as McpSignIn from "./mcpApps/McpSignIn.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
@@ -2685,6 +2686,8 @@ export const layerWsRpc = (
         [WS_METHODS.mcpAppsCallTool]: (input) => mcpAppRequests.callTool(input),
         [WS_METHODS.mcpAppsToolInfo]: (input) => mcpAppRequests.toolInfo(input),
         [WS_METHODS.composerToolsList]: (input) => composerTools.list(input),
+        [WS_METHODS.piToolsGet]: (input) => PiTools.get(input),
+        [WS_METHODS.piToolsSetChoices]: (input) => PiTools.setChoices(input),
         [WS_METHODS.mcpAppsUpdateModelContext]: (input) => mcpAppRequests.updateModelContext(input),
         [WS_METHODS.mcpAppsReadResource]: (input) => mcpAppRequests.readResource(input),
         [WS_METHODS.providerMcpSignInStart]: (input) => mcpSignIn.start(input),

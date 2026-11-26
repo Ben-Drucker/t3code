@@ -218,9 +218,9 @@ describe("Pi MCP tool exposure", () => {
         .filter((tool) => tool.name.startsWith("mcp__t3-code__"))
         .map((tool) => [tool.name, tool.exposure]),
       [
-        ["mcp__t3-code__orchestrator_capabilities", "direct"],
-        ["mcp__t3-code__delegate_task", "direct"],
-        ["mcp__t3-code__task_status", "direct"],
+        ["mcp__t3-code__orchestrator_capabilities", "deferred"],
+        ["mcp__t3-code__delegate_task", "deferred"],
+        ["mcp__t3-code__task_status", "deferred"],
         ["mcp__t3-code__preview_snapshot", "deferred"],
       ],
     );
@@ -329,8 +329,8 @@ describe("Pi MCP tool exposure", () => {
     await bridge.handlers.get("session_tree")!(event, discoveryContext);
     assert.deepEqual(
       await unreachableCanonicalNames(),
-      ["mcp__t3_code__orchestrator_capabilities", "mcp__t3_code__delegate_task"],
-      "an alias stays callable while its direct public tool is off",
+      [],
+      "every T3 tool stays reachable through tool_search when a loadout turns it off",
     );
   });
 

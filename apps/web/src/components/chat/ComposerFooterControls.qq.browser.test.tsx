@@ -33,6 +33,7 @@ function baseProps(): ComponentProps<typeof ComposerFooterPrimaryActions> {
     activeContextWindow: null,
     contextBreakdown: null,
     reserveContextWindowMeter: false,
+    piToolsTarget: null,
     activeThreadModelDisplayName: null,
     compactDisabled: false,
     isPreparingWorktree: false,

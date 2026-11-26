@@ -35,3 +35,34 @@ export const ComposerToolsSnapshot = Schema.Struct({
   groups: Schema.Array(ComposerToolGroup),
 });
 export type ComposerToolsSnapshot = typeof ComposerToolsSnapshot.Type;
+
+export const PiToolChoice = Schema.Literals(["direct", "deferred"]);
+export type PiToolChoice = typeof PiToolChoice.Type;
+export const PiToolChoices = Schema.Record(Schema.String, PiToolChoice);
+export type PiToolChoices = typeof PiToolChoices.Type;
+
+export const PiToolsInput = Schema.Struct({ threadId: ThreadId });
+export type PiToolsInput = typeof PiToolsInput.Type;
+
+export const PiTool = Schema.Struct({
+  name: Schema.String,
+  description: Schema.NullOr(Schema.String),
+  /** Declared to the model on the latest turn. */
+  loaded: Schema.Boolean,
+  /** tool_search can reach it, so it can wait to be loaded. Pi's own tools cannot. */
+  deferrable: Schema.Boolean,
+});
+export type PiTool = typeof PiTool.Type;
+
+/** Empty `tools` until the thread's Pi session has started a turn. */
+export const PiToolsSnapshot = Schema.Struct({
+  tools: Schema.Array(PiTool),
+  choices: PiToolChoices,
+});
+export type PiToolsSnapshot = typeof PiToolsSnapshot.Type;
+
+export const PiToolsSetChoicesInput = Schema.Struct({
+  threadId: ThreadId,
+  choices: PiToolChoices,
+});
+export type PiToolsSetChoicesInput = typeof PiToolsSetChoicesInput.Type;
