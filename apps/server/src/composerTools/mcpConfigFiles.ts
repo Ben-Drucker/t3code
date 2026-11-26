@@ -26,7 +26,7 @@ export interface McpConfigParseOptions {
   readonly cwd: string | null;
 }
 
-const T3_SERVER_NAMES = new Set(["t3-code", "t3-code-direct"]);
+export const T3_SERVER_NAMES = new Set(["t3-code", "t3-code-direct"]);
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
 const asRecord = (value: unknown): Record<string, unknown> | undefined =>

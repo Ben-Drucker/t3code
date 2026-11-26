@@ -32,6 +32,7 @@ import {
   parseOpenCodeConfig,
   type ConfiguredMcpServer,
   type McpConfigParseOptions,
+  T3_SERVER_NAMES,
 } from "./mcpConfigFiles.ts";
 import { probeMcpServer, type McpProbeResult } from "./mcpServerProbe.ts";
 import {
@@ -263,7 +264,15 @@ const make = Effect.gen(function* () {
         tools: [],
       });
     }
+    // T3's own server is listed once, as the T3 group, marked with what the session deferred.
+    const deferredT3Tools = new Set<string>();
     for (const item of mcpToolsFromSession) {
+      if (
+        [...T3_SERVER_NAMES].some((name) => claudeServerKey(name) === claudeServerKey(item.server))
+      ) {
+        deferredT3Tools.add(item.tool);
+        continue;
+      }
       const key = [...mcpGroups.keys()].find(
         (name) => claudeServerKey(name) === claudeServerKey(item.server),
       );
@@ -278,7 +287,18 @@ const make = Effect.gen(function* () {
     }
 
     const initial: Group[] = [
-      { source: "T3", kind: "t3", status: "ready", tools: sortEntries(t3Tools) },
+      {
+        source: "T3",
+        kind: "t3",
+        status: "ready",
+        tools: sortEntries(
+          deferredT3Tools.size === 0
+            ? t3Tools
+            : t3Tools.map((tool) =>
+                deferredT3Tools.has(tool.name) ? { ...tool, deferred: true } : tool,
+              ),
+        ),
+      },
       ...(providerGroup === undefined ? [] : [providerGroup]),
       ...mcpGroups.values(),
     ];

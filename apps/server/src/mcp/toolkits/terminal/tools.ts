@@ -63,7 +63,7 @@ const TerminalRunResult = Schema.Struct({
 
 const TerminalRunTool = Tool.make("t3_terminal_run", {
   description:
-    "Run a shell command in the T3 Code workspace. Supply a short description of what the command does. Modes: 'foreground' (default; 60s limit then moves to background), 'background' (returns taskId and wakes this thread on exit), or 'background_with_timeout' (background with timeoutSeconds).",
+    "The shell tool (Bash) for this session: use it for every shell command. Runs in the T3 Code workspace. Supply a short description of what the command does. Modes: 'foreground' (default; 60s limit then moves to background), 'background' (returns taskId and wakes this thread on exit), or 'background_with_timeout' (background with timeoutSeconds).",
   parameters: TerminalRunInput,
   success: TerminalRunResult,
   failure: Schema.Union([McpCapabilityUnavailableError, OrchestratorMcpFailure]),
@@ -72,6 +72,8 @@ const TerminalRunTool = Tool.make("t3_terminal_run", {
 })
   .annotate(Tool.Title, "Run terminal command")
   .annotate(Tool.Destructive, true)
-  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWithoutTerminalCapability);
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenWithoutTerminalCapability)
+  // It replaces Claude's Bash; behind ToolSearch, Claude concludes it has no shell.
+  .annotate(Tool.Meta, { "anthropic/alwaysLoad": true });
 
 export const TerminalToolkit = Toolkit.make(TerminalRunTool);
